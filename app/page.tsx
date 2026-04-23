@@ -74,12 +74,60 @@ function RSNum({ val }: { val: number | null }) {
   );
 }
 
+function TradeCard({ t }: { t: import('@/lib/indicators').TradeSetup }) {
+  const actionStyle =
+    t.action === 'BUY'   ? 'bg-emerald-500/20 text-emerald-300 ring-emerald-500/40' :
+    t.action === 'WATCH' ? 'bg-amber-500/20   text-amber-300   ring-amber-500/40'   :
+                           'bg-slate-500/20   text-slate-400   ring-slate-500/30';
+
+  const ind = (n: number) =>
+    n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  return (
+    <div className="space-y-1.5 min-w-[210px]">
+      {/* Row 1: action badge + entry note */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ring-1 ${actionStyle}`}>
+          {t.action}
+        </span>
+        <span className="text-[10px] text-slate-500 leading-tight">{t.entryNote}</span>
+      </div>
+      {/* Row 2: Entry + Stop Loss */}
+      <div className="flex items-center gap-3 text-[11px]">
+        <div>
+          <span className="text-slate-600 mr-1">Entry</span>
+          <span className="text-slate-200 font-mono font-semibold">Rs.{ind(t.entryLevel)}</span>
+        </div>
+        <div>
+          <span className="text-slate-600 mr-1">SL</span>
+          <span className="text-red-400 font-mono">Rs.{ind(t.stopLoss)}</span>
+          <span className="text-red-600 ml-1 text-[10px]">-{t.riskPct}%</span>
+        </div>
+      </div>
+      {/* Row 3: Targets */}
+      <div className="flex items-center gap-3 text-[11px]">
+        <div>
+          <span className="text-slate-600 mr-1">T1</span>
+          <span className="text-emerald-400 font-mono">Rs.{ind(t.target1)}</span>
+          <span className="text-emerald-700 ml-1 text-[10px]">+{t.t1Pct}%</span>
+        </div>
+        <div>
+          <span className="text-slate-600 mr-1">T2</span>
+          <span className="text-emerald-300 font-mono">Rs.{ind(t.target2)}</span>
+          <span className="text-emerald-600 ml-1 text-[10px]">+{t.t2Pct}%</span>
+        </div>
+        <span className="text-slate-700 text-[10px] ml-auto">R:R&nbsp;1:3</span>
+      </div>
+    </div>
+  );
+}
+
 function SkeletonRows() {
   return (
     <>
       {Array.from({ length: 10 }).map((_, i) => (
         <tr key={i} className="border-b border-slate-800">
-          {Array.from({ length: 11 }).map((_, j) => (
+          {Array.from({ length: 12 }).map((_, j) => (
             <td key={j} className="px-3 py-3">
               <div className="h-3 rounded bg-slate-800 shimmer" style={{ width: `${45 + (i * j * 7) % 45}%` }} />
             </td>
@@ -361,8 +409,11 @@ export default function Home() {
                     <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
                       Patterns
                     </th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[220px]">
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[180px]">
                       Setup Notes
+                    </th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[230px]">
+                      Trade Setup
                     </th>
                   </tr>
                 </thead>
@@ -429,8 +480,12 @@ export default function Home() {
                           </div>
                         </td>
 
-                        <td className="px-3 py-2.5 text-slate-500 text-[11px] max-w-[260px]" title={r.setupNotes}>
+                        <td className="px-3 py-2.5 text-slate-500 text-[11px] max-w-[180px]" title={r.setupNotes}>
                           <span className="line-clamp-2 leading-relaxed">{r.setupNotes}</span>
+                        </td>
+
+                        <td className="px-3 py-2.5">
+                          <TradeCard t={r.tradeSetup} />
                         </td>
                       </tr>
                     ))

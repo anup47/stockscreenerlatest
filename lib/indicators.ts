@@ -43,6 +43,20 @@ export interface StockResult {
   setupNotes: string;
   // Active pattern names (for display)
   patterns: string[];
+  // Actionable trade levels
+  tradeSetup: TradeSetup;
+}
+
+export interface TradeSetup {
+  action: 'BUY' | 'WATCH' | 'AVOID';
+  entryLevel: number;
+  stopLoss: number;
+  target1: number;   // 1.5:1 R:R — take partial profit
+  target2: number;   // 3:1 R:R   — let winner run
+  riskPct: number;   // % from entry to stop loss
+  t1Pct: number;     // % gain from entry to T1
+  t2Pct: number;     // % gain from entry to T2
+  entryNote: string; // one-line rationale
 }
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
@@ -273,7 +287,7 @@ function passesStage2(closes: number[]): boolean {
 
 // ── Setup notes builder ───────────────────────────────────────────────────────
 
-function buildSetupNotes(r: Omit<StockResult, 'setupNotes' | 'patterns'>): { notes: string; patterns: string[] } {
+function buildSetupNotes(r: Omit<StockResult, 'setupNotes' | 'patterns' | 'tradeSetup'>): { notes: string; patterns: string[] } {
   const parts: string[] = [];
   const patterns: string[] = [];
 
@@ -293,6 +307,75 @@ function buildSetupNotes(r: Omit<StockResult, 'setupNotes' | 'patterns'>): { not
   }
 
   return { notes: parts.join(' | ') || 'Stage 2 structure', patterns };
+}
+
+// ── Trade setup calculator ────────────────────────────────────────────────────
+// Derives entry level, stop loss, and targets from price action.
+// Logic is pattern-aware: each setup has its own natural pivot and support.
+
+function fmt(n: number): number { return parseFloat(n.toFixed(2)); }
+
+function calcTradeSetup(
+  price: number,
+  closes: number[],
+  highs: number[],
+  lows: number[],
+  patterns: { vcp: boolean; tightSqueeze: boolean; instSpike: boolean; longBase: boolean },
+): TradeSetup {
+  let entryLevel: number;
+  let stopLoss: number;
+  let entryNote: string;
+
+  if (patterns.longBase) {
+    // Entry: just above 6-month resistance (the breakout point)
+    const high6m = Math.max(...highs.slice(-126));
+    entryLevel = fmt(high6m * 1.005);
+    // Stop: below recent 20-day low (back inside base = setup failed)
+    stopLoss = fmt(Math.min(...lows.slice(-20)) * 0.99);
+    entryNote = 'Break above 6M resistance with volume';
+  } else if (patterns.vcp) {
+    // Entry: above recent 20-day pivot high (the last contraction peak)
+    entryLevel = fmt(Math.max(...highs.slice(-20)) * 1.005);
+    // Stop: below last swing low (last 20-day low)
+    stopLoss = fmt(Math.min(...lows.slice(-20)) * 0.99);
+    entryNote = 'Break above VCP pivot — need 3x+ volume';
+  } else if (patterns.instSpike) {
+    // Entry: above the absorption spike day high (last 5 days)
+    entryLevel = fmt(Math.max(...highs.slice(-5)) * 1.003);
+    // Stop: below the spike day low
+    stopLoss = fmt(Math.min(...lows.slice(-5)) * 0.99);
+    entryNote = 'Break above absorption spike high';
+  } else if (patterns.tightSqueeze) {
+    // Entry: at the upper Bollinger Band (bands about to expand)
+    const mid = sma(closes, 20);
+    const std = stddev(closes.slice(-20));
+    entryLevel = fmt(mid + 2 * std);
+    stopLoss   = fmt(mid - 2 * std);
+    entryNote = 'Break above upper BB — band expansion signal';
+  } else {
+    // Default Coiled Spring: break above 10-day resistance
+    entryLevel = fmt(Math.max(...highs.slice(-10)) * 1.005);
+    stopLoss   = fmt(Math.min(...lows.slice(-10)) * 0.99);
+    entryNote = 'Break above 10-day high with volume';
+  }
+
+  // Safety: stop must be below current price
+  if (stopLoss >= price) stopLoss = fmt(price * 0.93);
+  // Safety: entry must be above stop
+  if (entryLevel <= stopLoss) entryLevel = fmt(price * 1.01);
+
+  const risk    = entryLevel - stopLoss;
+  const target1 = fmt(entryLevel + 1.5 * risk);
+  const target2 = fmt(entryLevel + 3.0 * risk);
+  const riskPct = fmt((entryLevel - stopLoss) / entryLevel * 100);
+  const t1Pct   = fmt((target1 - entryLevel) / entryLevel * 100);
+  const t2Pct   = fmt((target2 - entryLevel) / entryLevel * 100);
+
+  const action: TradeSetup['action'] =
+    price <= entryLevel  ? 'BUY'   :
+    price <= target1     ? 'WATCH' : 'AVOID';
+
+  return { action, entryLevel, stopLoss, target1, target2, riskPct, t1Pct, t2Pct, entryNote };
 }
 
 // ── Main screener function ────────────────────────────────────────────────────
@@ -412,6 +495,11 @@ export function screenStock(
   };
 
   const { notes, patterns } = buildSetupNotes(partial);
+  const tradeSetup = calcTradeSetup(
+    closes[closes.length - 1],
+    closes, highs, lows,
+    { vcp, tightSqueeze, instSpike, longBase },
+  );
 
-  return { ...partial, setupNotes: notes, patterns };
+  return { ...partial, setupNotes: notes, patterns, tradeSetup };
 }
