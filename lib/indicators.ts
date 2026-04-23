@@ -26,29 +26,39 @@ export interface StockResult {
   // Momentum signals (0–2 pts)
   rsi: number | null;
   adx: number | null;
-  // Bonus
-  vcp: boolean;
+  // Pattern bonuses (0–1 pt each)
+  vcp: boolean;         // Volatility Contraction Pattern
+  tightSqueeze: boolean;// BB width < 5% + price hugging middle band
+  instSpike: boolean;   // Vol dry-up followed by absorption spike
+  longBase: boolean;    // 6+ month flat base, breaking out on volume
   // Derived flags
-  bbSqueeze: boolean;
+  bbSqueeze: boolean;   // BB width < 8%
   volDryup: boolean;
   stage2: boolean;
   // Partial scores
   ptsBase: number;
   ptsVolume: number;
   ptsMomentum: number;
-  ptsVcp: number;
+  ptsPatterns: number;
   setupNotes: string;
+  // Active pattern names (for display)
+  patterns: string[];
 }
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
 
+function avg(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
 function sma(arr: number[], period: number): number {
   if (arr.length < period) return NaN;
-  return arr.slice(-period).reduce((a, b) => a + b, 0) / period;
+  return avg(arr.slice(-period));
 }
 
 function stddev(arr: number[]): number {
-  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const mean = avg(arr);
   return Math.sqrt(arr.reduce((a, b) => a + (b - mean) ** 2, 0) / arr.length);
 }
 
@@ -57,7 +67,7 @@ function stddev(arr: number[]): number {
 function calcBBWidth(closes: number[], period = 20, multiplier = 2): number {
   if (closes.length < period) return NaN;
   const slice = closes.slice(-period);
-  const mean = slice.reduce((a, b) => a + b, 0) / period;
+  const mean = avg(slice);
   const std = stddev(slice);
   return ((multiplier * 2 * std) / mean) * 100;
 }
@@ -73,10 +83,8 @@ function calcATRSeries(highs: number[], lows: number[], closes: number[], period
   }
   const result: number[] = new Array(tr.length).fill(NaN);
   if (tr.length < period) return result;
-  // First ATR = simple average
-  let atr = tr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let atr = avg(tr.slice(0, period));
   result[period - 1] = atr;
-  // Wilder smoothing
   for (let i = period; i < tr.length; i++) {
     atr = (atr * (period - 1) + tr[i]) / period;
     result[i] = atr;
@@ -87,11 +95,11 @@ function calcATRSeries(highs: number[], lows: number[], closes: number[], period
 function calcRSI(closes: number[], period = 14): number {
   if (closes.length < period + 1) return NaN;
   const diffs = closes.slice(1).map((v, i) => v - closes[i]);
-  const recent = diffs.slice(-(period));
-  const gains = recent.map(d => d > 0 ? d : 0);
-  const losses = recent.map(d => d < 0 ? -d : 0);
-  const avgGain = gains.reduce((a, b) => a + b, 0) / period;
-  const avgLoss = losses.reduce((a, b) => a + b, 0) / period;
+  const recent = diffs.slice(-period);
+  const gains = recent.map(d => (d > 0 ? d : 0));
+  const losses = recent.map(d => (d < 0 ? -d : 0));
+  const avgGain = avg(gains);
+  const avgLoss = avg(losses);
   if (avgLoss === 0) return 100;
   return 100 - 100 / (1 + avgGain / avgLoss);
 }
@@ -101,7 +109,6 @@ function calcADX(highs: number[], lows: number[], closes: number[], period = 14)
   const tr: number[] = [];
   const dmPlus: number[] = [];
   const dmMinus: number[] = [];
-
   for (let i = 1; i < highs.length; i++) {
     const up = highs[i] - highs[i - 1];
     const dn = lows[i - 1] - lows[i];
@@ -113,13 +120,10 @@ function calcADX(highs: number[], lows: number[], closes: number[], period = 14)
       Math.abs(lows[i] - closes[i - 1]),
     ));
   }
-
-  // Wilder smoothing
-  let atr14   = tr.slice(0, period).reduce((a, b) => a + b, 0);
-  let diP14   = dmPlus.slice(0, period).reduce((a, b) => a + b, 0);
-  let diM14   = dmMinus.slice(0, period).reduce((a, b) => a + b, 0);
+  let atr14 = tr.slice(0, period).reduce((a, b) => a + b, 0);
+  let diP14 = dmPlus.slice(0, period).reduce((a, b) => a + b, 0);
+  let diM14 = dmMinus.slice(0, period).reduce((a, b) => a + b, 0);
   const dxArr: number[] = [];
-
   for (let i = period; i < tr.length; i++) {
     atr14 = atr14 - atr14 / period + tr[i];
     diP14 = diP14 - diP14 / period + dmPlus[i];
@@ -129,16 +133,17 @@ function calcADX(highs: number[], lows: number[], closes: number[], period = 14)
     const sum = diP + diM;
     dxArr.push(sum === 0 ? 0 : 100 * Math.abs(diP - diM) / sum);
   }
-
   if (dxArr.length < period) return NaN;
-  return dxArr.slice(-period).reduce((a, b) => a + b, 0) / period;
+  return avg(dxArr.slice(-period));
 }
 
-function detectVCP(closes: number[], lookback = 40, order = 4): boolean {
+// ── Pattern 1: VCP — Volatility Contraction Pattern (Minervini) ──────────────
+// Series of progressively tighter pullbacks with drying volume.
+// Each trough higher than previous (higher lows), each range contracting ≥30%.
+
+export function detectVCP(closes: number[], lookback = 40, order = 4): boolean {
   const data = closes.slice(-lookback);
   if (data.length < lookback) return false;
-
-  // Find local minima
   const minimaIdx: number[] = [];
   for (let i = order; i < data.length - order; i++) {
     let isMin = true;
@@ -147,24 +152,105 @@ function detectVCP(closes: number[], lookback = 40, order = 4): boolean {
     }
     if (isMin) minimaIdx.push(i);
   }
-
   if (minimaIdx.length < 3) return false;
   const last3 = minimaIdx.slice(-3);
   const troughs = last3.map(i => data[i]);
-
-  // Higher lows
   if (!(troughs[1] > troughs[0] && troughs[2] > troughs[1])) return false;
-
-  // Contracting ranges between swing lows
   const ranges: number[] = [];
   for (let i = 0; i < last3.length - 1; i++) {
     const seg = data.slice(last3[i], last3[i + 1] + 1);
     ranges.push(Math.max(...seg) - Math.min(...seg));
   }
-
   for (let i = 1; i < ranges.length; i++) {
     if (ranges[i] > ranges[i - 1] * 0.70) return false;
   }
+  return true;
+}
+
+// ── Pattern 2: Tight BB Squeeze ───────────────────────────────────────────────
+// BB width < 5% of price (tighter than standard 8% threshold).
+// Price hugging the middle band (within 1.5% of 20 SMA).
+// The spring is fully compressed — the next candle outside the bands is the signal.
+
+export function detectTightSqueeze(closes: number[]): boolean {
+  const width = calcBBWidth(closes);
+  if (isNaN(width) || width >= 5) return false;
+  const mid = sma(closes, 20);
+  const price = closes[closes.length - 1];
+  const deviation = Math.abs(price - mid) / mid * 100;
+  return deviation < 1.5;
+}
+
+// ── Pattern 3: Institutional Absorption Spike ─────────────────────────────────
+// 4–8 weeks of silent accumulation (volume 40–60% below normal).
+// Then one day with 4–10x the dry-up average on a SMALL price candle.
+// Institutions absorbing supply without revealing themselves via price.
+
+export function detectInstSpike(
+  closes: number[],
+  highs: number[],
+  lows: number[],
+  volumes: number[],
+): boolean {
+  if (volumes.length < 65) return false;
+
+  // Reference period: 60-day average volume
+  const refAvg = avg(volumes.slice(-65, -5));
+
+  // Dry-up window: last 20–40 trading days, excluding last 5
+  const dryupVols = volumes.slice(-40, -5);
+  const dryupAvg = avg(dryupVols);
+
+  // Dry-up confirmed: the quiet period must be < 55% of reference volume
+  if (dryupAvg > refAvg * 0.55) return false;
+
+  // Look for the spike in the last 5 days
+  const recentVols  = volumes.slice(-5);
+  const recentHighs = highs.slice(-5);
+  const recentLows  = lows.slice(-5);
+  const recentClose = closes.slice(-5);
+
+  for (let i = 0; i < recentVols.length; i++) {
+    if (recentVols[i] >= dryupAvg * 4) {
+      // Key check: big volume but small price move (institutions absorbing)
+      const dayRange = (recentHighs[i] - recentLows[i]) / recentClose[i] * 100;
+      if (dayRange < 4) return true;
+    }
+  }
+  return false;
+}
+
+// ── Pattern 4: Long Base Breakout ─────────────────────────────────────────────
+// Stock flat for 6+ months (126 trading days) in a tight range (< 30%).
+// Now near the top of that range (within 5% of 6-month high).
+// Breaking out on elevated volume (last 3 days > 1.3x 20-day avg).
+// "The bigger the base, the bigger the case."
+
+export function detectLongBase(
+  closes: number[],
+  highs: number[],
+  volumes: number[],
+): boolean {
+  if (closes.length < 130) return false;
+
+  const base = closes.slice(-126);
+  const baseHigh = Math.max(...base);
+  const baseLow  = Math.min(...base);
+  const baseRange = (baseHigh - baseLow) / baseLow * 100;
+
+  // Base must be tight (stock hasn't moved much in 6 months)
+  if (baseRange > 30) return false;
+
+  const currentPrice = closes[closes.length - 1];
+
+  // Must be near the top of the base (approaching or breaking resistance)
+  if (currentPrice < baseHigh * 0.95) return false;
+
+  // Volume must be picking up (breakout confirmation)
+  const vol20avg = avg(volumes.slice(-20));
+  const vol3avg  = avg(volumes.slice(-3));
+  if (vol3avg < vol20avg * 1.3) return false;
+
   return true;
 }
 
@@ -181,24 +267,32 @@ function passesStage2(closes: number[]): boolean {
     price > s50 &&
     s50 > s150 &&
     s150 > s200 &&
-    price >= high52 * 0.65    // within 35% of 52W high
+    price >= high52 * 0.65
   );
 }
 
-// ── Scoring ───────────────────────────────────────────────────────────────────
+// ── Setup notes builder ───────────────────────────────────────────────────────
 
-function buildSetupNotes(r: StockResult): string {
-  const notes: string[] = [];
-  if (r.bbSqueeze)                                              notes.push('BB Squeeze');
-  if (r.volDryup)                                               notes.push('Vol Dry-up');
-  if (r.atrPct != null && r.range5dPct != null && r.atrPct < 2)notes.push('ATR Contracting');
-  if (r.range5dPct != null && r.range5dPct < 6)                notes.push('Tight Range');
-  if (r.upVolDominance != null && r.upVolDominance > 0.5)      notes.push(`Up-vol ${(r.upVolDominance * 100).toFixed(0)}%`);
-  if (r.rsVsNifty != null && r.rsVsNifty > 0)                 notes.push(`RS +${r.rsVsNifty.toFixed(1)}%`);
-  if (r.rsi != null && r.rsi >= 50 && r.rsi <= 68)            notes.push(`RSI ${r.rsi.toFixed(0)}`);
-  if (r.adx != null && r.adx < 22)                             notes.push(`ADX ${r.adx.toFixed(0)} (coiling)`);
-  if (r.vcp)                                                    notes.push('VCP');
-  return notes.join(' | ') || 'Stage 2 only';
+function buildSetupNotes(r: Omit<StockResult, 'setupNotes' | 'patterns'>): { notes: string; patterns: string[] } {
+  const parts: string[] = [];
+  const patterns: string[] = [];
+
+  if (r.bbSqueeze)                                              { parts.push('BB Squeeze (<8%)'); }
+  if (r.tightSqueeze)                                           { parts.push('Tight Squeeze (<5%)'); patterns.push('Tight BB Squeeze'); }
+  if (r.volDryup)                                               { parts.push('Vol Dry-up'); }
+  if (r.instSpike)                                              { parts.push('Institutional Absorption Spike'); patterns.push('Institutional Spike'); }
+  if (r.rsVsNifty != null && r.rsVsNifty > 0)                  parts.push(`RS +${r.rsVsNifty.toFixed(1)}% vs Nifty`);
+  if (r.rsi != null && r.rsi >= 50 && r.rsi <= 68)             parts.push(`RSI ${r.rsi.toFixed(0)}`);
+  if (r.adx != null && r.adx < 22)                             parts.push(`ADX ${r.adx.toFixed(0)} (coiling)`);
+  if (r.vcp)                                                    { parts.push('VCP'); patterns.push('VCP'); }
+  if (r.longBase)                                               { parts.push('Long Base Breakout'); patterns.push('Long Base Breakout'); }
+
+  // Assign top-level pattern name for the "Coiled Spring" setup
+  if (patterns.length === 0 && (r.bbSqueeze || r.volDryup) && r.score >= 4) {
+    patterns.push('Coiled Spring');
+  }
+
+  return { notes: parts.join(' | ') || 'Stage 2 structure', patterns };
 }
 
 // ── Main screener function ────────────────────────────────────────────────────
@@ -220,8 +314,9 @@ export function screenStock(
   let ptsBase = 0;
   let ptsVolume = 0;
   let ptsMomentum = 0;
+  let ptsPatterns = 0;
 
-  // ── Base signals ──────────────────────────────────────────────────────
+  // ── Base signals (0–3 pts) ────────────────────────────────────────────
   const bbWidthPct = calcBBWidth(closes);
   const bbSqueeze  = !isNaN(bbWidthPct) && bbWidthPct < 8;
   if (bbSqueeze) ptsBase++;
@@ -231,25 +326,22 @@ export function screenStock(
   const atrPct    = validATR.length > 0
     ? (validATR[validATR.length - 1] / closes[closes.length - 1]) * 100
     : null;
-  const p25ATR    = validATR.length > 63
-    ? [...validATR.slice(-63)].sort((a, b) => a - b)[Math.floor(63 * 0.25)]
-    : null;
-  const currentATRraw = validATR.length > 0 ? validATR[validATR.length - 1] : null;
   const p25ATRraw = validATR.length > 63
     ? [...validATR.slice(-63)].sort((a, b) => a - b)[Math.floor(63 * 0.25)]
     : null;
+  const currentATRraw = validATR.length > 0 ? validATR[validATR.length - 1] : null;
   if (currentATRraw != null && p25ATRraw != null && currentATRraw <= p25ATRraw) ptsBase++;
 
-  const lastHighs = highs.slice(-5);
-  const lastLows  = lows.slice(-5);
+  const lastHighs  = highs.slice(-5);
+  const lastLows   = lows.slice(-5);
   const range5dPct = lastHighs.length >= 5
     ? (Math.max(...lastHighs) - Math.min(...lastLows)) / Math.min(...lastLows) * 100
     : null;
   if (range5dPct != null && range5dPct < 6) ptsBase++;
 
-  // ── Volume signals ────────────────────────────────────────────────────
-  const vol10  = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
-  const vol50  = volumes.slice(-50).reduce((a, b) => a + b, 0) / 50;
+  // ── Volume signals (0–3 pts) ──────────────────────────────────────────
+  const vol10    = avg(volumes.slice(-10));
+  const vol50    = avg(volumes.slice(-50));
   const volRatio = vol50 > 0 ? vol10 / vol50 : null;
   const volDryup = volRatio != null && volRatio < 0.60;
   if (volDryup) ptsVolume++;
@@ -271,22 +363,29 @@ export function screenStock(
     if (rsVsNifty > 0) ptsVolume++;
   }
 
-  // ── Momentum signals ──────────────────────────────────────────────────
-  const rsi = calcRSI(closes);
+  // ── Momentum signals (0–2 pts) ────────────────────────────────────────
+  const rsi   = calcRSI(closes);
   const rsiOk = !isNaN(rsi) && rsi >= 50 && rsi <= 68;
   if (rsiOk) ptsMomentum++;
 
-  const adx = calcADX(highs, lows, closes);
+  const adx   = calcADX(highs, lows, closes);
   const adxOk = !isNaN(adx) && adx < 22;
   if (adxOk) ptsMomentum++;
 
-  // ── VCP ───────────────────────────────────────────────────────────────
-  const vcp    = detectVCP(closes);
-  const ptsVcp = vcp ? 1 : 0;
+  // ── Pattern bonuses (0–1 pt each, max 4 pts) ──────────────────────────
+  const vcp          = detectVCP(closes);
+  const tightSqueeze = detectTightSqueeze(closes);
+  const instSpike    = detectInstSpike(closes, highs, lows, volumes);
+  const longBase     = detectLongBase(closes, highs, volumes);
 
-  const score = ptsBase + ptsVolume + ptsMomentum + ptsVcp;
+  if (vcp)          ptsPatterns++;
+  if (tightSqueeze) ptsPatterns++;
+  if (instSpike)    ptsPatterns++;
+  if (longBase)     ptsPatterns++;
 
-  const result: StockResult = {
+  const score = ptsBase + ptsVolume + ptsMomentum + ptsPatterns;
+
+  const partial = {
     symbol:         stock.nse_symbol,
     company:        stock.company,
     price:          closes[closes.length - 1],
@@ -300,15 +399,19 @@ export function screenStock(
     rsi:            !isNaN(rsi) ? parseFloat(rsi.toFixed(1)) : null,
     adx:            !isNaN(adx) ? parseFloat(adx.toFixed(1)) : null,
     vcp,
+    tightSqueeze,
+    instSpike,
+    longBase,
     bbSqueeze,
     volDryup,
     stage2:         true,
     ptsBase,
     ptsVolume,
     ptsMomentum,
-    ptsVcp,
-    setupNotes:     '',
+    ptsPatterns,
   };
-  result.setupNotes = buildSetupNotes(result);
-  return result;
+
+  const { notes, patterns } = buildSetupNotes(partial);
+
+  return { ...partial, setupNotes: notes, patterns };
 }
