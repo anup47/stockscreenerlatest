@@ -282,6 +282,9 @@ export interface TrendInfo {
   ma50AboveMa150: boolean;
   ma150AboveMa200: boolean;
   stage2: boolean;
+  goldenCross: boolean;
+  deathCross: boolean;
+  crossType: string;
   note: string;
 }
 
@@ -301,6 +304,14 @@ function analyzeTrend(bars: OHLCVBar[]): TrendInfo {
   const ma150AboveMa200 = ma150 > ma200;
   const stage2 = aboveMa50 && aboveMa150 && aboveMa200 && ma50AboveMa150 && ma150AboveMa200;
 
+  const goldenCross = !isNaN(ma50) && !isNaN(ma200) && ma50 > ma200;
+  const deathCross = !isNaN(ma50) && !isNaN(ma200) && ma50 < ma200;
+  const crossType = goldenCross
+    ? `Golden Cross — 50-DMA (${ma50.toFixed(2)}) above 200-DMA (${ma200.toFixed(2)})`
+    : deathCross
+    ? `Death Cross — 50-DMA (${ma50.toFixed(2)}) below 200-DMA (${ma200.toFixed(2)})`
+    : 'Insufficient data for cross detection';
+
   let stage = 'Stage 1 (Accumulation)';
   if (stage2) stage = 'Stage 2 (Uptrend)';
   else if (!aboveMa200 && !aboveMa150) stage = 'Stage 4 (Downtrend)';
@@ -310,7 +321,7 @@ function analyzeTrend(bars: OHLCVBar[]): TrendInfo {
     ? 'Classic Weinstein Stage 2 — ideal for swing buys.'
     : `Price alignment: ${[aboveMa20 && '>MA20', aboveMa50 && '>MA50', aboveMa150 && '>MA150', aboveMa200 && '>MA200'].filter(Boolean).join(', ') || 'all MAs above price'}`;
 
-  return { stage, ma20: +ma20.toFixed(2), ma50: +ma50.toFixed(2), ma150: +ma150.toFixed(2), ma200: +ma200.toFixed(2), aboveMa20, aboveMa50, aboveMa150, aboveMa200, ma50AboveMa150, ma150AboveMa200, stage2, note };
+  return { stage, ma20: +ma20.toFixed(2), ma50: +ma50.toFixed(2), ma150: +ma150.toFixed(2), ma200: +ma200.toFixed(2), aboveMa20, aboveMa50, aboveMa150, aboveMa200, ma50AboveMa150, ma150AboveMa200, stage2, goldenCross, deathCross, crossType, note };
 }
 
 // ── Support / Resistance ──────────────────────────────────────────────────────
@@ -507,6 +518,13 @@ export interface FullAnalysis {
   timeframe: Timeframe;
   duration: Duration;
   price: number;
+  prevClose: number;
+  dayChangePct: number;
+  yearHigh: number;
+  yearLow: number;
+  isFnO: boolean;
+  fnoStatus: string;
+  recentBars: OHLCVBar[];
   // Section 1
   elliott: ElliottWaveInfo;
   fibRetracements: FibLevel[];
@@ -548,9 +566,17 @@ export function buildAnalysis(
   bars: OHLCVBar[],
   timeframe: Timeframe,
   duration: Duration,
-  fno: FnOData | null,
+  yearHigh: number,
+  yearLow: number,
+  prevClose: number,
+  isFnO: boolean,
 ): FullAnalysis {
   const price = bars[bars.length - 1].close;
+  const dayChangePct = +((price - prevClose) / prevClose * 100).toFixed(2);
+
+  const fnoStatus = isFnO
+    ? `${symbol.replace(/\.(NS|BO)$/, '')} is in the F&O segment. Live derivatives data is not available here — check your broker for PCR, max pain, and OI data.`
+    : `${symbol.replace(/\.(NS|BO)$/, '')} is a cash-market-only stock. Not traded in the F&O segment — no derivatives applicable.`;
 
   // Swing high / low for Fibonacci (use last 60 bars or full set)
   const swingWindow = bars.slice(-Math.min(bars.length, 60));
@@ -570,6 +596,13 @@ export function buildAnalysis(
     timeframe,
     duration,
     price,
+    prevClose: +prevClose.toFixed(2),
+    dayChangePct,
+    yearHigh: +yearHigh.toFixed(2),
+    yearLow: +yearLow.toFixed(2),
+    isFnO,
+    fnoStatus,
+    recentBars: bars.slice(-10),
     elliott: detectElliottWave(bars),
     fibRetracements: fibRetracement(swingLow, swingHigh, price),
     fibExtensions: fibExtension(swingLow, swingHigh, swingLow, price),
@@ -580,7 +613,7 @@ export function buildAnalysis(
     trend,
     indicators,
     srLevels: findSRLevels(bars),
-    fno,
+    fno: null,
     tradePlan: calcTradePlan(bars, duration, indicators, trend),
     fibTimeZones,
     analysedAt: new Date().toISOString(),
