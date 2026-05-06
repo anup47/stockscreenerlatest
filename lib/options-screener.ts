@@ -11,6 +11,21 @@ export interface ScoreBreakdown {
   setup: number;      // max 20
 }
 
+export interface BacktestStats {
+  sampleSize: number;
+  winRate1d: number;
+  winRate3d: number;
+  avgReturn1d: number;
+  avgReturn3d: number;
+  avgWin: number;
+  avgLoss: number;
+  profitFactor: number;
+  bestOutcome: number;
+  worstOutcome: number;
+  signalFreqPerMonth: number;
+  btConfidence: 'Low' | 'Moderate' | 'High';
+}
+
 export interface OptionsResult {
   symbol: string;
   company: string;
@@ -34,6 +49,7 @@ export interface OptionsResult {
   scoreBreakdown: ScoreBreakdown;
   reasons: string[];
   riskFlags: string[];
+  backtest: BacktestStats;
 }
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
@@ -102,6 +118,110 @@ function upVolShare(rows: OHLCVRow[], n: number): number {
 function pctChange(closes: number[], n: number): number {
   if (closes.length <= n) return 0;
   return (closes[closes.length - 1] / closes[closes.length - 1 - n] - 1) * 100;
+}
+
+function calcRsiAt(closes: number[], i: number, period = 14): number {
+  if (i < period) return 50;
+  let ag = 0, al = 0;
+  for (let j = i - period + 1; j <= i; j++) {
+    const d = closes[j] - closes[j - 1];
+    if (d > 0) ag += d; else al -= d;
+  }
+  ag /= period; al /= period;
+  return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+}
+
+function volRatioAt(rows: OHLCVRow[], i: number): number {
+  if (i < 19) return 1;
+  let sum20 = 0, sum5 = 0;
+  for (let j = i - 19; j <= i; j++) sum20 += rows[j].volume;
+  for (let j = i - 4; j <= i; j++) sum5 += rows[j].volume;
+  const avg20 = sum20 / 20;
+  const avg5 = sum5 / 5;
+  return avg20 > 0 ? avg5 / avg20 : 1;
+}
+
+function runMiniBacktest(
+  rows: OHLCVRow[],
+  e20: number[],
+  e50: number[],
+  direction: 'CALL' | 'PUT',
+): BacktestStats {
+  const closes = rows.map(r => r.close);
+  const n = rows.length;
+  const scanStart = Math.max(50, n - 126);
+  const scanEnd   = n - 4; // need 3 forward bars
+
+  const returns1d: number[] = [];
+  const returns3d: number[] = [];
+
+  for (let i = scanStart; i < scanEnd; i++) {
+    const price  = closes[i];
+    const ema20i = e20[i];
+    const ema50i = e50[i];
+    const rsii   = calcRsiAt(closes, i);
+    const vri    = volRatioAt(rows, i);
+
+    // Simplified signal mirroring the screener's core directional logic
+    let signal: 'bullish' | 'bearish' | 'none' = 'none';
+    if (price > ema20i && price > ema50i && rsii > 50 && vri >= 1.1) signal = 'bullish';
+    else if (price < ema20i && price < ema50i && rsii < 50 && vri >= 1.1) signal = 'bearish';
+
+    const want = direction === 'CALL' ? 'bullish' : 'bearish';
+    if (signal !== want) continue;
+
+    returns1d.push((closes[i + 1] / closes[i] - 1) * 100);
+    returns3d.push((closes[i + 3] / closes[i] - 1) * 100);
+  }
+
+  const sampleSize = returns3d.length;
+  if (sampleSize === 0) {
+    return {
+      sampleSize: 0,
+      winRate1d: 0, winRate3d: 0,
+      avgReturn1d: 0, avgReturn3d: 0,
+      avgWin: 0, avgLoss: 0, profitFactor: 0,
+      bestOutcome: 0, worstOutcome: 0,
+      signalFreqPerMonth: 0,
+      btConfidence: 'Low',
+    };
+  }
+
+  const isWin = (ret: number) => direction === 'CALL' ? ret > 0 : ret < 0;
+  const wins3d   = returns3d.filter(r => isWin(r));
+  const losses3d = returns3d.filter(r => !isWin(r));
+
+  const winRate1d = +(returns1d.filter(r => isWin(r)).length / sampleSize * 100).toFixed(1);
+  const winRate3d = +(wins3d.length / sampleSize * 100).toFixed(1);
+
+  const avgReturn1d = +(returns1d.reduce((a, b) => a + b, 0) / sampleSize).toFixed(2);
+  const avgReturn3d = +(returns3d.reduce((a, b) => a + b, 0) / sampleSize).toFixed(2);
+
+  const avgWin  = wins3d.length > 0   ? +(wins3d.reduce((a, b) => a + b, 0)   / wins3d.length).toFixed(2)   : 0;
+  const avgLoss = losses3d.length > 0 ? +(losses3d.reduce((a, b) => a + b, 0) / losses3d.length).toFixed(2) : 0;
+
+  const sumWins   = wins3d.reduce((a, b) => a + Math.abs(b), 0);
+  const sumLosses = losses3d.reduce((a, b) => a + Math.abs(b), 0);
+  const profitFactor = sumLosses > 0 ? +(sumWins / sumLosses).toFixed(2) : sumWins > 0 ? 99 : 0;
+
+  const sorted      = [...returns3d].sort((a, b) => a - b);
+  const worstOutcome = +sorted[0].toFixed(2);
+  const bestOutcome  = +sorted[sorted.length - 1].toFixed(2);
+
+  return {
+    sampleSize,
+    winRate1d,
+    winRate3d,
+    avgReturn1d,
+    avgReturn3d,
+    avgWin,
+    avgLoss,
+    profitFactor,
+    bestOutcome,
+    worstOutcome,
+    signalFreqPerMonth: +(sampleSize / 6).toFixed(1),
+    btConfidence: sampleSize >= 15 ? 'High' : sampleSize >= 5 ? 'Moderate' : 'Low',
+  };
 }
 
 // ── Setup detection ───────────────────────────────────────────────────────────
@@ -424,6 +544,8 @@ export function screenOptionsStock(stock: Stock, rows: OHLCVRow[]): OptionsResul
   if (setup === 'None')    riskFlags.push('No clean pattern trigger — trend continuation only');
   if (spread < 18)         riskFlags.push('Moderate directional clarity — confirm with your view');
 
+  const backtest = runMiniBacktest(rows, e20, e50, direction);
+
   return {
     symbol: stock.nse_symbol,
     company: stock.company,
@@ -447,5 +569,6 @@ export function screenOptionsStock(stock: Stock, rows: OHLCVRow[]): OptionsResul
     scoreBreakdown,
     reasons,
     riskFlags,
+    backtest,
   };
 }

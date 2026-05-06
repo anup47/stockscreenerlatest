@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import type { OptionsResult, ScoreBreakdown } from '@/lib/options-screener';
+import type { OptionsResult, ScoreBreakdown, BacktestStats } from '@/lib/options-screener';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,14 +87,87 @@ function ScoreBreakdownPanel({ bd, dir }: { bd: ScoreBreakdown; dir: 'CALL' | 'P
   );
 }
 
+// ── Backtest components ───────────────────────────────────────────────────────
+
+function WinRateBadge({ bt }: { bt: BacktestStats }) {
+  if (bt.sampleSize === 0) return <span className="text-xs text-slate-600">—</span>;
+  const color = bt.winRate3d >= 60 ? 'text-emerald-400'
+    : bt.winRate3d >= 50 ? 'text-amber-400' : 'text-red-400';
+  return (
+    <div className="text-right leading-tight">
+      <span className={`text-xs font-mono font-semibold ${color}`}>{bt.winRate3d}%</span>
+      <span className="text-xs text-slate-600 block">n={bt.sampleSize}</span>
+    </div>
+  );
+}
+
+function BtConfBadge({ c }: { c: BacktestStats['btConfidence'] }) {
+  const cls = c === 'High'     ? 'bg-emerald-900/60 text-emerald-400 border border-emerald-700'
+    : c === 'Moderate' ? 'bg-amber-900/60 text-amber-400 border border-amber-700'
+    : 'bg-slate-800 text-slate-500 border border-slate-600';
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>{c} confidence</span>;
+}
+
+function BacktestPanel({ bt, dir }: { bt: BacktestStats; dir: 'CALL' | 'PUT' }) {
+  if (bt.sampleSize === 0) {
+    return (
+      <div>
+        <p className="text-slate-500 uppercase text-xs mb-2 tracking-wide">Historical Backtest</p>
+        <p className="text-xs text-slate-600">No matching historical signals in last 6 months.</p>
+      </div>
+    );
+  }
+  const isCall  = dir === 'CALL';
+  const wr3Color = bt.winRate3d >= 60 ? 'text-emerald-400' : bt.winRate3d >= 50 ? 'text-amber-400' : 'text-red-400';
+  const wr1Color = bt.winRate1d >= 60 ? 'text-emerald-400' : bt.winRate1d >= 50 ? 'text-amber-400' : 'text-red-400';
+  const retColor = (isCall ? bt.avgReturn3d > 0 : bt.avgReturn3d < 0) ? 'text-emerald-400' : 'text-red-400';
+  const pfColor  = bt.profitFactor >= 1.5 ? 'text-emerald-400' : bt.profitFactor >= 1 ? 'text-amber-400' : 'text-red-400';
+  const sign = (n: number) => n > 0 ? `+${n}%` : `${n}%`;
+
+  const stats: [string, string, string][] = [
+    ['Win Rate (3-day)',    `${bt.winRate3d}%`,            wr3Color],
+    ['Win Rate (1-day)',    `${bt.winRate1d}%`,            wr1Color],
+    ['Avg 3d Return',      sign(bt.avgReturn3d),           retColor],
+    ['Avg 1d Return',      sign(bt.avgReturn1d),           retColor],
+    ['Avg Winning Trade',  sign(bt.avgWin),                'text-emerald-400'],
+    ['Avg Losing Trade',   sign(bt.avgLoss),               'text-red-400'],
+    ['Profit Factor',      `${bt.profitFactor === 99 ? '∞' : bt.profitFactor}x`, pfColor],
+    ['Best Outcome',       sign(bt.bestOutcome),           'text-emerald-400'],
+    ['Worst Outcome',      sign(bt.worstOutcome),          'text-red-400'],
+    ['Sample Size',        `${bt.sampleSize} signals`,     'text-slate-300'],
+    ['Freq / Month',       `${bt.signalFreqPerMonth}×`,    'text-slate-400'],
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-slate-500 uppercase text-xs tracking-wide">Historical Backtest — 6 Months</p>
+        <BtConfBadge c={bt.btConfidence} />
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        {stats.map(([label, val, cls]) => (
+          <div key={label} className="flex justify-between text-xs border-b border-slate-700/60 pb-0.5">
+            <span className="text-slate-500">{label}</span>
+            <span className={`font-mono ${cls}`}>{val}</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+        Tracks underlying price direction over 3 sessions, not option P&L.
+        Past signal frequency does not guarantee future occurrence.
+      </p>
+    </div>
+  );
+}
+
 // ── Expanded detail drawer ────────────────────────────────────────────────────
 
 function DetailDrawer({ r }: { r: OptionsResult }) {
   const isCall = r.direction === 'CALL';
   return (
     <tr>
-      <td colSpan={12} className="bg-slate-800/60 border-b border-slate-700">
-        <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <td colSpan={13} className="bg-slate-800/60 border-b border-slate-700">
+        <div className="p-4 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
           {/* Score breakdown */}
           <div>
             <p className="text-slate-500 uppercase text-xs mb-2 tracking-wide">Score Breakdown (100 pts)</p>
@@ -158,6 +231,9 @@ function DetailDrawer({ r }: { r: OptionsResult }) {
               <p>• Stop-loss on premium (not just price)</p>
             </div>
           </div>
+
+          {/* Backtest panel */}
+          <BacktestPanel bt={r.backtest} dir={r.direction} />
         </div>
       </td>
     </tr>
@@ -365,7 +441,8 @@ export default function OptionsPage() {
                     <SortHdr col="rsi"      label="RSI" />
                     <th className="text-left py-2">Trend</th>
                     <th className="text-left py-2">Hold</th>
-                    <th className="text-left pr-4 py-2">Entry</th>
+                    <th className="text-left py-2">Entry</th>
+                    <th className="text-right pr-4 py-2">Win Rate</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -402,7 +479,8 @@ export default function OptionsPage() {
                           </td>
                           <td className="py-2.5 text-xs text-slate-400">{r.trendStatus}</td>
                           <td className="py-2.5 text-xs text-slate-400">{r.holdingBias}</td>
-                          <td className="pr-4 py-2.5"><EntryBadge e={r.entryQuality} /></td>
+                          <td className="py-2.5"><EntryBadge e={r.entryQuality} /></td>
+                          <td className="pr-4 py-2.5"><WinRateBadge bt={r.backtest} /></td>
                         </tr>
                         {isExpanded && <DetailDrawer key={`${r.symbol}-detail`} r={r} />}
                       </>

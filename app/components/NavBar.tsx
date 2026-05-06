@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 const tabs = [
   { label: 'Screener', href: '/' },
   { label: 'Analysis', href: '/analyse' },
-  { label: 'Options', href: '/options' },
+  { label: 'Options',  href: '/options' },
+  { label: 'Triangle', href: '/triangle' },
 ];
 
 export default function NavBar() {
