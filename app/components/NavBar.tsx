@@ -3,10 +3,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const tabs = [
-  { label: 'Screener', href: '/' },
-  { label: 'Analysis', href: '/analyse' },
-  { label: 'Options',  href: '/options' },
-  { label: 'Triangle', href: '/triangle' },
+  { label: 'Screener',     href: '/' },
+  { label: 'Analysis',     href: '/analyse' },
+  { label: 'Options',      href: '/options' },
+  { label: 'Triangle',     href: '/triangle' },
+  { label: 'Market',       href: '/market' },
+  { label: 'Option Chain', href: '/optionchain' },
+  { label: 'OI Analysis',  href: '/oi-analysis' },
+  { label: 'Strategy',     href: '/strategy' },
+  { label: 'Positions',    href: '/positions' },
+  { label: '⚙ Settings',  href: '/settings' },
 ];
 
 export default function NavBar() {
