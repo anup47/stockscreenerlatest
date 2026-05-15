@@ -9,9 +9,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Missing credentials' }, { status: 400 });
   }
 
-  const ok = await testDhanCredentials(clientId, accessToken);
-  if (!ok) {
-    return NextResponse.json({ ok: false, error: 'Invalid credentials — Dhan API rejected them' }, { status: 401 });
+  const result = await testDhanCredentials(clientId, accessToken);
+  if (!result.ok) {
+    return NextResponse.json(
+      { ok: false, error: result.error ?? 'Dhan API rejected the credentials' },
+      { status: result.status ?? 401 },
+    );
   }
 
   return NextResponse.json({ ok: true });

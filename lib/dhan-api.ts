@@ -156,15 +156,23 @@ export async function fetchDhanExpiry(
 export async function testDhanCredentials(
   clientId: string,
   accessToken: string,
-): Promise<boolean> {
+): Promise<{ ok: boolean; status?: number; error?: string }> {
   try {
     const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
       body: JSON.stringify({ UnderlyingSymbol: 'NIFTY' }),
     });
-    return res.ok || res.status === 200;
-  } catch { return false; }
+    if (res.ok) return { ok: true };
+    let msg = `HTTP ${res.status}`;
+    try {
+      const body = await res.json() as Record<string, unknown>;
+      msg = String(body.message ?? body.error ?? body.errorMessage ?? msg);
+    } catch { /* body not JSON */ }
+    return { ok: false, status: res.status, error: msg };
+  } catch (e) {
+    return { ok: false, error: `Network error: ${String(e)}` };
+  }
 }
 
 // ── NSE public index data (server-side only — uses cookie simulation) ─────────
