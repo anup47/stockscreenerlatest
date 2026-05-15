@@ -569,10 +569,10 @@ async function loadScripMaster(symbol: string, expiry: string): Promise<Map<stri
     const iSecId   = col('SEM_SMST_SECURITY_ID');
     const iSeg     = col('SEM_SEGMENT');
     const iInstr   = col('SEM_INSTRUMENT_NAME');
-    const iExpiry  = col('SM_EXPIRY_DATE');
+    const iExpiry  = col('SEM_EXPIRY_DATE');   // actual column name in Dhan CSV
     const iStrike  = col('SEM_STRIKE_PRICE');
     const iOptType = col('SEM_OPTION_TYPE');
-    const iUnderly = col('SEM_UNDERLYING_SYMBOL');
+    const iUnderly = col('SM_SYMBOL_NAME');    // actual column name in Dhan CSV
 
     if (iSecId < 0 || iSeg < 0 || iUnderly < 0) return _masterCache ?? new Map();
 

@@ -23,10 +23,10 @@ export async function GET(req: NextRequest) {
     const iSecId   = col('SEM_SMST_SECURITY_ID');
     const iSeg     = col('SEM_SEGMENT');
     const iInstr   = col('SEM_INSTRUMENT_NAME');
-    const iExpiry  = col('SM_EXPIRY_DATE');
+    const iExpiry  = col('SEM_EXPIRY_DATE');
     const iStrike  = col('SEM_STRIKE_PRICE');
     const iOptType = col('SEM_OPTION_TYPE');
-    const iUnderly = col('SEM_UNDERLYING_SYMBOL');
+    const iUnderly = col('SM_SYMBOL_NAME');
 
     const matchingRows: Record<string, string>[] = [];
     for (let i = 1; i < lines.length && matchingRows.length < 5; i++) {
