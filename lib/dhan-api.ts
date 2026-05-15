@@ -195,7 +195,7 @@ export const ALL_FNO_SYMBOLS = {
   stocks: Object.keys(FNO_SCRIP).sort(),
 };
 
-function getScripAndSeg(symbol: string): { scrip: number; seg: string } | null {
+export function getScripAndSeg(symbol: string): { scrip: number; seg: string } | null {
   const upper = symbol.toUpperCase();
   if (IDX_SCRIP[upper]) return { scrip: IDX_SCRIP[upper], seg: 'IDX_I' };
   if (FNO_SCRIP[upper]) return { scrip: FNO_SCRIP[upper], seg: 'NSE_FNO' };
