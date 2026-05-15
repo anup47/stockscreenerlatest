@@ -212,10 +212,10 @@ function NetTable({ title, rows, accent }: { title: string; rows: NetRow[]; acce
   }
   return (
     <div className="bg-slate-900 border border-slate-700/80 rounded-xl overflow-hidden shadow-lg">
-      <div className={`px-4 py-2.5 text-xs font-bold tracking-widest uppercase text-center ${accent} bg-slate-800/70 border-b border-slate-700/60`}>{title}</div>
-      <table className="w-full text-xs">
+      <div className={`px-4 py-2.5 text-sm font-bold tracking-widest uppercase text-center ${accent} bg-slate-800/70 border-b border-slate-700/60`}>{title}</div>
+      <table className="w-full text-sm">
         <thead>
-          <tr className="bg-slate-800/30 border-b border-slate-700/40 text-[10px] uppercase tracking-wider">
+          <tr className="bg-slate-800/30 border-b border-slate-700/40 text-xs uppercase tracking-wider">
             <th className="px-3 py-2 text-left text-slate-500 font-semibold">Stat</th>
             <th className="px-3 py-2 text-right text-emerald-500/80 font-semibold">Calls</th>
             <th className="px-3 py-2 text-right text-rose-500/80 font-semibold">Puts</th>
@@ -240,8 +240,8 @@ function NetTable({ title, rows, accent }: { title: string; rows: NetRow[]; acce
 function ValTable({ title, rows, accent }: { title: string; rows: ValRow[]; accent: string }) {
   return (
     <div className="bg-slate-900 border border-slate-700/80 rounded-xl overflow-hidden shadow-lg">
-      <div className={`px-4 py-2.5 text-xs font-bold tracking-widest uppercase text-center ${accent} bg-slate-800/70 border-b border-slate-700/60`}>{title}</div>
-      <table className="w-full text-xs">
+      <div className={`px-4 py-2.5 text-sm font-bold tracking-widest uppercase text-center ${accent} bg-slate-800/70 border-b border-slate-700/60`}>{title}</div>
+      <table className="w-full text-sm">
         <tbody>
           {rows.map(r => (
             <tr key={r.label} className="border-t border-slate-800/60 hover:bg-slate-800/25 transition-colors">

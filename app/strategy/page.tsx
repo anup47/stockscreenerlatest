@@ -42,32 +42,32 @@ function LegRow({
       <td className="px-3 py-2 text-slate-500 text-xs">{idx + 1}</td>
       <td className="px-2 py-2">
         <select value={leg.action} onChange={e => onChange(leg.id, 'action', e.target.value)}
-          className={`bg-slate-800 border rounded px-2 py-1 text-xs font-bold focus:outline-none ${leg.action === 'BUY' ? 'border-emerald-700 text-emerald-300' : 'border-red-700 text-red-300'}`}>
+          className={`bg-slate-800 border rounded px-2 py-1.5 text-sm font-bold focus:outline-none ${leg.action === 'BUY' ? 'border-emerald-700 text-emerald-300' : 'border-red-700 text-red-300'}`}>
           <option value="BUY">BUY</option>
           <option value="SELL">SELL</option>
         </select>
       </td>
       <td className="px-2 py-2">
         <select value={leg.optionType} onChange={e => onChange(leg.id, 'optionType', e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none">
+          className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none">
           <option value="CE">CE (Call)</option>
           <option value="PE">PE (Put)</option>
         </select>
       </td>
       <td className="px-2 py-2">
         <input type="number" value={leg.strike} onChange={e => onChange(leg.id, 'strike', Number(e.target.value))}
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none w-24 font-mono" />
+          className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none w-24 font-mono" />
       </td>
       <td className="px-2 py-2">
         <input type="number" step="0.05" value={leg.premium} onChange={e => onChange(leg.id, 'premium', Number(e.target.value))}
           placeholder="0"
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none w-20 font-mono" />
+          className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none w-20 font-mono" />
       </td>
       <td className="px-2 py-2">
         <input type="number" min="1" value={leg.lots} onChange={e => onChange(leg.id, 'lots', Math.max(1, Number(e.target.value)))}
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none w-14 font-mono" />
+          className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none w-14 font-mono" />
       </td>
-      <td className="px-2 py-2 text-slate-400 text-xs tabular-nums font-mono">
+      <td className="px-2 py-2 text-slate-400 text-sm tabular-nums font-mono">
         {fmt(leg.premium * leg.lots * leg.lotSize)}
       </td>
       <td className="px-2 py-2">
@@ -145,7 +145,7 @@ export default function StrategyPage() {
             <label className="text-xs text-slate-400 block mb-1">Net Premium Flow</label>
             <div className={`bg-slate-800 border rounded px-3 py-2 text-sm font-mono font-bold ${netPrem >= 0 ? 'border-emerald-700 text-emerald-400' : 'border-red-700 text-red-400'}`}>
               {netPrem >= 0 ? '+' : ''}Rs.{fmt(netPrem)}
-              <span className="text-[10px] font-normal text-slate-500 ml-1">{netPrem >= 0 ? 'credit' : 'debit'}</span>
+              <span className="text-xs font-normal text-slate-500 ml-1">{netPrem >= 0 ? 'credit' : 'debit'}</span>
             </div>
           </div>
         </div>

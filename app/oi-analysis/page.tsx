@@ -40,7 +40,7 @@ function SignalBadge({ signal }: { signal: OISignal }) {
     'Short Covering': 'bg-sky-900/60 text-sky-300 border border-sky-700',
     'Neutral':        'bg-slate-800 text-slate-400 border border-slate-700',
   };
-  return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${styles[signal]}`}>{signal}</span>;
+  return <span className={`px-2 py-0.5 rounded text-xs font-semibold ${styles[signal]}`}>{signal}</span>;
 }
 
 // ── OI Bar (visual width) ─────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ function OIBar({ pct, color }: { pct: number; color: string }) {
       <div className="w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full`} style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
-      <span className="text-xs text-slate-400 tabular-nums w-9 text-right">{pct}%</span>
+      <span className="text-sm text-slate-400 tabular-nums w-9 text-right">{pct}%</span>
     </div>
   );
 }
@@ -60,7 +60,7 @@ function OIBar({ pct, color }: { pct: number; color: string }) {
 
 function Th({ children, cls = '' }: { children: React.ReactNode; cls?: string }) {
   return (
-    <th className={`px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide ${cls}`}>
+    <th className={`px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide ${cls}`}>
       {children}
     </th>
   );
@@ -68,7 +68,7 @@ function Th({ children, cls = '' }: { children: React.ReactNode; cls?: string })
 
 function Td({ children, cls = '' }: { children: React.ReactNode; cls?: string }) {
   return (
-    <td className={`px-3 py-2 text-xs tabular-nums ${cls}`}>{children}</td>
+    <td className={`px-3 py-2.5 text-sm tabular-nums ${cls}`}>{children}</td>
   );
 }
 
@@ -78,7 +78,7 @@ function OIDistributionTab({ strikes, maxPain }: { strikes: OptionStrike[]; maxP
   const rows = calcOIDistribution(strikes, maxPain);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th>Strike</Th>
@@ -116,7 +116,7 @@ function OIChangeTab({ strikes }: { strikes: OptionStrike[] }) {
   );
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th>Strike</Th>
@@ -151,7 +151,7 @@ function DeltaOITab({ strikes }: { strikes: OptionStrike[] }) {
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.netDeltaOI)), 1);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th>Strike</Th>
@@ -194,7 +194,7 @@ function StrikePCRTab({ strikes, atmStrike }: { strikes: OptionStrike[]; atmStri
   const sorted = [...strikes].sort((a, b) => Math.abs(a.strikePrice - atmStrike) - Math.abs(b.strikePrice - atmStrike));
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th>Strike</Th>
@@ -238,7 +238,7 @@ function IVSmileTab({ strikes, atmStrike }: { strikes: OptionStrike[]; atmStrike
   const sorted = [...strikes].sort((a, b) => Math.abs(a.strikePrice - atmStrike) - Math.abs(b.strikePrice - atmStrike));
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th>Strike</Th>
@@ -337,7 +337,7 @@ function TopStrikesTab({ strikes }: { strikes: OptionStrike[] }) {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
         <p className="text-sm font-semibold text-emerald-400 mb-2">Top Call OI Strikes (Resistance)</p>
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead className="bg-slate-900 border-b border-slate-800">
             <tr>
               <Th cls="text-left">Strike</Th>
@@ -366,7 +366,7 @@ function TopStrikesTab({ strikes }: { strikes: OptionStrike[] }) {
 
       <div>
         <p className="text-sm font-semibold text-red-400 mb-2">Top Put OI Strikes (Support)</p>
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead className="bg-slate-900 border-b border-slate-800">
             <tr>
               <Th cls="text-left">Strike</Th>
@@ -400,7 +400,7 @@ function OIInterpretationTab({ strikes }: { strikes: OptionStrike[] }) {
   const rows = calcOIInterpretation(strikes);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th cls="text-left">Strike</Th>
@@ -446,7 +446,7 @@ function OICorrelationTab({ strikes }: { strikes: OptionStrike[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead className="bg-slate-900 border-b border-slate-800">
           <tr>
             <Th>Strike</Th>
@@ -526,7 +526,7 @@ function MultiExpiryTab({
 
       {nextStrikes.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead className="bg-slate-900 border-b border-slate-800">
               <tr>
                 <Th>Strike</Th>
@@ -685,7 +685,7 @@ export default function OIAnalysisPage() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-3 py-2 rounded-t text-xs font-semibold transition-colors border-b-2 ${
+                className={`px-3 py-2 rounded-t text-sm font-semibold transition-colors border-b-2 ${
                   tab === t
                     ? 'border-emerald-500 text-emerald-400 bg-slate-800/60'
                     : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'

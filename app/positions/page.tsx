@@ -117,10 +117,10 @@ function PositionRow({
     <tr className="border-b border-slate-800 hover:bg-slate-800/40 transition-colors">
       <td className="px-3 py-2.5">
         <div className="font-mono font-bold text-white text-sm">{p.symbol}</div>
-        <div className="text-[10px] text-slate-500">{p.expiry}</div>
+        <div className="text-xs text-slate-500">{p.expiry}</div>
       </td>
       <td className="px-3 py-2.5 text-center">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${p.optionType === 'CE' ? 'bg-emerald-800 text-white' : 'bg-red-800 text-white'}`}>
+        <span className={`px-2 py-0.5 rounded text-xs font-bold ${p.optionType === 'CE' ? 'bg-emerald-800 text-white' : 'bg-red-800 text-white'}`}>
           {p.strike.toLocaleString('en-IN')} {p.optionType}
         </span>
       </td>
@@ -129,10 +129,10 @@ function PositionRow({
           {p.action}
         </span>
       </td>
-      <td className="px-3 py-2.5 text-center text-slate-300 text-xs tabular-nums">
+      <td className="px-3 py-2.5 text-center text-slate-300 text-sm tabular-nums">
         {p.lots} × {p.lotSize}
       </td>
-      <td className="px-3 py-2.5 text-right font-mono text-slate-300 text-xs tabular-nums">
+      <td className="px-3 py-2.5 text-right font-mono text-slate-300 text-sm tabular-nums">
         {fmt(p.entryPremium)}
       </td>
       <td className="px-3 py-2.5 text-right">
@@ -141,27 +141,27 @@ function PositionRow({
             <input
               value={ltpInput}
               onChange={e => setLtpInput(e.target.value)}
-              className="bg-slate-800 border border-emerald-700 rounded px-1.5 py-0.5 text-xs text-slate-200 font-mono w-20 focus:outline-none"
+              className="bg-slate-800 border border-emerald-700 rounded px-1.5 py-0.5 text-sm text-slate-200 font-mono w-20 focus:outline-none"
               autoFocus
             />
             <button onClick={() => { onUpdateLTP(p.id, Number(ltpInput)); setEditing(false); }}
-              className="text-emerald-400 text-xs hover:text-emerald-300">✓</button>
-            <button onClick={() => setEditing(false)} className="text-slate-500 text-xs hover:text-slate-300">✕</button>
+              className="text-emerald-400 text-sm hover:text-emerald-300">✓</button>
+            <button onClick={() => setEditing(false)} className="text-slate-500 text-sm hover:text-slate-300">✕</button>
           </div>
         ) : (
           <button onClick={() => { setLtpInput(p.currentLTP.toString()); setEditing(true); }}
-            className="font-mono text-xs text-sky-400 hover:text-sky-300 tabular-nums cursor-pointer">
+            className="font-mono text-sm text-sky-400 hover:text-sky-300 tabular-nums cursor-pointer">
             {fmt(p.currentLTP)} ✎
           </button>
         )}
       </td>
-      <td className={`px-3 py-2.5 text-right font-mono text-xs tabular-nums font-semibold ${isProfit ? 'text-emerald-400' : 'text-red-400'}`}>
+      <td className={`px-3 py-2.5 text-right font-mono text-sm tabular-nums font-semibold ${isProfit ? 'text-emerald-400' : 'text-red-400'}`}>
         {isProfit ? '+' : ''}Rs.{fmt(p.totalPnL, 0)}
       </td>
-      <td className={`px-3 py-2.5 text-right font-mono text-xs tabular-nums ${isProfit ? 'text-emerald-400' : 'text-red-400'}`}>
+      <td className={`px-3 py-2.5 text-right font-mono text-sm tabular-nums ${isProfit ? 'text-emerald-400' : 'text-red-400'}`}>
         {isProfit ? '+' : ''}{p.pnlPct}%
       </td>
-      <td className="px-3 py-2.5 text-right text-slate-500 text-xs tabular-nums">
+      <td className="px-3 py-2.5 text-right text-slate-500 text-sm tabular-nums">
         Rs.{fmt(Math.abs(p.investment), 0)}
       </td>
       <td className="px-3 py-2.5 text-center">

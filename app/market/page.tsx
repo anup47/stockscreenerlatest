@@ -36,7 +36,7 @@ function IndexCard({ q }: { q: IndexQuote }) {
       <div className={`text-sm font-mono ${changeColor}`}>
         {up ? '+' : ''}{fmt(q.change)}
       </div>
-      <div className="flex justify-between text-[10px] text-slate-600 mt-1">
+      <div className="flex justify-between text-xs text-slate-500 mt-1">
         <span>H: {fmt(q.high)}</span>
         <span>L: {fmt(q.low)}</span>
       </div>
@@ -71,7 +71,7 @@ function MoversTable({ movers }: { movers: FnOStock[] }) {
   const Sh = ({ label, col }: { label: string; col: SortKey }) => (
     <th
       onClick={() => handleSort(col)}
-      className={`px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-slate-200 transition-colors ${sortKey === col ? 'text-emerald-400' : 'text-slate-500'}`}
+      className={`px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-slate-200 transition-colors ${sortKey === col ? 'text-emerald-400' : 'text-slate-500'}`}
     >
       {label}{sortKey === col ? (sortAsc ? ' ▲' : ' ▼') : ''}
     </th>
@@ -82,13 +82,13 @@ function MoversTable({ movers }: { movers: FnOStock[] }) {
       <div className="flex items-center gap-3 flex-wrap">
         {(['all', 'gainers', 'losers'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3 py-1 rounded text-xs font-semibold capitalize transition-colors ${filter === f ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+            className={`px-3 py-1.5 rounded text-sm font-semibold capitalize transition-colors ${filter === f ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
             {f}
           </button>
         ))}
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search…"
-          className="ml-auto bg-slate-800 border border-slate-700 rounded px-3 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-36" />
+          className="ml-auto bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-36" />
       </div>
 
       <div className="rounded-xl border border-slate-700 overflow-hidden">
@@ -96,14 +96,14 @@ function MoversTable({ movers }: { movers: FnOStock[] }) {
           <table className="w-full text-sm min-w-[700px]">
             <thead className="bg-slate-900 border-b border-slate-700">
               <tr>
-                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide w-8">#</th>
-                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Symbol</th>
-                <th className="px-3 py-2 text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Price</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-8">#</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Symbol</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Price</th>
                 <Sh label="Chg%" col="changePct" />
                 <Sh label="Volume" col="volume" />
                 <Sh label="OI" col="oi" />
                 <Sh label="OI Chg" col="oiChange" />
-                <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Sector</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Sector</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
@@ -112,18 +112,18 @@ function MoversTable({ movers }: { movers: FnOStock[] }) {
                   <td className="px-3 py-2 text-slate-600 text-xs">{i + 1}</td>
                   <td className="px-3 py-2">
                     <div className="font-mono font-bold text-white text-sm">{m.symbol}</div>
-                    <div className="text-xs text-slate-500 truncate max-w-[130px]">{m.name}</div>
+                    <div className="text-sm text-slate-500 truncate max-w-[130px]">{m.name}</div>
                   </td>
-                  <td className="px-3 py-2 text-right font-mono text-slate-200 text-xs">Rs.{fmt(m.ltp)}</td>
-                  <td className={`px-3 py-2 text-right font-mono text-xs font-semibold ${m.changePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <td className="px-3 py-2 text-right font-mono text-slate-200 text-sm">Rs.{fmt(m.ltp)}</td>
+                  <td className={`px-3 py-2 text-right font-mono text-sm font-semibold ${m.changePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {m.changePct >= 0 ? '+' : ''}{m.changePct.toFixed(2)}%
                   </td>
-                  <td className="px-3 py-2 text-right text-slate-400 text-xs tabular-nums">{fmtVol(m.volume)}</td>
-                  <td className="px-3 py-2 text-right text-slate-400 text-xs tabular-nums">{fmtVol(m.oi)}</td>
-                  <td className={`px-3 py-2 text-right text-xs tabular-nums ${m.oiChange > 0 ? 'text-emerald-400' : m.oiChange < 0 ? 'text-red-400' : 'text-slate-600'}`}>
+                  <td className="px-3 py-2 text-right text-slate-400 text-sm tabular-nums">{fmtVol(m.volume)}</td>
+                  <td className="px-3 py-2 text-right text-slate-400 text-sm tabular-nums">{fmtVol(m.oi)}</td>
+                  <td className={`px-3 py-2 text-right text-sm tabular-nums ${m.oiChange > 0 ? 'text-emerald-400' : m.oiChange < 0 ? 'text-red-400' : 'text-slate-600'}`}>
                     {m.oiChange > 0 ? '+' : ''}{fmtVol(m.oiChange)}
                   </td>
-                  <td className="px-3 py-2 text-slate-500 text-xs truncate max-w-[120px]">{m.sector || '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 text-sm truncate max-w-[120px]">{m.sector || '—'}</td>
                 </tr>
               ))}
             </tbody>

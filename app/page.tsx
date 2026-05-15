@@ -244,7 +244,7 @@ export default function Home() {
   const SortTh = ({ label, col, cls = '' }: { label: string; col: SortKey; cls?: string }) => (
     <th
       onClick={() => handleSort(col)}
-      className={`px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:text-slate-200 transition-colors whitespace-nowrap ${cls}`}
+      className={`px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:text-slate-200 transition-colors whitespace-nowrap ${cls}`}
     >
       {label}{sortKey === col ? (sortAsc ? ' ▲' : ' ▼') : ''}
     </th>
@@ -277,14 +277,14 @@ export default function Home() {
         <div className="w-full px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold tracking-tight text-white">
+              <h1 className="text-xl font-bold tracking-tight text-white">
                 BSE Group A — Swing Setup Screener
               </h1>
               <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold ring-1 ring-emerald-500/20">
                 5 PATTERNS
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5">
               Coiled Spring &nbsp;·&nbsp; BB Squeeze &nbsp;·&nbsp; VCP &nbsp;·&nbsp; Institutional Spike &nbsp;·&nbsp; Long Base Breakout
             </p>
           </div>
@@ -340,7 +340,7 @@ export default function Home() {
               <button
                 key={f.key}
                 onClick={() => setPatFilter(f.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
                   patFilter === f.key
                     ? 'bg-emerald-600 text-white'
                     : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
@@ -356,7 +356,7 @@ export default function Home() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search symbol / company…"
-                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-44"
+                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-44"
               />
             </div>
           </div>
@@ -396,7 +396,7 @@ export default function Home() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-900 border-b border-slate-800">
                   <tr>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-600 w-7">#</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 w-7">#</th>
                     <SortTh label="Symbol"      col="symbol" />
                     <SortTh label="Company"     col="company" />
                     <SortTh label="Price"       col="price" />
@@ -406,13 +406,13 @@ export default function Home() {
                     <SortTh label="ADX"         col="adx" />
                     <SortTh label="Vol Ratio"   col="volRatio" />
                     <SortTh label="RS vs Nifty" col="rsVsNifty" />
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
                       Patterns
                     </th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[180px]">
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider min-w-[180px]">
                       Setup Notes
                     </th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[230px]">
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider min-w-[230px]">
                       Trade Setup
                     </th>
                   </tr>
@@ -437,11 +437,11 @@ export default function Home() {
                           <span className="font-mono font-bold text-white text-sm">{r.symbol}</span>
                         </td>
 
-                        <td className="px-3 py-2.5 text-slate-400 text-xs max-w-[160px] truncate" title={r.company}>
+                        <td className="px-3 py-2.5 text-slate-400 text-sm max-w-[160px] truncate" title={r.company}>
                           {r.company}
                         </td>
 
-                        <td className="px-3 py-2.5 tabular-nums font-medium text-slate-200 text-xs whitespace-nowrap">
+                        <td className="px-3 py-2.5 tabular-nums font-medium text-slate-200 text-sm whitespace-nowrap">
                           Rs.{r.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
 
@@ -480,7 +480,7 @@ export default function Home() {
                           </div>
                         </td>
 
-                        <td className="px-3 py-2.5 text-slate-500 text-[11px] max-w-[180px]" title={r.setupNotes}>
+                        <td className="px-3 py-2.5 text-slate-400 text-sm max-w-[180px]" title={r.setupNotes}>
                           <span className="line-clamp-2 leading-relaxed">{r.setupNotes}</span>
                         </td>
 
