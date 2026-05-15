@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
+import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
 import {
   calcMaxPain, calcPCR, calcDeltaOI, calcOIDistribution,
@@ -568,7 +569,6 @@ type Tab = typeof TABS[number];
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
 
 export default function OIAnalysisPage() {
   const creds = useDhanCredentials();
@@ -638,10 +638,7 @@ export default function OIAnalysisPage() {
           <p className="text-slate-400 text-sm mt-0.5">10 analytical views of open interest data</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <select value={symbol} onChange={e => { setSymbol(e.target.value); setData(null); }}
-            className="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
-            {SYMBOLS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SymbolSearch value={symbol} onChange={s => { setSymbol(s); setData(null); }} />
           <select value={expiry} onChange={e => setExpiry(e.target.value)} disabled={expiries.length === 0}
             className="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-50">
             {expiries.length === 0 && <option value="">Loading…</option>}

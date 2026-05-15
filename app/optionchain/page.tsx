@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
+import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,8 +115,6 @@ function StrikeRow({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
-
 export default function OptionChainPage() {
   const creds = useDhanCredentials();
 
@@ -190,13 +189,10 @@ export default function OptionChainPage() {
           <p className="text-slate-400 text-sm mt-0.5">Live strike-wise OI · IV · Greeks — powered by Dhan API</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <select
+          <SymbolSearch
             value={symbol}
-            onChange={e => { setSymbol(e.target.value); setData(null); }}
-            className="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
-          >
-            {SYMBOLS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+            onChange={s => { setSymbol(s); setData(null); }}
+          />
           <select
             value={expiry}
             onChange={e => setExpiry(e.target.value)}

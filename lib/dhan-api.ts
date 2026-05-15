@@ -116,7 +116,7 @@ export function parseDhanOptionChain(
 
 const DHAN_BASE = 'https://api.dhan.co';
 
-// Dhan v2 API requires numeric scrip IDs for index option chain calls
+// Dhan v2 API: numeric scrip IDs for index option chain calls (segment = IDX_I)
 const IDX_SCRIP: Record<string, number> = {
   NIFTY:      13,
   BANKNIFTY:  25,
@@ -124,19 +124,87 @@ const IDX_SCRIP: Record<string, number> = {
   MIDCPNIFTY: 442,
 };
 
+// NSE F&O stock scrip IDs (segment = NSE_FNO) — sourced from Dhan security master
+export const FNO_SCRIP: Record<string, number> = {
+  '360ONE':     13061, ABB:          13,    ABCAPITAL:    21614, ADANIENSOL:   10217,
+  ADANIENT:     25,    ADANIGREEN:   3563,  ADANIPORTS:   15083, ADANIPOWER:   17388,
+  ALKEM:        11703, AMBER:        1185,  AMBUJACEM:    1270,  ANGELONE:     324,
+  APLAPOLLO:    25780, APOLLOHOSP:   157,   ASHOKLEY:     212,   ASIANPAINT:   236,
+  ASTRAL:       14418, AUBANK:       21238, AUROPHARMA:   275,   AXISBANK:     5900,
+  BAJAJFINSV:   16675, BAJAJHLDNG:   305,   BAJFINANCE:   317,   'BAJAJ-AUTO': 16669,
+  BANDHANBNK:   2263,  BANKBARODA:   4668,  BANKINDIA:    4745,  BDL:          2144,
+  BEL:          383,   BHARATFORG:   422,   BHARTIARTL:   10604, BHEL:         438,
+  BIOCON:       11373, BLUESTARCO:   8311,  BOSCHLTD:     2181,  BPCL:         526,
+  BRITANNIA:    547,   BSE:          19585, CAMS:         342,   CANBK:        10794,
+  CDSL:         21174, CGPOWER:      760,   CHOLAFIN:     685,   CIPLA:        694,
+  COALINDIA:    20374, COCHINSHIP:   21508, COFORGE:      11543, COLPAL:       15141,
+  CONCOR:       4749,  CROMPTON:     17094, CUMMINSIND:   1901,  DABUR:        772,
+  DALBHARAT:    8075,  DELHIVERY:    9599,  DIVISLAB:     10940, DIXON:        21690,
+  DLF:          14732, DMART:        19913, DRREDDY:      881,   EICHERMOT:    910,
+  ETERNAL:      5097,  EXIDEIND:     676,   FEDERALBNK:   1023,  FORCEMOT:     11573,
+  FORTIS:       14592, GAIL:         4717,  GLENMARK:     7406,  GMRAIRPORT:   13528,
+  GODFRYPHLP:   1181,  GODREJCP:     10099, GODREJPROP:   17875, GRASIM:       1232,
+  HAL:          2303,  HAVELLS:      9819,  HCLTECH:      7229,  HDFCAMC:      4244,
+  HDFCBANK:     1333,  HDFCLIFE:     467,   HEROMOTOCO:   1348,  HINDALCO:     1363,
+  HINDPETRO:    1406,  HINDUNILVR:   1394,  HINDZINC:     1424,  HYUNDAI:      25844,
+  ICICIBANK:    4963,  ICICIGI:      21770, ICICIPRULI:   18652, IDEA:         14366,
+  IDFCFIRSTB:   11184, IEX:          220,   INDHOTEL:     1512,  INDIANB:      14309,
+  INDIGO:       11195, INDUSINDBK:   5258,  INDUSTOWER:   29135, INFY:         1594,
+  INOXWIND:     7852,  IOC:          1624,  IRCTC:        13611, IRDA:         20261,
+  IRFC:         2029,  KFINTECH:     13359, KOTAKBANK:    1922,  KPITTECH:     9683,
+  LAURUSLABS:   19234, LICHSGFIN:    1997,  LICI:         9480,  LODHA:        3220,
+  LT:           11483, LTF:          24948, LTM:          17818, LUPIN:        10440,
+  'M&M':        2031,  MANAPPURAM:   19061, MANKIND:      15380, MARICO:       4067,
+  MARUTI:       10999, MAXHEALTH:    22377, MAZDOCK:      509,   MCX:          31181,
+  MFSL:         2142,  MOTHERSON:    4204,  MOTILALOFS:   14947, MPHASIS:      4503,
+  MUTHOOTFIN:   23650, 'NAM-INDIA':  357,   NATIONALUM:   6364,  NAUKRI:       13751,
+  NBCC:         31415, NESTLEIND:    17963, NHPC:         17400, NMDC:         15332,
+  NTPC:         11630, NUVAMA:       18721, NYKAA:        6545,  OBEROIRLTY:   20242,
+  OFSS:         10738, OIL:          17438, ONGC:         2475,  PAGEIND:      14413,
+  PATANJALI:    17029, PAYTM:        6705,  PERSISTENT:   18365, PETRONET:     11351,
+  PFC:          14299, PGEL:         25358, PHOENIXLTD:   14552, PIDILITIND:   2664,
+  PIIND:        24184, PNB:          10666, PNBHOUSING:   18908, POLICYBZR:    6656,
+  POLYCAB:      9590,  POWERGRID:    14977, POWERINDIA:   18457, PREMIERENE:   25049,
+  PRESTIGE:     20302, RBLBANK:      18391, RECLTD:       15355, RELIANCE:     2885,
+  RVNL:         9552,  SAIL:         2963,  SAMMAANCAP:   30125, SBICARD:      17971,
+  SBILIFE:      21808, SBIN:         3045,  SHREECEM:     3103,  SHRIRAMFIN:   4306,
+  SIEMENS:      3150,  SOLARINDS:    13332, SONACOMS:     4684,  SRF:          3273,
+  SUNPHARMA:    3351,  SUPREMEIND:   3363,  SUZLON:       12018, SWIGGY:       27066,
+  TATACONSUM:   3432,  TATAELXSI:    3411,  TATAPOWER:    3426,  TATASTEEL:    3499,
+  TCS:          11536, TECHM:        13538, TIINDIA:      312,   TITAN:        3506,
+  TMPV:         3456,  TORNTPHARM:   3518,  TRENT:        1964,  TVSMOTOR:     8479,
+  ULTRACEMCO:   11532, UNIONBANK:    10753, UNITDSPR:     10447, UNOMINDA:     14154,
+  UPL:          11287, VBL:          18921, VEDL:         3063,  VMM:          27969,
+  VOLTAS:       3718,  WAAREEENER:   25907, WIPRO:        3787,  YESBANK:      11915,
+  ZYDUSLIFE:    7929,
+};
+
+// Ordered list of all symbols for the UI (indices first, then stocks alphabetically)
+export const ALL_FNO_SYMBOLS = {
+  indices: ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'],
+  stocks: Object.keys(FNO_SCRIP).sort(),
+};
+
+function getScripAndSeg(symbol: string): { scrip: number; seg: string } | null {
+  const upper = symbol.toUpperCase();
+  if (IDX_SCRIP[upper]) return { scrip: IDX_SCRIP[upper], seg: 'IDX_I' };
+  if (FNO_SCRIP[upper]) return { scrip: FNO_SCRIP[upper], seg: 'NSE_FNO' };
+  return null;
+}
+
 export async function fetchDhanOptionChain(
   symbol: string,
   expiry: string,
   clientId: string,
   accessToken: string,
 ): Promise<{ data: OptionChainData | null; error?: string }> {
-  const scrip = IDX_SCRIP[symbol.toUpperCase()];
-  if (!scrip) return { data: null, error: `Unknown symbol: ${symbol}` };
+  const meta = getScripAndSeg(symbol);
+  if (!meta) return { data: null, error: `Unknown symbol: ${symbol}` };
   try {
     const res = await fetch(`${DHAN_BASE}/v2/optionchain`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSeg: 'IDX_I', Expiry: expiry }),
+      body: JSON.stringify({ UnderlyingScrip: meta.scrip, UnderlyingSeg: meta.seg, Expiry: expiry }),
     });
     const raw = await res.text();
     if (!res.ok) {
@@ -160,13 +228,13 @@ export async function fetchDhanExpiry(
   clientId: string,
   accessToken: string,
 ): Promise<{ data: ExpiryList | null; error?: string }> {
-  const scrip = IDX_SCRIP[symbol.toUpperCase()];
-  if (!scrip) return { data: null, error: `Unknown symbol: ${symbol}` };
+  const meta = getScripAndSeg(symbol);
+  if (!meta) return { data: null, error: `Unknown symbol: ${symbol}` };
   try {
     const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSeg: 'IDX_I' }),
+      body: JSON.stringify({ UnderlyingScrip: meta.scrip, UnderlyingSeg: meta.seg }),
     });
     const raw = await res.text();
     if (!res.ok) {
