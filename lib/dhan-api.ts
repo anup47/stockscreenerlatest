@@ -166,9 +166,11 @@ export async function testDhanCredentials(
     if (res.ok) return { ok: true };
     let msg = `HTTP ${res.status}`;
     try {
-      const body = await res.json() as Record<string, unknown>;
-      msg = String(body.message ?? body.error ?? body.errorMessage ?? msg);
-    } catch { /* body not JSON */ }
+      const raw = await res.text();
+      const body = JSON.parse(raw) as Record<string, unknown>;
+      const detail = body.message ?? body.error ?? body.errorMessage ?? body.remarks ?? body.detail;
+      msg = detail ? `HTTP ${res.status}: ${String(detail)}` : `HTTP ${res.status} — ${raw.slice(0, 200)}`;
+    } catch { /* body not JSON — msg stays as HTTP NNN */ }
     return { ok: false, status: res.status, error: msg };
   } catch (e) {
     return { ok: false, error: `Network error: ${String(e)}` };
