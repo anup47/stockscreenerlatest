@@ -72,29 +72,34 @@ export function dhanHeaders(clientId: string, accessToken: string): HeadersInit 
 
 function parseOptionLeg(raw: Record<string, unknown>): OptionLeg {
   const greeks = (raw.greeks as Record<string, unknown>) ?? {};
-  // Dhan uses different field names across index vs stock option responses
-  const oiChange = Number(
-    raw.oiChange          ?? raw.oiDayChange     ?? raw.oi_chg           ??
-    raw.changeinOpenInterest ?? raw.change_in_oi ?? raw.openInterestChange ??
-    raw.oi_day_change     ?? raw.oichange        ?? 0
-  );
+  const oi     = Number(raw.oi ?? raw.openInterest ?? raw.open_interest ?? 0);
+  const prevOI = Number(raw.previous_oi ?? raw.previousOI ?? raw.prev_oi ?? 0);
+  // Use previous_oi (prev day close OI) when available; fall back to explicit oiChange field
+  const oiChange = prevOI > 0
+    ? oi - prevOI
+    : Number(
+        raw.oiChange ?? raw.oiDayChange ?? raw.oi_chg ??
+        raw.changeinOpenInterest ?? raw.change_in_oi ?? raw.openInterestChange ??
+        raw.oi_day_change ?? raw.oichange ?? 0
+      );
+  const oiChangePct = prevOI > 0 ? ((oi - prevOI) / prevOI) * 100 : 0;
   const iv = Number(
-    raw.iv                ?? raw.impliedVolatility ?? raw.implied_volatility ??
-    raw.impliedvol        ?? raw.impVol           ?? 0
+    raw.iv ?? raw.impliedVolatility ?? raw.implied_volatility ??
+    raw.impliedvol ?? raw.impVol ?? 0
   );
   return {
-    ltp:         Number(raw.ltp      ?? raw.last_price         ?? 0),
-    oi:          Number(raw.oi       ?? raw.openInterest       ?? raw.open_interest ?? 0),
+    ltp:         Number(raw.ltp ?? raw.last_price ?? 0),
+    oi,
     oiChange,
-    oiChangePct: 0,
-    volume:      Number(raw.volume   ?? raw.totalTradedVolume  ?? raw.total_traded_volume ?? 0),
+    oiChangePct,
+    volume:      Number(raw.volume ?? raw.totalTradedVolume ?? raw.total_traded_volume ?? 0),
     iv,
     delta:       Number(greeks.delta  ?? raw.delta  ?? 0),
     gamma:       Number(greeks.gamma  ?? raw.gamma  ?? 0),
     theta:       Number(greeks.theta  ?? raw.theta  ?? 0),
     vega:        Number(greeks.vega   ?? raw.vega   ?? 0),
-    bidPrice:    Number(raw.bidPrice ?? raw.bid_price ?? 0),
-    askPrice:    Number(raw.askPrice ?? raw.ask_price ?? 0),
+    bidPrice:    Number(raw.bidPrice ?? raw.bid_price ?? raw.top_bid_price ?? 0),
+    askPrice:    Number(raw.askPrice ?? raw.ask_price ?? raw.top_ask_price ?? 0),
   };
 }
 
