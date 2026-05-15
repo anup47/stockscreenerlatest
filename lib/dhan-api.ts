@@ -136,7 +136,7 @@ export async function fetchDhanOptionChain(
     const res = await fetch(`${DHAN_BASE}/v2/optionchain`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSegment: 'IDX_I', ExpiryDate: expiry }),
+      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSeg: 'IDX_I', Expiry: expiry }),
     });
     const raw = await res.text();
     if (!res.ok) {
@@ -166,7 +166,7 @@ export async function fetchDhanExpiry(
     const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSegment: 'IDX_I' }),
+      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSeg: 'IDX_I' }),
     });
     const raw = await res.text();
     if (!res.ok) {
