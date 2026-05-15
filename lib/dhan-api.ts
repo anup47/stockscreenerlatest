@@ -4,6 +4,7 @@ export interface OptionLeg {
   ltp: number;
   oi: number;
   oiChange: number;
+  oiChangePct: number;
   volume: number;
   iv: number;
   delta: number;
@@ -82,22 +83,23 @@ function parseOptionLeg(raw: Record<string, unknown>): OptionLeg {
     raw.impliedvol        ?? raw.impVol           ?? 0
   );
   return {
-    ltp:      Number(raw.ltp      ?? raw.last_price         ?? 0),
-    oi:       Number(raw.oi       ?? raw.openInterest       ?? raw.open_interest ?? 0),
+    ltp:         Number(raw.ltp      ?? raw.last_price         ?? 0),
+    oi:          Number(raw.oi       ?? raw.openInterest       ?? raw.open_interest ?? 0),
     oiChange,
-    volume:   Number(raw.volume   ?? raw.totalTradedVolume  ?? raw.total_traded_volume ?? 0),
+    oiChangePct: 0,
+    volume:      Number(raw.volume   ?? raw.totalTradedVolume  ?? raw.total_traded_volume ?? 0),
     iv,
-    delta:    Number(greeks.delta  ?? raw.delta  ?? 0),
-    gamma:    Number(greeks.gamma  ?? raw.gamma  ?? 0),
-    theta:    Number(greeks.theta  ?? raw.theta  ?? 0),
-    vega:     Number(greeks.vega   ?? raw.vega   ?? 0),
-    bidPrice: Number(raw.bidPrice ?? raw.bid_price ?? 0),
-    askPrice: Number(raw.askPrice ?? raw.ask_price ?? 0),
+    delta:       Number(greeks.delta  ?? raw.delta  ?? 0),
+    gamma:       Number(greeks.gamma  ?? raw.gamma  ?? 0),
+    theta:       Number(greeks.theta  ?? raw.theta  ?? 0),
+    vega:        Number(greeks.vega   ?? raw.vega   ?? 0),
+    bidPrice:    Number(raw.bidPrice ?? raw.bid_price ?? 0),
+    askPrice:    Number(raw.askPrice ?? raw.ask_price ?? 0),
   };
 }
 
 function emptyLeg(): OptionLeg {
-  return { ltp: 0, oi: 0, oiChange: 0, volume: 0, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, bidPrice: 0, askPrice: 0 };
+  return { ltp: 0, oi: 0, oiChange: 0, oiChangePct: 0, volume: 0, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, bidPrice: 0, askPrice: 0 };
 }
 
 export function parseDhanOptionChain(
@@ -381,4 +383,114 @@ export async function fetchFnoMovers(): Promise<FnOStock[]> {
       sector:    String(row.d[8] ?? ''),
     }));
   } catch { return []; }
+}
+
+// ── NSE option chain (public API — no credentials needed) ─────────────────────
+
+const MONTH: Record<string, string> = {
+  Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
+  Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12',
+};
+
+function nseToIso(d: string): string {
+  // "26-May-2025" → "2025-05-26"
+  const [day, mon, year] = d.split('-');
+  return `${year}-${MONTH[mon] ?? '01'}-${day.padStart(2, '0')}`;
+}
+
+// NSE symbol name overrides for indices
+const NSE_INDEX_SYMBOL: Record<string, string> = {
+  NIFTY: 'NIFTY', BANKNIFTY: 'BANKNIFTY',
+  FINNIFTY: 'FINNIFTY', MIDCPNIFTY: 'MIDCPNIFTY',
+};
+
+async function fetchNseCookies(): Promise<string> {
+  try {
+    const r = await fetch('https://www.nseindia.com/', {
+      headers: NSE_HEADERS, cache: 'no-store',
+    });
+    const raw = r.headers.get('set-cookie') ?? '';
+    return raw.split(',').map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
+  } catch { return ''; }
+}
+
+interface NseRecord {
+  strikePrice: number;
+  expiryDate?: string;
+  CE?: Record<string, unknown>;
+  PE?: Record<string, unknown>;
+}
+
+interface NseBody {
+  filtered?: { data?: NseRecord[] };
+  records?: { data?: NseRecord[]; underlyingValue?: number; expiryDates?: string[] };
+}
+
+function parseNseLeg(raw: Record<string, unknown>): OptionLeg {
+  return {
+    ltp:         Number(raw.lastPrice               ?? 0),
+    oi:          Number(raw.openInterest            ?? 0),
+    oiChange:    Number(raw.changeinOpenInterest     ?? 0),
+    oiChangePct: Number(raw.pchangeinOpenInterest    ?? 0),
+    volume:      Number(raw.totalTradedVolume        ?? 0),
+    iv:          Number(raw.impliedVolatility        ?? 0),
+    delta:       Number(raw.delta                   ?? 0),
+    gamma:       Number(raw.gamma                   ?? 0),
+    theta:       Number(raw.theta                   ?? 0),
+    vega:        Number(raw.vega                    ?? 0),
+    bidPrice:    Number(raw.bidprice ?? raw.bidPrice ?? 0),
+    askPrice:    Number(raw.askPrice ?? raw.askprice ?? 0),
+  };
+}
+
+export async function fetchNseOptionChain(
+  symbol: string,
+  expiry: string,
+): Promise<{ data: OptionChainData | null; expiries: string[]; error?: string }> {
+  try {
+    const cookies = await fetchNseCookies();
+    const isIndex = !!NSE_INDEX_SYMBOL[symbol.toUpperCase()];
+    const nseSymbol = symbol.toUpperCase();
+    const endpoint = isIndex
+      ? `https://www.nseindia.com/api/option-chain-indices?symbol=${nseSymbol}`
+      : `https://www.nseindia.com/api/option-chain-equities?symbol=${nseSymbol}`;
+
+    const res = await fetch(endpoint, {
+      headers: {
+        ...NSE_HEADERS,
+        'Accept': 'application/json, text/plain, */*',
+        ...(cookies ? { Cookie: cookies } : {}),
+      },
+      cache: 'no-store',
+    });
+
+    if (!res.ok) return { data: null, expiries: [], error: `NSE HTTP ${res.status}` };
+
+    const json = await res.json() as NseBody;
+    const expiries = (json.records?.expiryDates ?? []).map(nseToIso);
+    const allRecords: NseRecord[] = json.records?.data ?? json.filtered?.data ?? [];
+
+    // Filter to selected expiry
+    const records = expiry
+      ? allRecords.filter(r => !r.expiryDate || nseToIso(r.expiryDate) === expiry)
+      : allRecords;
+
+    const underlyingPrice = Number(json.records?.underlyingValue ?? 0);
+
+    const strikes: OptionStrike[] = records
+      .map(r => ({
+        strikePrice: r.strikePrice,
+        ce: r.CE ? parseNseLeg(r.CE) : emptyLeg(),
+        pe: r.PE ? parseNseLeg(r.PE) : emptyLeg(),
+      }))
+      .filter(s => !isNaN(s.strikePrice))
+      .sort((a, b) => a.strikePrice - b.strikePrice);
+
+    return {
+      data: { symbol, expiry, underlyingPrice, strikes, fetchedAt: new Date().toISOString() },
+      expiries,
+    };
+  } catch (e) {
+    return { data: null, expiries: [], error: `NSE error: ${String(e)}` };
+  }
 }

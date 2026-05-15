@@ -1,6 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
+import { useState, useEffect, useCallback } from 'react';
 import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
 
@@ -102,20 +101,21 @@ function TrendBadge({ trend, align }: { trend: 'Bullish' | 'Bearish'; align?: 'r
   );
 }
 
-function OIBar({ value, maxVal, rtl }: { value: number; maxVal: number; rtl?: boolean }) {
+function OIBar({ value, changePct, maxVal, rtl }: { value: number; changePct: number; maxVal: number; rtl?: boolean }) {
   const has = value !== 0;
-  const pct = (has && maxVal > 0) ? Math.min(Math.abs(value) / maxVal * 100, 100) : 0;
-  const pos = value >= 0;
+  const barW = (has && maxVal > 0) ? Math.min(Math.abs(value) / maxVal * 100, 100) : 0;
+  const pos  = value >= 0;
+  const pctStr = changePct !== 0 ? ` (${changePct > 0 ? '+' : ''}${changePct.toFixed(1)}%)` : '';
   return (
-    <div className="relative flex items-center h-[30px] overflow-hidden">
-      {pct > 2 && (
+    <div className="relative flex items-center h-[34px] overflow-hidden">
+      {barW > 2 && (
         <div className={`absolute inset-y-[4px] rounded-sm ${pos ? 'bg-emerald-500/35' : 'bg-rose-500/35'} ${rtl ? 'right-0' : 'left-0'}`}
-          style={{ width: `${pct}%` }} />
+          style={{ width: `${barW}%` }} />
       )}
-      <span className={`relative z-10 tabular-nums font-mono text-sm w-full font-medium
+      <span className={`relative z-10 tabular-nums font-mono text-sm w-full font-medium leading-tight
         ${rtl ? 'text-right pr-2.5' : 'text-left pl-2.5'}
         ${!has ? 'text-slate-600' : pos ? 'text-emerald-300' : 'text-rose-300'}`}>
-        {has ? fmtChg(value) : '—'}
+        {has ? `${fmtChg(value)}${pctStr}` : '—'}
       </span>
     </div>
   );
@@ -163,7 +163,7 @@ function StrikeRow({
       {/* ── CALLS ──────────────────────────────────────────────── */}
       <td className={`px-3 py-2 text-right ${dc}`}><TrendBadge trend={ceT} align="right" /></td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{iv(s.ce.iv)}</td>
-      <td className={`py-0 ${dc}`}><OIBar value={s.ce.oiChange} maxVal={maxCeChg} rtl /></td>
+      <td className={`py-0 ${dc}`}><OIBar value={s.ce.oiChange} changePct={s.ce.oiChangePct} maxVal={maxCeChg} rtl /></td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{oi(s.ce.oi, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{vol(s.ce.volume, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{bid(s.ce.bidPrice, dc)}</td>
@@ -186,7 +186,7 @@ function StrikeRow({
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{bid(s.pe.askPrice, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{vol(s.pe.volume, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{oi(s.pe.oi, dp)}</td>
-      <td className={`py-0 ${dp}`}><OIBar value={s.pe.oiChange} maxVal={maxPeChg} /></td>
+      <td className={`py-0 ${dp}`}><OIBar value={s.pe.oiChange} changePct={s.pe.oiChangePct} maxVal={maxPeChg} /></td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{iv(s.pe.iv)}</td>
       <td className={`px-3 py-2 text-left ${dp}`}><TrendBadge trend={peT} /></td>
     </tr>
@@ -260,78 +260,45 @@ function ValTable({ title, rows, accent }: { title: string; rows: ValRow[]; acce
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OptionChainPage() {
-  const creds = useDhanCredentials();
   const [symbol,   setSymbol]   = useState('NIFTY');
   const [expiries, setExpiries] = useState<string[]>([]);
   const [expiry,   setExpiry]   = useState('');
   const [data,     setData]     = useState<OptionChainData | null>(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
-  const [atmRange,   setAtmRange]   = useState(15);
-  const [showAll,    setShowAll]    = useState(false);
-  const [rawSample,  setRawSample]  = useState<Record<string, unknown> | null>(null);
-  const [showDebug,  setShowDebug]  = useState(false);
-
-  // Baseline OI for session-based OI change computation
-  // (Dhan v2 option chain does not include an OI change field for stock options)
-  const baseOIRef  = useRef<Map<number, { ce: number; pe: number }> | null>(null);
-  const baseKeyRef = useRef('');
+  const [atmRange, setAtmRange] = useState(15);
+  const [showAll,  setShowAll]  = useState(false);
 
   const loadExpiries = useCallback(async (sym: string) => {
-    if (!creds.isConfigured) return;
     setExpiries([]); setExpiry(''); setData(null); setError('');
     try {
-      const res  = await fetch(`/api/dhan/expiry?symbol=${sym}`, { headers: creds.headers });
+      const res  = await fetch(`/api/nse/expiry?symbol=${sym}`);
       const json = await res.json() as { expiries?: string[]; error?: string };
       if (!res.ok) { setError(json.error ?? 'Failed to load expiries'); return; }
       const list = json.expiries ?? [];
       setExpiries(list);
       if (list.length) setExpiry(list[0]);
     } catch (e) { setError(String(e)); }
-  }, [creds]);
+  }, []);
 
   const loadChain = useCallback(async () => {
-    if (!creds.isConfigured || !expiry) return;
+    if (!expiry) return;
     setLoading(true); setError('');
     try {
-      const res  = await fetch(`/api/dhan/option-chain?symbol=${symbol}&expiry=${expiry}`, { headers: creds.headers });
-      const json = await res.json() as OptionChainData & { rawSample?: Record<string, unknown> | null; error?: string };
-      if (!res.ok) { setError((json as { error?: string }).error ?? 'Failed'); return; }
-      setRawSample(json.rawSample ?? null);
-      // Establish baseline OI on first load for this symbol+expiry;
-      // subsequent refreshes compute change = currentOI - baselineOI
-      const chainKey = `${symbol}::${expiry}`;
-      if (chainKey !== baseKeyRef.current || !baseOIRef.current) {
-        baseKeyRef.current = chainKey;
-        const m = new Map<number, { ce: number; pe: number }>();
-        for (const s of (json.strikes ?? [])) m.set(s.strikePrice, { ce: s.ce.oi, pe: s.pe.oi });
-        baseOIRef.current = m;
-      }
+      const res  = await fetch(`/api/nse/option-chain?symbol=${symbol}&expiry=${expiry}`);
+      const json = await res.json() as OptionChainData & { error?: string };
+      if (!res.ok) { setError(json.error ?? 'Failed'); return; }
       setData(json);
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
-  }, [creds, symbol, expiry]);
+  }, [symbol, expiry]);
 
   useEffect(() => { loadExpiries(symbol); }, [symbol, loadExpiries]);
   useEffect(() => { if (expiry) loadChain(); }, [expiry, loadChain]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  // Inject session-based OI change (change since first load of this symbol+expiry)
-  const allStrikes = useMemo(() => {
-    const raw = data?.strikes ?? [];
-    const base = baseOIRef.current;
-    if (!base) return raw;
-    return raw.map(s => {
-      const b = base.get(s.strikePrice);
-      if (!b) return s;
-      return {
-        ...s,
-        ce: { ...s.ce, oiChange: s.ce.oi - b.ce },
-        pe: { ...s.pe, oiChange: s.pe.oi - b.pe },
-      };
-    });
-  }, [data]);
+  const allStrikes = data?.strikes ?? [];
   const spot       = data?.underlyingPrice ?? 0;
   const atm        = allStrikes.length ? findATM(allStrikes, spot) : 0;
   const maxPain    = allStrikes.length ? calcMaxPain(allStrikes) : 0;
@@ -357,20 +324,6 @@ export default function OptionChainPage() {
   const atmRow     = allStrikes.find(s => s.strikePrice === atm);
   const atmIV      = atmRow ? (atmRow.ce.iv + atmRow.pe.iv) / 2 : 0;
   const stats      = allStrikes.length ? computeStats(allStrikes, spot) : null;
-
-  // ── Guard ───────────────────────────────────────────────────────────────────
-
-  if (!creds.isConfigured) {
-    return (
-      <main className="max-w-lg mx-auto px-4 py-20 text-center space-y-4">
-        <p className="text-3xl font-bold text-slate-200">Dhan API Not Configured</p>
-        <p className="text-slate-400 text-lg">Option Chain requires a Dhan broker API key.</p>
-        <a href="/settings" className="inline-block mt-4 px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors">
-          Go to Settings →
-        </a>
-      </main>
-    );
-  }
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -430,7 +383,7 @@ export default function OptionChainPage() {
             { label: 'ATM IV',           value: atmIV > 0 ? `${atmIV.toFixed(1)}%` : '—', color: 'text-orange-300 text-lg' },
             { label: 'Total CE OI',      value: fmtOI(totalCeOI),                       color: 'text-emerald-400 text-lg' },
             { label: 'Total PE OI',      value: fmtOI(totalPeOI),                       color: 'text-rose-400 text-lg' },
-            { label: 'OI Chg Basis',     value: 'This Session',                             color: 'text-slate-500 text-sm' },
+            { label: 'OI Chg Basis',     value: 'Day (NSE)',                                color: 'text-emerald-600 text-sm' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-center shadow">
               <div className={`font-bold font-mono leading-tight ${color}`}>{value}</div>
@@ -572,23 +525,6 @@ export default function OptionChainPage() {
             { label: 'ITM Volume', ce: stats.itmCeVol, pe: stats.itmPeVol, net: stats.itmPeVol - stats.itmCeVol },
             { label: 'PCR ITM', ce: stats.itmCeOI > 0 ? +(stats.itmPeOI/stats.itmCeOI).toFixed(2).toString() : '—', pe: '—' },
           ]} />
-        </div>
-      )}
-
-      {rawSample && (
-        <div className="border border-slate-700/60 rounded-xl overflow-hidden">
-          <button
-            onClick={() => setShowDebug(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-800/60 hover:bg-slate-800 transition-colors text-xs text-slate-400 font-mono"
-          >
-            <span>🔍 Raw Dhan field names (OI Change debug) — click to {showDebug ? 'hide' : 'expand'}</span>
-            <span>{showDebug ? '▲' : '▼'}</span>
-          </button>
-          {showDebug && (
-            <pre className="p-4 text-xs text-slate-300 bg-slate-950 overflow-x-auto leading-relaxed">
-              {JSON.stringify(rawSample, null, 2)}
-            </pre>
-          )}
         </div>
       )}
 
