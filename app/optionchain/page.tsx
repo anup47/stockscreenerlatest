@@ -260,17 +260,18 @@ function ValTable({ title, rows, accent }: { title: string; rows: ValRow[]; acce
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OptionChainPage() {
-  const [symbol,   setSymbol]   = useState('NIFTY');
-  const [expiries, setExpiries] = useState<string[]>([]);
-  const [expiry,   setExpiry]   = useState('');
-  const [data,     setData]     = useState<OptionChainData | null>(null);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
-  const [atmRange, setAtmRange] = useState(15);
-  const [showAll,  setShowAll]  = useState(false);
+  const [symbol,        setSymbol]        = useState('NIFTY');
+  const [expiries,      setExpiries]      = useState<string[]>([]);
+  const [expiry,        setExpiry]        = useState('');
+  const [data,          setData]          = useState<OptionChainData | null>(null);
+  const [loading,       setLoading]       = useState(false);
+  const [expiryLoading, setExpiryLoading] = useState(false);
+  const [error,         setError]         = useState('');
+  const [atmRange,      setAtmRange]      = useState(15);
+  const [showAll,       setShowAll]       = useState(false);
 
   const loadExpiries = useCallback(async (sym: string) => {
-    setExpiries([]); setExpiry(''); setData(null); setError('');
+    setExpiries([]); setExpiry(''); setData(null); setError(''); setExpiryLoading(true);
     try {
       const res  = await fetch(`/api/nse/expiry?symbol=${sym}`);
       const json = await res.json() as { expiries?: string[]; error?: string };
@@ -278,7 +279,9 @@ export default function OptionChainPage() {
       const list = json.expiries ?? [];
       setExpiries(list);
       if (list.length) setExpiry(list[0]);
+      if (!list.length) setError(`No expiries found for ${sym}. Symbol may be incorrect or not have F&O.`);
     } catch (e) { setError(String(e)); }
+    finally { setExpiryLoading(false); }
   }, []);
 
   const loadChain = useCallback(async () => {
@@ -334,9 +337,11 @@ export default function OptionChainPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap bg-slate-900 border border-slate-700/80 rounded-xl px-5 py-3 shadow">
         <div className="flex items-center gap-3 flex-wrap">
           <SymbolSearch value={symbol} onChange={s => { setSymbol(s); setData(null); }} />
-          <select value={expiry} onChange={e => setExpiry(e.target.value)} disabled={expiries.length === 0}
+          <select value={expiry} onChange={e => setExpiry(e.target.value)}
+            disabled={expiries.length === 0 || expiryLoading}
             className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-50 min-w-[130px]">
-            {expiries.length === 0 && <option value="">Loading…</option>}
+            {expiryLoading && <option value="">Loading expiries…</option>}
+            {!expiryLoading && expiries.length === 0 && <option value="">— select symbol —</option>}
             {expiries.map(e => <option key={e} value={e}>{e}</option>)}
           </select>
           <div className="flex items-center gap-4 bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300">

@@ -406,11 +406,22 @@ const NSE_INDEX_SYMBOL: Record<string, string> = {
 
 async function fetchNseCookies(): Promise<string> {
   try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
     const r = await fetch('https://www.nseindia.com/', {
-      headers: NSE_HEADERS, cache: 'no-store',
+      headers: { ...NSE_HEADERS, 'Connection': 'keep-alive' },
+      cache: 'no-store',
+      redirect: 'follow',
+      signal: ctrl.signal,
     });
-    const raw = r.headers.get('set-cookie') ?? '';
-    return raw.split(',').map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
+    clearTimeout(t);
+    // Node 20+ has getSetCookie(); fall back to splitting the combined header
+    type HeadersWithGetSetCookie = Headers & { getSetCookie?: () => string[] };
+    const hdrs = r.headers as HeadersWithGetSetCookie;
+    const arr: string[] = typeof hdrs.getSetCookie === 'function'
+      ? hdrs.getSetCookie()
+      : (r.headers.get('set-cookie') ?? '').split(/,(?=[^ ])/).map(s => s.trim());
+    return arr.map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
   } catch { return ''; }
 }
 
@@ -455,16 +466,29 @@ export async function fetchNseOptionChain(
       ? `https://www.nseindia.com/api/option-chain-indices?symbol=${nseSymbol}`
       : `https://www.nseindia.com/api/option-chain-equities?symbol=${nseSymbol}`;
 
-    const res = await fetch(endpoint, {
-      headers: {
-        ...NSE_HEADERS,
-        'Accept': 'application/json, text/plain, */*',
-        ...(cookies ? { Cookie: cookies } : {}),
-      },
-      cache: 'no-store',
-    });
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        headers: {
+          ...NSE_HEADERS,
+          'Accept': 'application/json, text/plain, */*',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(cookies ? { Cookie: cookies } : {}),
+        },
+        cache: 'no-store',
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(t);
+    }
 
-    if (!res.ok) return { data: null, expiries: [], error: `NSE HTTP ${res.status}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const hint = body.slice(0, 200);
+      return { data: null, expiries: [], error: `NSE HTTP ${res.status}${hint ? ` — ${hint}` : ''}` };
+    }
 
     const json = await res.json() as NseBody;
     const expiries = (json.records?.expiryDates ?? []).map(nseToIso);
@@ -491,6 +515,9 @@ export async function fetchNseOptionChain(
       expiries,
     };
   } catch (e) {
-    return { data: null, expiries: [], error: `NSE error: ${String(e)}` };
+    const msg = e instanceof Error && e.name === 'AbortError'
+      ? 'NSE API timed out (15 s). NSE may be blocking requests from this server.'
+      : `NSE error: ${String(e)}`;
+    return { data: null, expiries: [], error: msg };
   }
 }
