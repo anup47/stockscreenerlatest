@@ -138,19 +138,31 @@ export async function fetchDhanExpiry(
   symbol: string,
   clientId: string,
   accessToken: string,
-): Promise<ExpiryList | null> {
+): Promise<{ data: ExpiryList | null; error?: string }> {
   try {
     const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingSymbol: symbol, InstrumentType: 'OPTIDX' }),
+      body: JSON.stringify({ UnderlyingSymbol: symbol }),
     });
-    if (!res.ok) return null;
-    const body = await res.json() as Record<string, unknown>;
-    const raw = (body.data ?? body.expiryList ?? body) as unknown;
-    const arr: string[] = Array.isArray(raw) ? raw as string[] : [];
-    return { symbol, expiries: arr };
-  } catch { return null; }
+    const raw = await res.text();
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const b = JSON.parse(raw) as Record<string, unknown>;
+        const detail = b.message ?? b.error ?? b.errorMessage ?? b.remarks;
+        if (detail) msg = `HTTP ${res.status}: ${String(detail)}`;
+        else msg = `HTTP ${res.status} — ${raw.slice(0, 300)}`;
+      } catch { msg = `HTTP ${res.status} — ${raw.slice(0, 300)}`; }
+      return { data: null, error: msg };
+    }
+    const body = JSON.parse(raw) as Record<string, unknown>;
+    const list = (body.data ?? body.expiryList ?? body) as unknown;
+    const arr: string[] = Array.isArray(list) ? list as string[] : [];
+    return { data: { symbol, expiries: arr } };
+  } catch (e) {
+    return { data: null, error: `Network error: ${String(e)}` };
+  }
 }
 
 export async function testDhanCredentials(

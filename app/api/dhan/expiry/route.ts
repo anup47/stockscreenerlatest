@@ -11,9 +11,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing Dhan credentials. Configure them in Settings.' }, { status: 401 });
   }
 
-  const data = await fetchDhanExpiry(symbol, clientId, accessToken);
+  const { data, error } = await fetchDhanExpiry(symbol, clientId, accessToken);
   if (!data) {
-    return NextResponse.json({ error: `Failed to fetch expiry list for ${symbol}` }, { status: 502 });
+    return NextResponse.json({ error: error ?? `Failed to fetch expiry list for ${symbol}` }, { status: 502 });
   }
 
   return NextResponse.json(data);
