@@ -71,12 +71,22 @@ export function dhanHeaders(clientId: string, accessToken: string): HeadersInit 
 
 function parseOptionLeg(raw: Record<string, unknown>): OptionLeg {
   const greeks = (raw.greeks as Record<string, unknown>) ?? {};
+  // Dhan uses different field names across index vs stock option responses
+  const oiChange = Number(
+    raw.oiChange          ?? raw.oiDayChange     ?? raw.oi_chg           ??
+    raw.changeinOpenInterest ?? raw.change_in_oi ?? raw.openInterestChange ??
+    raw.oi_day_change     ?? raw.oichange        ?? 0
+  );
+  const iv = Number(
+    raw.iv                ?? raw.impliedVolatility ?? raw.implied_volatility ??
+    raw.impliedvol        ?? raw.impVol           ?? 0
+  );
   return {
-    ltp:      Number(raw.ltp      ?? raw.last_price ?? 0),
-    oi:       Number(raw.oi       ?? raw.openInterest ?? 0),
-    oiChange: Number(raw.oiChange ?? raw.oiDayChange ?? 0),
-    volume:   Number(raw.volume   ?? raw.totalTradedVolume ?? 0),
-    iv:       Number(raw.iv       ?? raw.impliedVolatility ?? 0),
+    ltp:      Number(raw.ltp      ?? raw.last_price         ?? 0),
+    oi:       Number(raw.oi       ?? raw.openInterest       ?? raw.open_interest ?? 0),
+    oiChange,
+    volume:   Number(raw.volume   ?? raw.totalTradedVolume  ?? raw.total_traded_volume ?? 0),
+    iv,
     delta:    Number(greeks.delta  ?? raw.delta  ?? 0),
     gamma:    Number(greeks.gamma  ?? raw.gamma  ?? 0),
     theta:    Number(greeks.theta  ?? raw.theta  ?? 0),
