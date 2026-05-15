@@ -569,12 +569,12 @@ async function loadScripMaster(symbol: string, expiry: string): Promise<Map<stri
     const iSecId   = col('SEM_SMST_SECURITY_ID');
     const iSeg     = col('SEM_SEGMENT');
     const iInstr   = col('SEM_INSTRUMENT_NAME');
-    const iExpiry  = col('SEM_EXPIRY_DATE');   // actual column name in Dhan CSV
+    const iExpiry  = col('SEM_EXPIRY_DATE');
     const iStrike  = col('SEM_STRIKE_PRICE');
     const iOptType = col('SEM_OPTION_TYPE');
-    const iUnderly = col('SM_SYMBOL_NAME');    // actual column name in Dhan CSV
+    const iTrading = col('SEM_TRADING_SYMBOL'); // e.g. "BHEL29MAY26440CE" — starts with symbol
 
-    if (iSecId < 0 || iSeg < 0 || iUnderly < 0) return _masterCache ?? new Map();
+    if (iSecId < 0 || iSeg < 0 || iTrading < 0) return _masterCache ?? new Map();
 
     const map = new Map<string, ScripEntry>();
     const upperSym = symbol.toUpperCase();
@@ -589,10 +589,11 @@ async function loadScripMaster(symbol: string, expiry: string): Promise<Map<stri
       const instr = cols[iInstr]?.trim() ?? '';
       if (instr !== 'OPTIDX' && instr !== 'OPTSTK') continue;
 
-      const underlying = cols[iUnderly]?.trim().replace(/['"]/g, '') ?? '';
-      if (underlying !== upperSym) continue;
+      // Match underlying via trading symbol (SM_SYMBOL_NAME is "BHELOPT" not "BHEL")
+      const tradingSymbol = cols[iTrading]?.trim() ?? '';
+      if (!tradingSymbol.toUpperCase().startsWith(upperSym)) continue;
 
-      // Normalise expiry to YYYY-MM-DD
+      // Normalise expiry: "2026-05-29 15:30:00" → "2026-05-29"
       const rawExp = (iExpiry >= 0 ? cols[iExpiry] : '') ?? '';
       const csvExpiry = rawExp.trim().replace(/['"]/g, '').split(' ')[0].split('T')[0];
       if (csvExpiry !== expiry) continue;
