@@ -17,9 +17,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'expiry parameter is required' }, { status: 400 });
   }
 
-  const data = await fetchDhanOptionChain(symbol, expiry, clientId, accessToken);
+  const { data, error } = await fetchDhanOptionChain(symbol, expiry, clientId, accessToken);
   if (!data) {
-    return NextResponse.json({ error: `Failed to fetch option chain for ${symbol} ${expiry}` }, { status: 502 });
+    return NextResponse.json({ error: error ?? `Failed to fetch option chain for ${symbol} ${expiry}` }, { status: 502 });
   }
 
   return NextResponse.json(data);

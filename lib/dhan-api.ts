@@ -116,22 +116,43 @@ export function parseDhanOptionChain(
 
 const DHAN_BASE = 'https://api.dhan.co';
 
+// Dhan v2 API requires numeric scrip IDs for index option chain calls
+const IDX_SCRIP: Record<string, number> = {
+  NIFTY:      13,
+  BANKNIFTY:  25,
+  FINNIFTY:   27,
+  MIDCPNIFTY: 442,
+};
+
 export async function fetchDhanOptionChain(
   symbol: string,
   expiry: string,
   clientId: string,
   accessToken: string,
-): Promise<OptionChainData | null> {
+): Promise<{ data: OptionChainData | null; error?: string }> {
+  const scrip = IDX_SCRIP[symbol.toUpperCase()];
+  if (!scrip) return { data: null, error: `Unknown symbol: ${symbol}` };
   try {
     const res = await fetch(`${DHAN_BASE}/v2/optionchain`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingSymbol: symbol, ExpiryDate: expiry, InstrumentType: 'OPTIDX' }),
+      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSegment: 'IDX_I', ExpiryDate: expiry }),
     });
-    if (!res.ok) return null;
-    const body: Record<string, unknown> = await res.json();
-    return parseDhanOptionChain(body, symbol, expiry);
-  } catch { return null; }
+    const raw = await res.text();
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const b = JSON.parse(raw) as Record<string, unknown>;
+        const detail = b.message ?? b.error ?? b.errorMessage ?? b.remarks;
+        msg = detail ? `HTTP ${res.status}: ${String(detail)}` : `HTTP ${res.status} — ${raw.slice(0, 300)}`;
+      } catch { msg = `HTTP ${res.status} — ${raw.slice(0, 300)}`; }
+      return { data: null, error: msg };
+    }
+    const body = JSON.parse(raw) as Record<string, unknown>;
+    return { data: parseDhanOptionChain(body, symbol, expiry) };
+  } catch (e) {
+    return { data: null, error: `Network error: ${String(e)}` };
+  }
 }
 
 export async function fetchDhanExpiry(
@@ -139,11 +160,13 @@ export async function fetchDhanExpiry(
   clientId: string,
   accessToken: string,
 ): Promise<{ data: ExpiryList | null; error?: string }> {
+  const scrip = IDX_SCRIP[symbol.toUpperCase()];
+  if (!scrip) return { data: null, error: `Unknown symbol: ${symbol}` };
   try {
     const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingSymbol: symbol }),
+      body: JSON.stringify({ UnderlyingScrip: scrip, UnderlyingSegment: 'IDX_I' }),
     });
     const raw = await res.text();
     if (!res.ok) {
