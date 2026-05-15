@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
 
@@ -163,7 +164,7 @@ function StrikeRow({
       {/* ── CALLS ──────────────────────────────────────────────── */}
       <td className={`px-3 py-2 text-right ${dc}`}><TrendBadge trend={ceT} align="right" /></td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{iv(s.ce.iv)}</td>
-      <td className={`py-0 ${dc}`}><OIBar value={s.ce.oiChange} changePct={s.ce.oiChangePct} maxVal={maxCeChg} rtl /></td>
+      <td className={`py-0 ${dc}`}><OIBar value={s.ce.oiChange} changePct={0} maxVal={maxCeChg} rtl /></td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{oi(s.ce.oi, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{vol(s.ce.volume, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{bid(s.ce.bidPrice, dc)}</td>
@@ -186,7 +187,7 @@ function StrikeRow({
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{bid(s.pe.askPrice, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{vol(s.pe.volume, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{oi(s.pe.oi, dp)}</td>
-      <td className={`py-0 ${dp}`}><OIBar value={s.pe.oiChange} changePct={s.pe.oiChangePct} maxVal={maxPeChg} /></td>
+      <td className={`py-0 ${dp}`}><OIBar value={s.pe.oiChange} changePct={0} maxVal={maxPeChg} /></td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{iv(s.pe.iv)}</td>
       <td className={`px-3 py-2 text-left ${dp}`}><TrendBadge trend={peT} /></td>
     </tr>
@@ -260,6 +261,7 @@ function ValTable({ title, rows, accent }: { title: string; rows: ValRow[]; acce
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OptionChainPage() {
+  const creds = useDhanCredentials();
   const [symbol,        setSymbol]        = useState('NIFTY');
   const [expiries,      setExpiries]      = useState<string[]>([]);
   const [expiry,        setExpiry]        = useState('');
@@ -270,38 +272,64 @@ export default function OptionChainPage() {
   const [atmRange,      setAtmRange]      = useState(15);
   const [showAll,       setShowAll]       = useState(false);
 
+  // Baseline OI map — used to compute change since first load of this symbol+expiry
+  const baseOIRef  = useRef<Map<number, { ce: number; pe: number }> | null>(null);
+  const baseKeyRef = useRef('');
+
   const loadExpiries = useCallback(async (sym: string) => {
+    if (!creds.isConfigured) return;
     setExpiries([]); setExpiry(''); setData(null); setError(''); setExpiryLoading(true);
     try {
-      const res  = await fetch(`/api/nse/expiry?symbol=${sym}`);
+      const res  = await fetch(`/api/dhan/expiry?symbol=${sym}`, { headers: creds.headers });
       const json = await res.json() as { expiries?: string[]; error?: string };
       if (!res.ok) { setError(json.error ?? 'Failed to load expiries'); return; }
       const list = json.expiries ?? [];
       setExpiries(list);
       if (list.length) setExpiry(list[0]);
-      if (!list.length) setError(`No expiries found for ${sym}. Symbol may be incorrect or not have F&O.`);
     } catch (e) { setError(String(e)); }
     finally { setExpiryLoading(false); }
-  }, []);
+  }, [creds]);
 
   const loadChain = useCallback(async () => {
-    if (!expiry) return;
+    if (!creds.isConfigured || !expiry) return;
     setLoading(true); setError('');
     try {
-      const res  = await fetch(`/api/nse/option-chain?symbol=${symbol}&expiry=${expiry}`);
+      const res  = await fetch(`/api/dhan/option-chain?symbol=${symbol}&expiry=${expiry}`, { headers: creds.headers });
       const json = await res.json() as OptionChainData & { error?: string };
       if (!res.ok) { setError(json.error ?? 'Failed'); return; }
+      // Establish OI baseline on first load of this symbol+expiry combination
+      const chainKey = `${symbol}::${expiry}`;
+      if (chainKey !== baseKeyRef.current || !baseOIRef.current) {
+        baseKeyRef.current = chainKey;
+        const m = new Map<number, { ce: number; pe: number }>();
+        for (const s of (json.strikes ?? [])) m.set(s.strikePrice, { ce: s.ce.oi, pe: s.pe.oi });
+        baseOIRef.current = m;
+      }
       setData(json);
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
-  }, [symbol, expiry]);
+  }, [creds, symbol, expiry]);
 
   useEffect(() => { loadExpiries(symbol); }, [symbol, loadExpiries]);
   useEffect(() => { if (expiry) loadChain(); }, [expiry, loadChain]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  const allStrikes = data?.strikes ?? [];
+  // Compute OI change = current OI − baseline OI (captured on first load)
+  const allStrikes = useMemo(() => {
+    const raw = data?.strikes ?? [];
+    const base = baseOIRef.current;
+    if (!base) return raw;
+    return raw.map(s => {
+      const b = base.get(s.strikePrice);
+      if (!b) return s;
+      return {
+        ...s,
+        ce: { ...s.ce, oiChange: s.ce.oi - b.ce },
+        pe: { ...s.pe, oiChange: s.pe.oi - b.pe },
+      };
+    });
+  }, [data]);
   const spot       = data?.underlyingPrice ?? 0;
   const atm        = allStrikes.length ? findATM(allStrikes, spot) : 0;
   const maxPain    = allStrikes.length ? calcMaxPain(allStrikes) : 0;
@@ -328,6 +356,20 @@ export default function OptionChainPage() {
   const atmIV      = atmRow ? (atmRow.ce.iv + atmRow.pe.iv) / 2 : 0;
   const stats      = allStrikes.length ? computeStats(allStrikes, spot) : null;
 
+  // ── Guard ───────────────────────────────────────────────────────────────────
+
+  if (!creds.isConfigured) {
+    return (
+      <main className="max-w-lg mx-auto px-4 py-20 text-center space-y-4">
+        <p className="text-3xl font-bold text-slate-200">Dhan API Not Configured</p>
+        <p className="text-slate-400 text-lg">Option Chain requires your Dhan broker API key.</p>
+        <a href="/settings" className="inline-block mt-4 px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors">
+          Go to Settings →
+        </a>
+      </main>
+    );
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -340,8 +382,8 @@ export default function OptionChainPage() {
           <select value={expiry} onChange={e => setExpiry(e.target.value)}
             disabled={expiries.length === 0 || expiryLoading}
             className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-50 min-w-[130px]">
-            {expiryLoading && <option value="">Loading expiries…</option>}
-            {!expiryLoading && expiries.length === 0 && <option value="">— select symbol —</option>}
+            {expiryLoading && <option value="">Loading…</option>}
+            {!expiryLoading && expiries.length === 0 && <option value="">— no expiries —</option>}
             {expiries.map(e => <option key={e} value={e}>{e}</option>)}
           </select>
           <div className="flex items-center gap-4 bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300">
@@ -388,7 +430,7 @@ export default function OptionChainPage() {
             { label: 'ATM IV',           value: atmIV > 0 ? `${atmIV.toFixed(1)}%` : '—', color: 'text-orange-300 text-lg' },
             { label: 'Total CE OI',      value: fmtOI(totalCeOI),                       color: 'text-emerald-400 text-lg' },
             { label: 'Total PE OI',      value: fmtOI(totalPeOI),                       color: 'text-rose-400 text-lg' },
-            { label: 'OI Chg Basis',     value: 'Day (NSE)',                                color: 'text-emerald-600 text-sm' },
+            { label: 'OI Chg Basis',     value: 'This Session',                             color: 'text-slate-500 text-sm' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-center shadow">
               <div className={`font-bold font-mono leading-tight ${color}`}>{value}</div>
