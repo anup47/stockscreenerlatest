@@ -112,7 +112,7 @@ export default function StrategyPage() {
   const netPrem = useMemo(() => calcNetPremium(legs), [legs]);
 
   return (
-    <main className="max-w-screen-xl mx-auto px-4 py-5 space-y-5">
+    <main className="w-full px-4 py-5 space-y-5">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Strategy Builder</h1>

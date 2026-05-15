@@ -243,7 +243,7 @@ export default function PositionsPage() {
   const totalPnL = summary.totalPnL;
 
   return (
-    <main className="max-w-screen-xl mx-auto px-4 py-5 space-y-5">
+    <main className="w-full px-4 py-5 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>

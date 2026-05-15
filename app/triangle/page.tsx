@@ -274,7 +274,7 @@ export default function TrianglePage() {
   );
 
   return (
-    <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
+    <main className="w-full px-4 py-6 space-y-4">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

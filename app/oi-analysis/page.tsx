@@ -630,7 +630,7 @@ export default function OIAnalysisPage() {
   const pcr       = strikes.length > 0 ? calcPCR(strikes) : 0;
 
   return (
-    <main className="max-w-screen-2xl mx-auto px-4 py-5 space-y-4">
+    <main className="w-full px-4 py-5 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
