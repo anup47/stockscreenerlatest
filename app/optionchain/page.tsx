@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
@@ -272,6 +272,11 @@ export default function OptionChainPage() {
   const [rawSample,  setRawSample]  = useState<Record<string, unknown> | null>(null);
   const [showDebug,  setShowDebug]  = useState(false);
 
+  // Baseline OI for session-based OI change computation
+  // (Dhan v2 option chain does not include an OI change field for stock options)
+  const baseOIRef  = useRef<Map<number, { ce: number; pe: number }> | null>(null);
+  const baseKeyRef = useRef('');
+
   const loadExpiries = useCallback(async (sym: string) => {
     if (!creds.isConfigured) return;
     setExpiries([]); setExpiry(''); setData(null); setError('');
@@ -293,6 +298,15 @@ export default function OptionChainPage() {
       const json = await res.json() as OptionChainData & { rawSample?: Record<string, unknown> | null; error?: string };
       if (!res.ok) { setError((json as { error?: string }).error ?? 'Failed'); return; }
       setRawSample(json.rawSample ?? null);
+      // Establish baseline OI on first load for this symbol+expiry;
+      // subsequent refreshes compute change = currentOI - baselineOI
+      const chainKey = `${symbol}::${expiry}`;
+      if (chainKey !== baseKeyRef.current || !baseOIRef.current) {
+        baseKeyRef.current = chainKey;
+        const m = new Map<number, { ce: number; pe: number }>();
+        for (const s of (json.strikes ?? [])) m.set(s.strikePrice, { ce: s.ce.oi, pe: s.pe.oi });
+        baseOIRef.current = m;
+      }
       setData(json);
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
@@ -303,7 +317,21 @@ export default function OptionChainPage() {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  const allStrikes = data?.strikes ?? [];
+  // Inject session-based OI change (change since first load of this symbol+expiry)
+  const allStrikes = useMemo(() => {
+    const raw = data?.strikes ?? [];
+    const base = baseOIRef.current;
+    if (!base) return raw;
+    return raw.map(s => {
+      const b = base.get(s.strikePrice);
+      if (!b) return s;
+      return {
+        ...s,
+        ce: { ...s.ce, oiChange: s.ce.oi - b.ce },
+        pe: { ...s.pe, oiChange: s.pe.oi - b.pe },
+      };
+    });
+  }, [data]);
   const spot       = data?.underlyingPrice ?? 0;
   const atm        = allStrikes.length ? findATM(allStrikes, spot) : 0;
   const maxPain    = allStrikes.length ? calcMaxPain(allStrikes) : 0;
@@ -402,7 +430,7 @@ export default function OptionChainPage() {
             { label: 'ATM IV',           value: atmIV > 0 ? `${atmIV.toFixed(1)}%` : '—', color: 'text-orange-300 text-lg' },
             { label: 'Total CE OI',      value: fmtOI(totalCeOI),                       color: 'text-emerald-400 text-lg' },
             { label: 'Total PE OI',      value: fmtOI(totalPeOI),                       color: 'text-rose-400 text-lg' },
-            { label: 'Showing',          value: `${strikes.length} / ${allStrikes.length}`, color: 'text-slate-400 text-base' },
+            { label: 'OI Chg Basis',     value: 'This Session',                             color: 'text-slate-500 text-sm' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-center shadow">
               <div className={`font-bold font-mono leading-tight ${color}`}>{value}</div>
