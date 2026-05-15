@@ -6,12 +6,11 @@ export const maxDuration = 30;
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const symbol      = (searchParams.get('symbol') ?? 'NIFTY').toUpperCase();
-  const expiry      = searchParams.get('expiry') ?? '';
   const clientId    = req.headers.get('x-dhan-client-id')    ?? searchParams.get('cid') ?? '';
   const accessToken = req.headers.get('x-dhan-access-token') ?? searchParams.get('tok') ?? '';
 
   try {
-    // ── 1. Scrip master ──────────────────────────────────────────────────────
+    // ── 1. Scrip master: get first matching option row ───────────────────────
     const csvRes = await fetch('https://images.dhan.co/api-data/api-scrip-master.csv', { cache: 'no-store' });
     if (!csvRes.ok) return NextResponse.json({ error: `CSV HTTP ${csvRes.status}` });
 
@@ -28,8 +27,8 @@ export async function GET(req: NextRequest) {
     const iOptType = col('SEM_OPTION_TYPE');
     const iUnderly = col('SM_SYMBOL_NAME');
 
-    const matchingRows: Record<string, string>[] = [];
-    for (let i = 1; i < lines.length && matchingRows.length < 5; i++) {
+    let firstRow: Record<string, string> | null = null;
+    for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line.includes(symbol)) continue;
       const cols = line.split(',');
@@ -40,47 +39,65 @@ export async function GET(req: NextRequest) {
       if (underlying !== symbol) continue;
       const obj: Record<string, string> = {};
       headers.forEach((h, idx) => { obj[h] = cols[idx]?.trim().replace(/['"]/g, '') ?? ''; });
-      matchingRows.push(obj);
+      firstRow = obj;
+      break;
     }
 
-    const firstRow = matchingRows[0];
-
-    // ── 2. Historical API test (if credentials provided and secId found) ──────
-    let historyTest: Record<string, unknown> = {};
-    if (clientId && accessToken && firstRow) {
-      const secId      = firstRow['SEM_SMST_SECURITY_ID'] ?? '';
-      const instrument = firstRow['SEM_INSTRUMENT_NAME']  ?? '';
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
-      const dateStr = d.toISOString().split('T')[0];
-
-      const hRes = await fetch('https://api.dhan.co/v2/charts/historical', {
-        method: 'POST',
-        headers: dhanHeaders(clientId, accessToken),
-        body: JSON.stringify({
-          securityId: secId,
-          exchangeSegment: 'NSE_FO',
-          instrument,
-          expiryCode: 0,
-          fromDate: dateStr,
-          toDate: dateStr,
-        }),
-      });
-      const hText = await hRes.text();
-      let hJson: unknown;
-      try { hJson = JSON.parse(hText); } catch { hJson = hText.slice(0, 500); }
-      historyTest = { secId, instrument, dateStr, httpStatus: hRes.status, response: hJson };
+    if (!firstRow || !clientId || !accessToken) {
+      return NextResponse.json({ headers, foundRow: firstRow, note: 'Add ?cid=&tok= to test APIs' });
     }
+
+    const secId      = firstRow['SEM_SMST_SECURITY_ID'];
+    const instrument = firstRow['SEM_INSTRUMENT_NAME'];
+
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    const dateStr = d.toISOString().split('T')[0];
+
+    // ── 2. Test A: historical API ────────────────────────────────────────────
+    const hRes = await fetch('https://api.dhan.co/v2/charts/historical', {
+      method: 'POST',
+      headers: dhanHeaders(clientId, accessToken),
+      body: JSON.stringify({
+        securityId: secId,
+        exchangeSegment: 'NSE_FO',
+        instrument,
+        expiryCode: 0,
+        fromDate: dateStr,
+        toDate: dateStr,
+      }),
+    });
+    const hText = await hRes.text();
+    let hJson: unknown;
+    try { hJson = JSON.parse(hText); } catch { hJson = hText.slice(0, 500); }
+
+    // ── 3. Test B: market feed OHLC ──────────────────────────────────────────
+    const mRes = await fetch('https://api.dhan.co/v2/marketfeed/ohlc', {
+      method: 'POST',
+      headers: dhanHeaders(clientId, accessToken),
+      body: JSON.stringify({ NSE_FO: [secId] }),
+    });
+    const mText = await mRes.text();
+    let mJson: unknown;
+    try { mJson = JSON.parse(mText); } catch { mJson = mText.slice(0, 500); }
+
+    // ── 4. Test C: market feed full quote ────────────────────────────────────
+    const qRes = await fetch('https://api.dhan.co/v2/marketfeed/quote', {
+      method: 'POST',
+      headers: dhanHeaders(clientId, accessToken),
+      body: JSON.stringify({ NSE_FO: [secId] }),
+    });
+    const qText = await qRes.text();
+    let qJson: unknown;
+    try { qJson = JSON.parse(qText); } catch { qJson = qText.slice(0, 500); }
 
     return NextResponse.json({
-      headers,
-      columnIndices: { iSecId, iSeg, iInstr, iExpiry, iStrike, iOptType, iUnderly },
-      symbol, expiry,
-      totalLines: lines.length,
-      matchingRowCount: matchingRows.length,
-      sampleRows: matchingRows,
-      historyTest,
+      scripRow: firstRow,
+      testDate: dateStr,
+      historicalAPI: { status: hRes.status, response: hJson },
+      marketFeedOHLC: { status: mRes.status, response: mJson },
+      marketFeedQuote: { status: qRes.status, response: qJson },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
