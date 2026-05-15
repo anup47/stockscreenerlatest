@@ -104,12 +104,19 @@ export function parseDhanOptionChain(
   body: Record<string, unknown>,
   symbol: string,
   expiry: string,
-): OptionChainData {
+): { chain: OptionChainData; rawSample: Record<string, unknown> | null } {
   const data = (body.data ?? body) as Record<string, unknown>;
   const oc   = (data.oc ?? data.optionChain ?? {}) as Record<string, Record<string, unknown>>;
   const underlyingPrice = Number(data.last_price ?? data.underlyingValue ?? data.underlying_price ?? 0);
 
-  const strikes: OptionStrike[] = Object.entries(oc)
+  const entries = Object.entries(oc);
+  // grab a middle strike (near ATM) as the sample, not first which may be far OTM with all zeros
+  const sampleEntry = entries[Math.floor(entries.length / 2)];
+  const rawSample: Record<string, unknown> | null = sampleEntry
+    ? { strike: sampleEntry[0], ce: sampleEntry[1].ce ?? null, pe: sampleEntry[1].pe ?? null }
+    : null;
+
+  const strikes: OptionStrike[] = entries
     .map(([strikeStr, legs]) => {
       const sp = Number(strikeStr);
       const ce = legs.ce ? parseOptionLeg(legs.ce as Record<string, unknown>) : emptyLeg();
@@ -119,7 +126,10 @@ export function parseDhanOptionChain(
     .filter(s => !isNaN(s.strikePrice))
     .sort((a, b) => a.strikePrice - b.strikePrice);
 
-  return { symbol, expiry, underlyingPrice, strikes, fetchedAt: new Date().toISOString() };
+  return {
+    chain: { symbol, expiry, underlyingPrice, strikes, fetchedAt: new Date().toISOString() },
+    rawSample,
+  };
 }
 
 // ── Server-side Dhan fetchers ─────────────────────────────────────────────────
@@ -207,7 +217,7 @@ export async function fetchDhanOptionChain(
   expiry: string,
   clientId: string,
   accessToken: string,
-): Promise<{ data: OptionChainData | null; error?: string }> {
+): Promise<{ data: OptionChainData | null; rawSample?: Record<string, unknown> | null; error?: string }> {
   const meta = getScripAndSeg(symbol);
   if (!meta) return { data: null, error: `Unknown symbol: ${symbol}` };
   try {
@@ -227,9 +237,10 @@ export async function fetchDhanOptionChain(
       return { data: null, error: msg };
     }
     const body = JSON.parse(raw) as Record<string, unknown>;
-    return { data: parseDhanOptionChain(body, symbol, expiry) };
+    const { chain, rawSample } = parseDhanOptionChain(body, symbol, expiry);
+    return { data: chain, rawSample };
   } catch (e) {
-    return { data: null, error: `Network error: ${String(e)}` };
+    return { data: null, rawSample: null, error: `Network error: ${String(e)}` };
   }
 }
 

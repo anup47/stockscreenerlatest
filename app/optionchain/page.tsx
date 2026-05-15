@@ -267,8 +267,10 @@ export default function OptionChainPage() {
   const [data,     setData]     = useState<OptionChainData | null>(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
-  const [atmRange, setAtmRange] = useState(15);
-  const [showAll,  setShowAll]  = useState(false);
+  const [atmRange,   setAtmRange]   = useState(15);
+  const [showAll,    setShowAll]    = useState(false);
+  const [rawSample,  setRawSample]  = useState<Record<string, unknown> | null>(null);
+  const [showDebug,  setShowDebug]  = useState(false);
 
   const loadExpiries = useCallback(async (sym: string) => {
     if (!creds.isConfigured) return;
@@ -288,8 +290,9 @@ export default function OptionChainPage() {
     setLoading(true); setError('');
     try {
       const res  = await fetch(`/api/dhan/option-chain?symbol=${symbol}&expiry=${expiry}`, { headers: creds.headers });
-      const json = await res.json() as OptionChainData & { error?: string };
+      const json = await res.json() as OptionChainData & { rawSample?: Record<string, unknown> | null; error?: string };
       if (!res.ok) { setError((json as { error?: string }).error ?? 'Failed'); return; }
+      setRawSample(json.rawSample ?? null);
       setData(json);
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
@@ -541,6 +544,23 @@ export default function OptionChainPage() {
             { label: 'ITM Volume', ce: stats.itmCeVol, pe: stats.itmPeVol, net: stats.itmPeVol - stats.itmCeVol },
             { label: 'PCR ITM', ce: stats.itmCeOI > 0 ? +(stats.itmPeOI/stats.itmCeOI).toFixed(2).toString() : '—', pe: '—' },
           ]} />
+        </div>
+      )}
+
+      {rawSample && (
+        <div className="border border-slate-700/60 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setShowDebug(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-800/60 hover:bg-slate-800 transition-colors text-xs text-slate-400 font-mono"
+          >
+            <span>🔍 Raw Dhan field names (OI Change debug) — click to {showDebug ? 'hide' : 'expand'}</span>
+            <span>{showDebug ? '▲' : '▼'}</span>
+          </button>
+          {showDebug && (
+            <pre className="p-4 text-xs text-slate-300 bg-slate-950 overflow-x-auto leading-relaxed">
+              {JSON.stringify(rawSample, null, 2)}
+            </pre>
+          )}
         </div>
       )}
 
