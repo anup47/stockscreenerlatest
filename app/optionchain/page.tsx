@@ -164,7 +164,7 @@ function StrikeRow({
       {/* ── CALLS ──────────────────────────────────────────────── */}
       <td className={`px-3 py-2 text-right ${dc}`}><TrendBadge trend={ceT} align="right" /></td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{iv(s.ce.iv)}</td>
-      <td className={`py-0 ${dc}`}><OIBar value={s.ce.oiChange} changePct={0} maxVal={maxCeChg} rtl /></td>
+      <td className={`py-0 ${dc}`}><OIBar value={s.ce.oiChange} changePct={s.ce.oiChangePct} maxVal={maxCeChg} rtl /></td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{oi(s.ce.oi, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{vol(s.ce.volume, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{bid(s.ce.bidPrice, dc)}</td>
@@ -187,7 +187,7 @@ function StrikeRow({
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{bid(s.pe.askPrice, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{vol(s.pe.volume, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{oi(s.pe.oi, dp)}</td>
-      <td className={`py-0 ${dp}`}><OIBar value={s.pe.oiChange} changePct={0} maxVal={maxPeChg} /></td>
+      <td className={`py-0 ${dp}`}><OIBar value={s.pe.oiChange} changePct={s.pe.oiChangePct} maxVal={maxPeChg} /></td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{iv(s.pe.iv)}</td>
       <td className={`px-3 py-2 text-left ${dp}`}><TrendBadge trend={peT} /></td>
     </tr>
@@ -272,13 +272,18 @@ export default function OptionChainPage() {
   const [atmRange,      setAtmRange]      = useState(15);
   const [showAll,       setShowAll]       = useState(false);
 
-  // Baseline OI map — used to compute change since first load of this symbol+expiry
+  // prevOIMap: strike → { cePrevOI, pePrevOI } from previous trading day
+  // loaded asynchronously after chain loads; null = still loading / not yet fetched
+  const [prevOIMap, setPrevOIMap] = useState<Record<number, { cePrevOI: number; pePrevOI: number }> | null>(null);
+  const [oiChgLoading, setOiChgLoading] = useState(false);
+
+  // Baseline OI — fallback when prevOIMap is not yet available
   const baseOIRef  = useRef<Map<number, { ce: number; pe: number }> | null>(null);
   const baseKeyRef = useRef('');
 
   const loadExpiries = useCallback(async (sym: string) => {
     if (!creds.isConfigured) return;
-    setExpiries([]); setExpiry(''); setData(null); setError(''); setExpiryLoading(true);
+    setExpiries([]); setExpiry(''); setData(null); setPrevOIMap(null); setError(''); setExpiryLoading(true);
     try {
       const res  = await fetch(`/api/dhan/expiry?symbol=${sym}`, { headers: creds.headers });
       const json = await res.json() as { expiries?: string[]; error?: string };
@@ -290,6 +295,22 @@ export default function OptionChainPage() {
     finally { setExpiryLoading(false); }
   }, [creds]);
 
+  const loadOIChange = useCallback(async (sym: string, exp: string, strikes: number[]) => {
+    if (!creds.isConfigured || !strikes.length) return;
+    setOiChgLoading(true);
+    try {
+      const res  = await fetch('/api/dhan/oi-change', {
+        method: 'POST',
+        headers: { ...creds.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym, expiry: exp, strikes }),
+      });
+      if (!res.ok) return;
+      const json = await res.json() as Record<number, { cePrevOI: number; pePrevOI: number }>;
+      setPrevOIMap(json);
+    } catch { /* silent — falls back to session OI */ }
+    finally { setOiChgLoading(false); }
+  }, [creds]);
+
   const loadChain = useCallback(async () => {
     if (!creds.isConfigured || !expiry) return;
     setLoading(true); setError('');
@@ -297,27 +318,48 @@ export default function OptionChainPage() {
       const res  = await fetch(`/api/dhan/option-chain?symbol=${symbol}&expiry=${expiry}`, { headers: creds.headers });
       const json = await res.json() as OptionChainData & { error?: string };
       if (!res.ok) { setError(json.error ?? 'Failed'); return; }
-      // Establish OI baseline on first load of this symbol+expiry combination
+      // Session baseline (fallback until prevOIMap loads)
       const chainKey = `${symbol}::${expiry}`;
       if (chainKey !== baseKeyRef.current || !baseOIRef.current) {
         baseKeyRef.current = chainKey;
         const m = new Map<number, { ce: number; pe: number }>();
         for (const s of (json.strikes ?? [])) m.set(s.strikePrice, { ce: s.ce.oi, pe: s.pe.oi });
         baseOIRef.current = m;
+        setPrevOIMap(null);  // reset prev OI so we re-fetch for new symbol/expiry
       }
       setData(json);
+      // Kick off background prev-day OI fetch
+      const allStrikePrices = (json.strikes ?? []).map(s => s.strikePrice);
+      loadOIChange(symbol, expiry, allStrikePrices);
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
-  }, [creds, symbol, expiry]);
+  }, [creds, symbol, expiry, loadOIChange]);
 
   useEffect(() => { loadExpiries(symbol); }, [symbol, loadExpiries]);
   useEffect(() => { if (expiry) loadChain(); }, [expiry, loadChain]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  // Compute OI change = current OI − baseline OI (captured on first load)
   const allStrikes = useMemo(() => {
     const raw = data?.strikes ?? [];
+    if (!raw.length) return raw;
+
+    // Use real prev-day OI when available, otherwise fall back to session baseline
+    if (prevOIMap && Object.keys(prevOIMap).length > 0) {
+      return raw.map(s => {
+        const p = prevOIMap[s.strikePrice];
+        if (!p) return s;
+        const ceChg = s.ce.oi - p.cePrevOI;
+        const peChg = s.pe.oi - p.pePrevOI;
+        return {
+          ...s,
+          ce: { ...s.ce, oiChange: ceChg, oiChangePct: p.cePrevOI > 0 ? (ceChg / p.cePrevOI) * 100 : 0 },
+          pe: { ...s.pe, oiChange: peChg, oiChangePct: p.pePrevOI > 0 ? (peChg / p.pePrevOI) * 100 : 0 },
+        };
+      });
+    }
+
+    // Session fallback
     const base = baseOIRef.current;
     if (!base) return raw;
     return raw.map(s => {
@@ -329,7 +371,7 @@ export default function OptionChainPage() {
         pe: { ...s.pe, oiChange: s.pe.oi - b.pe },
       };
     });
-  }, [data]);
+  }, [data, prevOIMap]);
   const spot       = data?.underlyingPrice ?? 0;
   const atm        = allStrikes.length ? findATM(allStrikes, spot) : 0;
   const maxPain    = allStrikes.length ? calcMaxPain(allStrikes) : 0;
@@ -430,7 +472,9 @@ export default function OptionChainPage() {
             { label: 'ATM IV',           value: atmIV > 0 ? `${atmIV.toFixed(1)}%` : '—', color: 'text-orange-300 text-lg' },
             { label: 'Total CE OI',      value: fmtOI(totalCeOI),                       color: 'text-emerald-400 text-lg' },
             { label: 'Total PE OI',      value: fmtOI(totalPeOI),                       color: 'text-rose-400 text-lg' },
-            { label: 'OI Chg Basis',     value: 'This Session',                             color: 'text-slate-500 text-sm' },
+            { label: 'OI Chg Basis',
+              value: oiChgLoading ? 'Loading…' : prevOIMap ? 'Prev Day' : 'Session',
+              color: oiChgLoading ? 'text-amber-400 text-sm' : prevOIMap ? 'text-emerald-400 text-sm' : 'text-slate-500 text-sm' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-center shadow">
               <div className={`font-bold font-mono leading-tight ${color}`}>{value}</div>

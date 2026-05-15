@@ -521,3 +521,161 @@ export async function fetchNseOptionChain(
     return { data: null, expiries: [], error: msg };
   }
 }
+
+// ── Dhan scrip master → option contract security IDs ─────────────────────────
+//
+// Dhan's scrip master CSV maps every option contract (symbol+expiry+strike+CE/PE)
+// to a unique securityId. We download & cache it, then use the IDs to call the
+// historical API for previous-day OI.
+
+interface ScripEntry { secId: string; instrument: string }
+
+// Module-level caches (warm as long as the serverless instance lives)
+let _masterCache: Map<string, ScripEntry> | null = null;
+let _masterCacheKey = '';   // "SYMBOL:EXPIRY" — re-fetch when this changes
+let _masterCacheTime = 0;
+
+const _prevOICache = new Map<string, number>(); // secId → prevOI
+let   _prevOICacheDate = '';                    // YYYY-MM-DD — cleared daily
+
+function prevTradingDay(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+async function loadScripMaster(symbol: string, expiry: string): Promise<Map<string, ScripEntry>> {
+  const cacheKey = `${symbol}:${expiry}`;
+  const now = Date.now();
+  if (_masterCache && _masterCacheKey === cacheKey && now - _masterCacheTime < 8 * 3600_000) {
+    return _masterCache;
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch('https://images.dhan.co/api-data/api-scrip-master.csv', {
+      cache: 'no-store', signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return _masterCache ?? new Map();
+
+    const text = await res.text();
+    const lines = text.split('\n');
+    const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/['"]/g, ''));
+
+    const col = (name: string) => rawHeaders.indexOf(name);
+    const iSecId   = col('SEM_SMST_SECURITY_ID');
+    const iSeg     = col('SEM_SEGMENT');
+    const iInstr   = col('SEM_INSTRUMENT_NAME');
+    const iExpiry  = col('SM_EXPIRY_DATE');
+    const iStrike  = col('SEM_STRIKE_PRICE');
+    const iOptType = col('SEM_OPTION_TYPE');
+    const iUnderly = col('SEM_UNDERLYING_SYMBOL');
+
+    if (iSecId < 0 || iSeg < 0 || iUnderly < 0) return _masterCache ?? new Map();
+
+    const map = new Map<string, ScripEntry>();
+    const upperSym = symbol.toUpperCase();
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim() || !line.includes(upperSym)) continue;
+
+      const cols = line.split(',');
+      if (cols[iSeg]?.trim() !== 'NSE_FO') continue;
+
+      const instr = cols[iInstr]?.trim() ?? '';
+      if (instr !== 'OPTIDX' && instr !== 'OPTSTK') continue;
+
+      const underlying = cols[iUnderly]?.trim().replace(/['"]/g, '') ?? '';
+      if (underlying !== upperSym) continue;
+
+      // Normalise expiry to YYYY-MM-DD
+      const rawExp = (iExpiry >= 0 ? cols[iExpiry] : '') ?? '';
+      const csvExpiry = rawExp.trim().replace(/['"]/g, '').split(' ')[0].split('T')[0];
+      if (csvExpiry !== expiry) continue;
+
+      const secId  = cols[iSecId]?.trim().replace(/['"]/g, '') ?? '';
+      const strike = Number(cols[iStrike]?.trim() ?? '0');
+      const rawOpt = (cols[iOptType]?.trim() ?? '').toUpperCase();
+      const optType: 'CE' | 'PE' = rawOpt.startsWith('C') ? 'CE' : 'PE';
+
+      if (!secId || !strike || isNaN(strike)) continue;
+      map.set(`${strike}:${optType}`, { secId, instrument: instr });
+    }
+
+    _masterCache = map;
+    _masterCacheKey = cacheKey;
+    _masterCacheTime = now;
+    return map;
+  } catch {
+    clearTimeout(timer);
+    return _masterCache ?? new Map();
+  }
+}
+
+async function fetchOnePrevOI(
+  secId: string,
+  instrument: string,
+  clientId: string,
+  accessToken: string,
+): Promise<number> {
+  // Daily cache — prev-day OI doesn't change during the trading session
+  const today = new Date().toISOString().split('T')[0];
+  if (_prevOICacheDate !== today) { _prevOICache.clear(); _prevOICacheDate = today; }
+  if (_prevOICache.has(secId)) return _prevOICache.get(secId)!;
+
+  const dateStr = prevTradingDay();
+  try {
+    const res = await fetch(`${DHAN_BASE}/v2/charts/historical`, {
+      method: 'POST',
+      headers: dhanHeaders(clientId, accessToken),
+      body: JSON.stringify({
+        securityId: secId,
+        exchangeSegment: 'NSE_FO',
+        instrument,
+        expiryCode: 0,
+        fromDate: dateStr,
+        toDate: dateStr,
+      }),
+    });
+    if (!res.ok) { _prevOICache.set(secId, 0); return 0; }
+    const data = await res.json() as Record<string, unknown>;
+    const oiArr = (data.oi ?? data.openInterest ?? []) as number[];
+    const oi = oiArr.length > 0 ? Number(oiArr[oiArr.length - 1]) : 0;
+    _prevOICache.set(secId, oi);
+    return oi;
+  } catch { _prevOICache.set(secId, 0); return 0; }
+}
+
+// Exported: fetch prev-day OI for every strike in a chain (parallel batches of 10)
+export async function fetchPrevDayOIForChain(
+  symbol: string,
+  expiry: string,
+  strikes: number[],
+  clientId: string,
+  accessToken: string,
+): Promise<Record<number, { cePrevOI: number; pePrevOI: number }>> {
+  const scripMap = await loadScripMaster(symbol, expiry);
+  if (scripMap.size === 0) return {};
+
+  const result: Record<number, { cePrevOI: number; pePrevOI: number }> = {};
+  const BATCH = 10;
+
+  for (let i = 0; i < strikes.length; i += BATCH) {
+    const batch = strikes.slice(i, i + BATCH);
+    await Promise.all(batch.map(async strike => {
+      const ceEntry = scripMap.get(`${strike}:CE`);
+      const peEntry = scripMap.get(`${strike}:PE`);
+      const [cePrevOI, pePrevOI] = await Promise.all([
+        ceEntry ? fetchOnePrevOI(ceEntry.secId, ceEntry.instrument, clientId, accessToken) : Promise.resolve(0),
+        peEntry ? fetchOnePrevOI(peEntry.secId, peEntry.instrument, clientId, accessToken) : Promise.resolve(0),
+      ]);
+      result[strike] = { cePrevOI, pePrevOI };
+    }));
+  }
+
+  return result;
+}
