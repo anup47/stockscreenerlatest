@@ -17,20 +17,32 @@ export async function GET(req: NextRequest) {
     const lines   = text.split('\n');
     const headers = lines[0].split(',').map(h => h.trim().replace(/['"]/g, ''));
 
-    const col = (name: string) => headers.indexOf(name);
-    const iSeg     = col('SEM_SEGMENT');
-    const iInstr   = col('SEM_INSTRUMENT_NAME');
-    const iTrading = col('SEM_TRADING_SYMBOL');
+    // Show first 5 raw rows that contain the symbol — zero filtering
+    const rawRows: Record<string, string>[] = [];
+    const segmentsFound = new Set<string>();
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].includes(symbol)) continue;
+      const cols = lines[i].split(',');
+      const iSeg = headers.indexOf('SEM_SEGMENT');
+      if (iSeg >= 0) segmentsFound.add(cols[iSeg]?.trim() ?? '(empty)');
+      if (rawRows.length < 5) {
+        const obj: Record<string, string> = {};
+        headers.forEach((h, idx) => { obj[h] = cols[idx]?.trim().replace(/['"]/g, '') ?? ''; });
+        rawRows.push(obj);
+      }
+      if (rawRows.length >= 5 && segmentsFound.size >= 5) break;
+    }
 
-    // Find first 3 NSE_FO option rows for the symbol
+    // Also look specifically for NSE_FO rows
     const nseRows: Record<string, string>[] = [];
+    const iSeg     = headers.indexOf('SEM_SEGMENT');
+    const iInstr   = headers.indexOf('SEM_INSTRUMENT_NAME');
+    const iTrading = headers.indexOf('SEM_TRADING_SYMBOL');
     for (let i = 1; i < lines.length && nseRows.length < 3; i++) {
       if (!lines[i].includes(symbol)) continue;
       const cols = lines[i].split(',');
-      if (cols[iSeg]?.trim() !== 'NSE_FO') continue;
-      const instr = cols[iInstr]?.trim() ?? '';
-      if (instr !== 'OPTIDX' && instr !== 'OPTSTK') continue;
-      if (!cols[iTrading]?.toUpperCase().startsWith(symbol)) continue;
+      const seg = cols[iSeg]?.trim() ?? '';
+      if (!seg.includes('NSE') && !seg.includes('FO') && !seg.includes('FNO')) continue;
       const obj: Record<string, string> = {};
       headers.forEach((h, idx) => { obj[h] = cols[idx]?.trim().replace(/['"]/g, '') ?? ''; });
       nseRows.push(obj);
@@ -38,9 +50,10 @@ export async function GET(req: NextRequest) {
 
     // Test historical API with first NSE row's security ID
     let historyTest: Record<string, unknown> = {};
-    if (clientId && accessToken && nseRows[0]) {
-      const secId  = nseRows[0]['SEM_SMST_SECURITY_ID'];
-      const instr  = nseRows[0]['SEM_INSTRUMENT_NAME'];
+    const firstNse = nseRows[0];
+    if (clientId && accessToken && firstNse) {
+      const secId  = firstNse['SEM_SMST_SECURITY_ID'];
+      const instr  = firstNse['SEM_INSTRUMENT_NAME'];
       const d = new Date(); d.setDate(d.getDate() - 1);
       while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
       const dateStr = d.toISOString().split('T')[0];
@@ -55,7 +68,15 @@ export async function GET(req: NextRequest) {
       historyTest = { secId, instr, dateStr, status: hRes.status, response: hJson };
     }
 
-    return NextResponse.json({ nseRowCount: nseRows.length, nseRows, historyTest });
+    return NextResponse.json({
+      headers,
+      totalLines: lines.length,
+      segmentsFound: [...segmentsFound],
+      rawRows,      // first 5 rows containing symbol — unfiltered
+      nseRows,      // first 3 rows where segment contains NSE/FO/FNO
+      colIndexes: { iSeg, iInstr, iTrading },
+      historyTest,
+    });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
