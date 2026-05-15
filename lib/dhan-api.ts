@@ -126,7 +126,7 @@ export async function fetchDhanOptionChain(
     const res = await fetch(`${DHAN_BASE}/v2/optionchain`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingSymbol: symbol, ExpiryDate: expiry }),
+      body: JSON.stringify({ UnderlyingSymbol: symbol, ExpiryDate: expiry, InstrumentType: 'OPTIDX' }),
     });
     if (!res.ok) return null;
     const body: Record<string, unknown> = await res.json();
@@ -143,7 +143,7 @@ export async function fetchDhanExpiry(
     const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
       method: 'POST',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingSymbol: symbol }),
+      body: JSON.stringify({ UnderlyingSymbol: symbol, InstrumentType: 'OPTIDX' }),
     });
     if (!res.ok) return null;
     const body = await res.json() as Record<string, unknown>;
@@ -158,10 +158,10 @@ export async function testDhanCredentials(
   accessToken: string,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
   try {
-    const res = await fetch(`${DHAN_BASE}/v2/optionchain/expirylist`, {
-      method: 'POST',
+    // /v2/fundlimit is a lightweight GET that only requires auth headers
+    const res = await fetch(`${DHAN_BASE}/v2/fundlimit`, {
+      method: 'GET',
       headers: dhanHeaders(clientId, accessToken),
-      body: JSON.stringify({ UnderlyingSymbol: 'NIFTY' }),
     });
     if (res.ok) return { ok: true };
     let msg = `HTTP ${res.status}`;
@@ -170,7 +170,7 @@ export async function testDhanCredentials(
       const body = JSON.parse(raw) as Record<string, unknown>;
       const detail = body.message ?? body.error ?? body.errorMessage ?? body.remarks ?? body.detail;
       msg = detail ? `HTTP ${res.status}: ${String(detail)}` : `HTTP ${res.status} — ${raw.slice(0, 200)}`;
-    } catch { /* body not JSON — msg stays as HTTP NNN */ }
+    } catch { /* body not JSON */ }
     return { ok: false, status: res.status, error: msg };
   } catch (e) {
     return { ok: false, error: `Network error: ${String(e)}` };
