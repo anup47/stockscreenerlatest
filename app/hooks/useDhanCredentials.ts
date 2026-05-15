@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 export interface DhanCredentials {
   clientId:            string;
@@ -64,18 +64,24 @@ export function useDhanCredentials(): DhanCredentials {
     return { ok: false, error: result.error };
   }, [clientId, pin, totpSecret]);
 
-  const isConfigured         = Boolean(clientId && accessToken);
+  const isConfigured          = Boolean(clientId && accessToken);
   const isAutoRenewConfigured = Boolean(clientId && pin && totpSecret);
 
-  const headers: Record<string, string> = isConfigured
-    ? { 'x-dhan-client-id': clientId, 'x-dhan-access-token': accessToken }
-    : {};
+  // Memoize headers so its reference is stable between renders — prevents
+  // useCallback / useEffect dependency loops in consumer components.
+  const headers = useMemo<Record<string, string>>(
+    () => isConfigured
+      ? { 'x-dhan-client-id': clientId, 'x-dhan-access-token': accessToken }
+      : ({} as Record<string, string>),
+    [clientId, accessToken, isConfigured],
+  );
 
-  return {
+  // Memoize the whole return object for the same reason.
+  return useMemo(() => ({
     clientId, accessToken, pin, totpSecret,
     isConfigured, isAutoRenewConfigured,
     tokenGeneratedAt, headers, refreshToken,
-  };
+  }), [clientId, accessToken, pin, totpSecret, isConfigured, isAutoRenewConfigured, tokenGeneratedAt, headers, refreshToken]);
 }
 
 // Standalone fetch — called before state is set and inside callback
