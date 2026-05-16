@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 type TestStatus    = 'idle' | 'testing' | 'ok' | 'fail';
 type RefreshStatus = 'idle' | 'refreshing' | 'ok' | 'fail';
@@ -13,6 +14,7 @@ function tokenAge(iso: string): string {
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [clientId,         setClientId]        = useState('');
   const [accessToken,      setAccessToken]      = useState('');
   const [pin,              setPin]              = useState('');
@@ -24,16 +26,48 @@ export default function SettingsPage() {
   const [testError,      setTestError]     = useState('');
   const [refreshStatus,  setRefreshStatus] = useState<RefreshStatus>('idle');
   const [refreshError,   setRefreshError]  = useState('');
+  const [setupApplied,   setSetupApplied]  = useState(false);
+  const [linkCopied,     setLinkCopied]    = useState(false);
 
   useEffect(() => {
+    // Check for setup link in URL hash: #setup=BASE64_JSON
+    if (typeof window !== 'undefined' && window.location.hash.startsWith('#setup=')) {
+      try {
+        const encoded = window.location.hash.slice('#setup='.length);
+        const json    = JSON.parse(atob(encoded)) as Record<string, string>;
+        const id  = (json.c  ?? '').trim();
+        const tok = (json.t  ?? '').trim();
+        const p   = (json.p  ?? '').trim();
+        const ts  = (json.ts ?? '').trim();
+        if (id) {
+          localStorage.setItem('dhan_client_id',    id);
+          localStorage.setItem('dhan_access_token', tok);
+          localStorage.setItem('dhan_pin',          p);
+          localStorage.setItem('dhan_totp_secret',  ts);
+          setClientId(id);
+          setAccessToken(tok);
+          setPin(p);
+          setTotpSecret(ts);
+          setSetupApplied(true);
+          // Remove hash from URL so it doesn't sit in browser history
+          history.replaceState(null, '', window.location.pathname);
+          // Redirect to option chain after a short delay so user sees the success message
+          setTimeout(() => router.push('/optionchain'), 1500);
+          return;
+        }
+      } catch { /* ignore malformed hash */ }
+    }
+
+    // Normal load — read from localStorage
     setClientId(localStorage.getItem('dhan_client_id')          ?? '');
     setAccessToken(localStorage.getItem('dhan_access_token')    ?? '');
     setPin(localStorage.getItem('dhan_pin')                     ?? '');
     setTotpSecret(localStorage.getItem('dhan_totp_secret')      ?? '');
     setTokenGeneratedAt(localStorage.getItem('dhan_token_generated_at') ?? '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isConfigured         = Boolean(clientId.trim() && accessToken.trim());
+  const isConfigured          = Boolean(clientId.trim() && accessToken.trim());
   const isAutoRenewConfigured = Boolean(clientId.trim() && pin.trim() && totpSecret.trim());
 
   function save() {
@@ -52,6 +86,21 @@ export default function SettingsPage() {
     ['dhan_client_id','dhan_access_token','dhan_pin','dhan_totp_secret','dhan_token_generated_at']
       .forEach(k => localStorage.removeItem(k));
     setTestStatus('idle'); setRefreshStatus('idle');
+  }
+
+  function copySetupLink() {
+    const payload = JSON.stringify({
+      c:  clientId.trim(),
+      t:  accessToken.trim(),
+      p:  pin.trim(),
+      ts: totpSecret.trim(),
+    });
+    const encoded = btoa(payload);
+    const url = `${window.location.origin}/settings#setup=${encoded}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 3000);
+    });
   }
 
   async function testConnection() {
@@ -93,6 +142,16 @@ export default function SettingsPage() {
       setTokenGeneratedAt(json.generatedAt ?? new Date().toISOString());
       setRefreshStatus('ok');
     } catch (e) { setRefreshError(String(e)); setRefreshStatus('fail'); }
+  }
+
+  if (setupApplied) {
+    return (
+      <main className="flex flex-col items-center justify-center py-32 gap-4">
+        <div className="text-5xl">✓</div>
+        <p className="text-2xl font-bold text-emerald-400">Setup applied!</p>
+        <p className="text-slate-400">Credentials saved. Redirecting to Option Chain…</p>
+      </main>
+    );
   }
 
   return (
@@ -167,6 +226,36 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Setup Link */}
+      {isConfigured && (
+        <div className="bg-slate-900 border border-slate-700 rounded-lg p-5 space-y-3">
+          <p className="text-slate-200 font-semibold text-sm">Setup Link — Open on Any Device</p>
+          <p className="text-xs text-slate-400">
+            Generates a one-click URL that configures this app on any computer or phone instantly — no manual entry needed.
+            Open the link on a new device and credentials are applied automatically.
+          </p>
+          {!isAutoRenewConfigured && (
+            <p className="text-xs text-amber-400/80">
+              Note: this link includes your access token which expires daily. Set up Auto-Renew (PIN + TOTP) below for a permanent link.
+            </p>
+          )}
+          {isAutoRenewConfigured && (
+            <p className="text-xs text-emerald-400/80">
+              Includes PIN + TOTP secret — permanent link, token auto-refreshes on each device.
+            </p>
+          )}
+          <button onClick={copySetupLink}
+            className="px-5 py-2 bg-sky-700 hover:bg-sky-600 text-white font-semibold rounded text-sm transition-colors">
+            {linkCopied ? 'Link Copied ✓' : 'Copy Setup Link'}
+          </button>
+          {linkCopied && (
+            <p className="text-xs text-slate-500">
+              Paste this link in any browser to configure the app automatically. Keep it private — it contains your API credentials.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Auto-renew section */}
       <div className="bg-slate-900 border border-slate-700 rounded-lg p-5 space-y-4">
