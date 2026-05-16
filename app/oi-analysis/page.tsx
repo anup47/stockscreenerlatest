@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
@@ -571,7 +572,8 @@ type Tab = typeof TABS[number];
 
 
 export default function OIAnalysisPage() {
-  const creds = useDhanCredentials();
+  const router = useRouter();
+  const creds  = useDhanCredentials();
 
   const [symbol,   setSymbol]   = useState('NIFTY');
   const [expiries, setExpiries] = useState<string[]>([]);
@@ -608,17 +610,17 @@ export default function OIAnalysisPage() {
     finally { setLoading(false); }
   }, [creds, symbol, expiry]);
 
+  useEffect(() => {
+    if (creds.isHydrated && !creds.isConfigured) router.replace('/settings');
+  }, [creds.isHydrated, creds.isConfigured, router]);
+
   useEffect(() => { loadExpiries(symbol); }, [symbol, loadExpiries]);
   useEffect(() => { if (expiry) loadChain(); }, [expiry, loadChain]);
 
-  if (!creds.isConfigured) {
+  if (!creds.isHydrated || !creds.isConfigured) {
     return (
-      <main className="max-w-4xl mx-auto px-4 py-12 text-center space-y-4">
-        <p className="text-2xl font-bold text-slate-300">Dhan API Not Configured</p>
-        <p className="text-slate-400">OI Analysis requires a Dhan broker API key.</p>
-        <a href="/settings" className="inline-block mt-3 px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded text-sm transition-colors">
-          Go to Settings
-        </a>
+      <main className="flex items-center justify-center py-32">
+        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       </main>
     );
   }

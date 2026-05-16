@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import { SymbolSearch } from '@/app/components/SymbolSearch';
 import type { OptionChainData, OptionStrike } from '@/lib/dhan-api';
@@ -261,7 +262,8 @@ function ValTable({ title, rows, accent }: { title: string; rows: ValRow[]; acce
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OptionChainPage() {
-  const creds = useDhanCredentials();
+  const router = useRouter();
+  const creds  = useDhanCredentials();
   const [symbol,        setSymbol]        = useState('NIFTY');
   const [expiries,      setExpiries]      = useState<string[]>([]);
   const [expiry,        setExpiry]        = useState('');
@@ -298,6 +300,11 @@ export default function OptionChainPage() {
     finally { setLoading(false); }
   }, [creds, symbol, expiry]);
 
+  // Redirect to Settings once we know credentials are missing (after localStorage hydration)
+  useEffect(() => {
+    if (creds.isHydrated && !creds.isConfigured) router.replace('/settings');
+  }, [creds.isHydrated, creds.isConfigured, router]);
+
   useEffect(() => { loadExpiries(symbol); }, [symbol, loadExpiries]);
   useEffect(() => { if (expiry) loadChain(); }, [expiry, loadChain]);
 
@@ -332,15 +339,11 @@ export default function OptionChainPage() {
   const stats      = allStrikes.length ? computeStats(allStrikes, spot) : null;
 
   // ── Guard ───────────────────────────────────────────────────────────────────
-
-  if (!creds.isConfigured) {
+  // Show nothing (brief spinner) while localStorage is being read or redirect is in-flight
+  if (!creds.isHydrated || !creds.isConfigured) {
     return (
-      <main className="max-w-lg mx-auto px-4 py-20 text-center space-y-4">
-        <p className="text-3xl font-bold text-slate-200">Dhan API Not Configured</p>
-        <p className="text-slate-400 text-lg">Option Chain requires your Dhan broker API key.</p>
-        <a href="/settings" className="inline-block mt-4 px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors">
-          Go to Settings →
-        </a>
+      <main className="flex items-center justify-center py-32">
+        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       </main>
     );
   }

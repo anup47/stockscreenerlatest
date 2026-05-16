@@ -7,6 +7,7 @@ export interface DhanCredentials {
   pin:                 string;
   totpSecret:          string;
   isConfigured:        boolean;
+  isHydrated:          boolean;   // true after localStorage has been read (1st render is always false)
   isAutoRenewConfigured: boolean;
   tokenGeneratedAt:    string;   // ISO string or ''
   headers:             Record<string, string>;
@@ -19,19 +20,21 @@ export function useDhanCredentials(): DhanCredentials {
   const [pin,              setPin]               = useState('');
   const [totpSecret,       setTotpSecret]        = useState('');
   const [tokenGeneratedAt, setTokenGeneratedAt]  = useState('');
+  const [isHydrated,       setIsHydrated]        = useState(false);
 
   useEffect(() => {
-    const id    = localStorage.getItem('dhan_client_id')         ?? '';
-    const token = localStorage.getItem('dhan_access_token')      ?? '';
-    const p     = localStorage.getItem('dhan_pin')               ?? '';
-    const totp  = localStorage.getItem('dhan_totp_secret')       ?? '';
-    const gen   = localStorage.getItem('dhan_token_generated_at')  ?? '';
+    const id    = localStorage.getItem('dhan_client_id')          ?? '';
+    const token = localStorage.getItem('dhan_access_token')       ?? '';
+    const p     = localStorage.getItem('dhan_pin')                ?? '';
+    const totp  = localStorage.getItem('dhan_totp_secret')        ?? '';
+    const gen   = localStorage.getItem('dhan_token_generated_at') ?? '';
 
     setClientId(id);
     setAccessToken(token);
     setPin(p);
     setTotpSecret(totp);
     setTokenGeneratedAt(gen);
+    setIsHydrated(true);
 
     // Auto-refresh if token is stale (>23 h) and auto-renew is configured
     if (id && p && totp && gen) {
@@ -79,9 +82,9 @@ export function useDhanCredentials(): DhanCredentials {
   // Memoize the whole return object for the same reason.
   return useMemo(() => ({
     clientId, accessToken, pin, totpSecret,
-    isConfigured, isAutoRenewConfigured,
+    isConfigured, isHydrated, isAutoRenewConfigured,
     tokenGeneratedAt, headers, refreshToken,
-  }), [clientId, accessToken, pin, totpSecret, isConfigured, isAutoRenewConfigured, tokenGeneratedAt, headers, refreshToken]);
+  }), [clientId, accessToken, pin, totpSecret, isConfigured, isHydrated, isAutoRenewConfigured, tokenGeneratedAt, headers, refreshToken]);
 }
 
 // Standalone fetch — called before state is set and inside callback
