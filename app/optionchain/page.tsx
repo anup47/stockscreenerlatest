@@ -143,8 +143,8 @@ function StrikeRow({
     : ceT === 'Bullish' ? 'bg-emerald-950/20'
     : 'bg-rose-950/20';
 
-  const dc = itmc ? 'opacity-30' : '';
-  const dp = itmp ? 'opacity-30' : '';
+  const dc = itmc ? 'opacity-55' : '';
+  const dp = itmp ? 'opacity-55' : '';
 
   const iv  = (v: number) => v > 0 ? <span className="text-sky-300">{v.toFixed(1)}%</span> : <Dash />;
   const ltp = (v: number, dim: string, col: string) => (
@@ -392,9 +392,15 @@ export default function OptionChainPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-950/50 border border-red-700 rounded-xl px-5 py-3 text-red-300 text-sm font-medium">{error}</div>
-      )}
+      {error && (() => {
+        const is429 = error.includes('429') || error.toLowerCase().includes('too many requests') || error.toLowerCase().includes('rate');
+        const msg   = is429 ? 'Rate limited by Dhan API — wait 15–30 seconds before refreshing again.' : error;
+        return (
+          <div className={`rounded-xl px-5 py-3 text-sm font-medium border ${
+            is429 ? 'bg-amber-950/50 border-amber-700 text-amber-300' : 'bg-red-950/50 border-red-700 text-red-300'
+          }`}>{msg}</div>
+        );
+      })()}
 
       {/* ── Info bar — 9 cards full width ── */}
       {data && (
