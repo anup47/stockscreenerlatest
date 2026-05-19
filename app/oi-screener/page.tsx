@@ -167,7 +167,7 @@ export default function OIScreenerPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-gray-900">F&amp;O OI Change Screener</h1>
           <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
-            (PE − CE) OI Chg % of Total OI &nbsp;·&nbsp; {data ? `${data.scanned} symbols scanned · ${scannedTime}` : '~34 F&O symbols'}
+            (PE − CE) OI Chg % of Total OI &nbsp;·&nbsp; {data ? `${data.scanned} symbols scanned · ${scannedTime}` : '~30 F&O symbols'}
           </p>
         </div>
         <button

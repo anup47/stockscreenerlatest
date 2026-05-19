@@ -1,23 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchDhanExpiry, fetchDhanOptionChain } from '@/lib/dhan-api';
+import { fetchDhanExpiry, fetchDhanOptionChain, getScripAndSeg } from '@/lib/dhan-api';
 import type { OIScreenerRow } from '@/lib/oi-screener';
 
 export const maxDuration = 55;
 
-// Top 30 liquid stocks + 4 indices = 34 symbols screened
+// Indices with weekly Thursday expiry
+const WEEKLY_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY']);
+
+// ~30 liquid F&O symbols — must all exist in IDX_SCRIP or FNO_SCRIP in lib/dhan-api.ts
 const SCREEN_SYMBOLS = [
-  // Indices (weekly expiry)
+  // Indices
   'NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY',
   // Large-cap liquid F&O stocks
   'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS',
   'SBIN', 'AXISBANK', 'KOTAKBANK', 'LT', 'BAJFINANCE',
   'BHARTIARTL', 'WIPRO', 'HCLTECH', 'MARUTI', 'TITAN',
-  'ITC', 'HINDUNILVR', 'SUNPHARMA', 'DRREDDY',
-  'ONGC', 'NTPC', 'TATAMOTORS', 'TATASTEEL', 'ADANIPORTS',
-  'BAJAJFINSV', 'DIVISLAB', 'TECHM', 'ZOMATO',
+  'HINDUNILVR', 'SUNPHARMA', 'DRREDDY', 'EICHERMOT',
+  'ONGC', 'NTPC', 'TATASTEEL', 'ADANIPORTS',
+  'BAJAJFINSV', 'DIVISLAB', 'TECHM', 'ASIANPAINT',
   'HINDALCO', 'TATACONSUM',
 ];
-
 
 async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
@@ -50,22 +52,39 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Phase 1: fetch nearest expiry for each symbol (batches of 8, 200ms apart)
-  const expiryResults = await batchRun(
-    SCREEN_SYMBOLS,
-    async (sym) => {
-      const { data } = await fetchDhanExpiry(sym, clientId, accessToken);
-      return { sym, expiry: data?.expiries?.[0] ?? null };
-    },
-    8,
-    200,
-  );
+  // Phase 1: fetch 3 reference expiries in parallel (not 34 individual calls).
+  // NIFTY gives the weekly Thursday expiry for all weekly-expiry indices.
+  // MIDCPNIFTY has its own weekly expiry (Monday).
+  // RELIANCE gives the monthly expiry used for all stocks.
+  const [weeklyRes, midcpRes, stockRes] = await Promise.all([
+    fetchDhanExpiry('NIFTY',      clientId, accessToken),
+    fetchDhanExpiry('MIDCPNIFTY', clientId, accessToken),
+    fetchDhanExpiry('RELIANCE',   clientId, accessToken),
+  ]);
 
-  const withExpiry = expiryResults.filter(
-    (r): r is { sym: string; expiry: string } => r.expiry !== null,
-  );
+  const weeklyExpiry = weeklyRes.data?.expiries?.[0] ?? null;
+  const midcpExpiry  = midcpRes.data?.expiries?.[0]  ?? null;
+  const stockExpiry  = stockRes.data?.expiries?.[0]  ?? null;
 
-  // Phase 2: fetch option chains and aggregate CE/PE totals (batches of 8, 300ms apart)
+  if (!weeklyExpiry || !stockExpiry) {
+    const detail = [
+      !weeklyExpiry ? `NIFTY expiry: ${weeklyRes.error ?? 'no data'}` : '',
+      !stockExpiry  ? `RELIANCE expiry: ${stockRes.error ?? 'no data'}` : '',
+    ].filter(Boolean).join('; ');
+    return NextResponse.json({ error: `Could not fetch expiry dates. ${detail}` }, { status: 502 });
+  }
+
+  // Assign expiry per symbol — skip any symbol not in the scrip maps
+  const withExpiry = SCREEN_SYMBOLS
+    .filter(sym => !!getScripAndSeg(sym))
+    .map(sym => ({
+      sym,
+      expiry: WEEKLY_INDEX_SYMS.has(sym) ? weeklyExpiry
+            : sym === 'MIDCPNIFTY'        ? (midcpExpiry ?? weeklyExpiry)
+            :                              stockExpiry,
+    }));
+
+  // Phase 2: fetch option chains — batches of 5 with 1 s gap (conservative, avoids rate limits)
   const chainResults = await batchRun(
     withExpiry,
     async ({ sym, expiry }) => {
@@ -88,8 +107,8 @@ export async function GET(req: NextRequest) {
 
       return { symbol: sym, expiry, ceOI, peOI, ceOIChg, peOIChg, netOIChg, netOIChgPct, totalOI } as OIScreenerRow;
     },
-    8,
-    300,
+    5,
+    1000,
   );
 
   const rows = chainResults.filter((r): r is OIScreenerRow => r !== null);
