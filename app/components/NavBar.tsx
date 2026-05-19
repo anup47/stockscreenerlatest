@@ -8,6 +8,7 @@ const tabs = [
   { label: 'Options',      href: '/options' },
   { label: 'Triangle',     href: '/triangle' },
   { label: 'Market',       href: '/market' },
+  { label: 'OI Screen',    href: '/oi-screener' },
   { label: 'Option Chain', href: '/optionchain' },
   { label: 'OI Analysis',  href: '/oi-analysis' },
   { label: 'Strategy',     href: '/strategy' },
