@@ -143,8 +143,8 @@ function StrikeRow({
     : ceT === 'Bullish' ? 'bg-emerald-950/20'
     : 'bg-rose-950/20';
 
-  const dc = itmc ? 'opacity-55' : '';
-  const dp = itmp ? 'opacity-55' : '';
+  const dc = '';
+  const dp = '';
 
   const iv  = (v: number) => v > 0 ? <span className="text-sky-300">{v.toFixed(1)}%</span> : <Dash />;
   const ltp = (v: number, dim: string, col: string) => (
@@ -170,7 +170,7 @@ function StrikeRow({
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{vol(s.ce.volume, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums ${dc}`}>{bid(s.ce.bidPrice, dc)}</td>
       <td className={`px-3 py-2 text-right tabular-nums border-r border-slate-700/60 ${dc}`}>
-        {ltp(s.ce.ltp, dc, itmc ? 'text-slate-400' : 'text-emerald-300')}
+        {ltp(s.ce.ltp, dc, 'text-emerald-300')}
       </td>
 
       {/* ── STRIKE ── */}
@@ -183,7 +183,7 @@ function StrikeRow({
 
       {/* ── PUTS ── */}
       <td className={`px-3 py-2 text-left tabular-nums border-l border-slate-700/60 ${dp}`}>
-        {ltp(s.pe.ltp, dp, itmp ? 'text-slate-400' : 'text-rose-300')}
+        {ltp(s.pe.ltp, dp, 'text-rose-300')}
       </td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{bid(s.pe.askPrice, dp)}</td>
       <td className={`px-3 py-2 text-left tabular-nums ${dp}`}>{vol(s.pe.volume, dp)}</td>
