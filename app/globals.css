@@ -9,3 +9,113 @@
   100% { opacity: 0.4; }
 }
 .shimmer { animation: shimmer 1.5s ease-in-out infinite; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   LIGHT THEME — overrides placed after @tailwind utilities
+   Maps dark-mode slate classes → bright white/gray equivalents.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Page & panel backgrounds ─────────────────────────────────────── */
+.bg-slate-950          { background-color: #f8fafc; }
+.bg-slate-900          { background-color: #ffffff; }
+.bg-slate-800          { background-color: #f1f5f9; }
+.bg-slate-700          { background-color: #e2e8f0; }
+.bg-slate-950\/50      { background-color: rgb(248 250 252 / 0.5); }
+.bg-slate-900\/90      { background-color: rgb(255 255 255 / 0.9); }
+.bg-slate-800\/70      { background-color: rgb(241 245 249 / 0.7); }
+.bg-slate-800\/60      { background-color: rgb(241 245 249 / 0.6); }
+.bg-slate-800\/30      { background-color: rgb(241 245 249 / 0.3); }
+.bg-slate-800\/25      { background-color: rgb(241 245 249 / 0.25); }
+
+/* ── Text ─────────────────────────────────────────────────────────── */
+.text-slate-100  { color: #0f172a; }
+.text-slate-200  { color: #1e293b; }
+.text-slate-300  { color: #475569; }
+.text-slate-400  { color: #64748b; }
+.text-slate-500  { color: #94a3b8; }
+.text-slate-600  { color: #b0bec5; }
+.text-slate-700  { color: #cfd8dc; }
+
+/* ── Borders ──────────────────────────────────────────────────────── */
+.border-slate-700      { border-color: #e2e8f0; }
+.border-slate-700\/80  { border-color: rgb(226 232 240 / 0.8); }
+.border-slate-700\/60  { border-color: rgb(226 232 240 / 0.6); }
+.border-slate-700\/40  { border-color: rgb(226 232 240 / 0.4); }
+.border-slate-800      { border-color: #f1f5f9; }
+.border-slate-800\/60  { border-color: rgb(241 245 249 / 0.8); }
+.border-slate-800\/40  { border-color: rgb(226 232 240 / 0.5); }
+.border-slate-600      { border-color: #cbd5e1; }
+.border-slate-600\/80  { border-color: rgb(203 213 225 / 0.8); }
+.border-slate-600\/70  { border-color: rgb(203 213 225 / 0.7); }
+
+/* ── Row dividers ─────────────────────────────────────────────────── */
+.divide-slate-800\/40 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(226 232 240 / 0.6);
+}
+
+/* ── Accent text → darken for readability on white ───────────────── */
+.text-emerald-300  { color: #059669; }
+.text-emerald-400  { color: #16a34a; }
+.text-emerald-500  { color: #15803d; }
+.text-rose-300     { color: #dc2626; }
+.text-rose-400     { color: #b91c1c; }
+.text-sky-300      { color: #0284c7; }
+.text-sky-400      { color: #0369a1; }
+.text-amber-300    { color: #d97706; }
+.text-amber-400    { color: #b45309; }
+.text-violet-300   { color: #7c3aed; }
+.text-violet-400   { color: #6d28d9; }
+.text-orange-300   { color: #ea580c; }
+.text-orange-400   { color: #c2410c; }
+.text-cyan-400     { color: #0891b2; }
+.text-teal-300     { color: #0d9488; }
+.text-teal-400     { color: #0f766e; }
+.text-red-400      { color: #dc2626; }
+.text-red-300      { color: #ef4444; }
+.text-red-600      { color: #dc2626; }
+
+/* ── Badge fills (transparent overlays on white) ─────────────────── */
+.bg-emerald-500\/15  { background-color: rgb(16 185 129 / 0.1); }
+.bg-emerald-500\/20  { background-color: rgb(16 185 129 / 0.12); }
+.bg-emerald-500\/35  { background-color: rgb(16 185 129 / 0.15); }
+.bg-rose-500\/15     { background-color: rgb(239 68 68 / 0.1); }
+.bg-rose-500\/20     { background-color: rgb(239 68 68 / 0.12); }
+.bg-rose-500\/35     { background-color: rgb(239 68 68 / 0.15); }
+.bg-amber-500\/20    { background-color: rgb(245 158 11 / 0.12); }
+.bg-slate-500\/20    { background-color: rgb(100 116 139 / 0.1); }
+.bg-violet-500\/20   { background-color: rgb(139 92 246 / 0.12); }
+.bg-sky-500\/20      { background-color: rgb(14 165 233 / 0.12); }
+.bg-sky-500\/30      { background-color: rgb(14 165 233 / 0.15); }
+.bg-teal-500\/20     { background-color: rgb(20 184 166 / 0.12); }
+
+/* ── Table row tints (option chain rows) ─────────────────────────── */
+.bg-emerald-950\/20  { background-color: rgb(220 252 231 / 0.55); }
+.bg-rose-950\/20     { background-color: rgb(255 228 230 / 0.55); }
+.bg-amber-900\/45    { background-color: rgb(254 243 199 / 0.85); }
+.bg-violet-950\/50   { background-color: rgb(237 233 254 / 0.7); }
+
+/* ── Option chain section headers ────────────────────────────────── */
+.bg-emerald-950\/40  { background-color: rgb(220 252 231 / 0.5); }
+.bg-rose-950\/40     { background-color: rgb(255 228 230 / 0.5); }
+
+/* ── Legend badge backgrounds ────────────────────────────────────── */
+.bg-amber-900\/50    { background-color: rgb(254 243 199 / 0.7); }
+.bg-violet-900\/50   { background-color: rgb(237 233 254 / 0.7); }
+.bg-emerald-950\/60  { background-color: rgb(209 250 229 / 0.6); }
+.bg-rose-950\/60     { background-color: rgb(255 228 230 / 0.6); }
+.border-amber-600\/40  { border-color: rgb(217 119 6 / 0.5); }
+.border-violet-600\/40 { border-color: rgb(124 58 237 / 0.4); }
+.border-emerald-800\/40 { border-color: rgb(6 95 70 / 0.35); }
+.border-rose-800\/40  { border-color: rgb(159 18 57 / 0.35); }
+
+/* ── Error / rate-limit banners ──────────────────────────────────── */
+.bg-red-950\/50      { background-color: rgb(254 226 226 / 0.95); }
+.border-red-700      { border-color: #fca5a5; }
+.text-red-300        { color: #dc2626; }
+.bg-amber-950\/50    { background-color: rgb(254 243 199 / 0.95); }
+.border-amber-700    { border-color: #fcd34d; }
+.text-amber-300      { color: #d97706; }
+
+/* ── Hover rows in stats tables ──────────────────────────────────── */
+.hover\:bg-slate-800\/25:hover { background-color: rgb(226 232 240 / 0.5); }
+.hover\:brightness-110:hover   { filter: brightness(0.97); }

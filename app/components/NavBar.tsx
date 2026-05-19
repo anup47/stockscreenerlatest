@@ -18,7 +18,7 @@ const tabs = [
 export default function NavBar() {
   const path = usePathname();
   return (
-    <nav className="border-b border-slate-800 bg-slate-900 px-4 py-2 flex gap-1">
+    <nav className="border-b border-gray-200 bg-white px-4 py-2 flex gap-1 shadow-sm">
       {tabs.map(({ label, href }) => {
         const active = path === href;
         return (
@@ -28,7 +28,7 @@ export default function NavBar() {
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
               active
                 ? 'bg-emerald-600 text-white'
-                : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
             {label}

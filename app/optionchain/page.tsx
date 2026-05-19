@@ -175,10 +175,10 @@ function StrikeRow({
 
       {/* ── STRIKE ── */}
       <td className={`px-4 py-2 text-center font-bold border-x border-slate-600/70 whitespace-nowrap
-        ${isATM ? 'text-amber-300 text-base' : isMP ? 'text-violet-300 text-sm' : 'text-white text-sm'}`}>
+        ${isATM ? 'text-amber-600 text-base' : isMP ? 'text-violet-600 text-sm' : 'text-gray-800 text-sm'}`}>
         {s.strikePrice.toLocaleString('en-IN')}
-        {isATM && <div className="text-[9px] font-normal text-amber-500/90 leading-tight mt-0.5">ATM</div>}
-        {isMP   && <div className="text-[9px] font-normal text-violet-400/80 leading-tight mt-0.5">MaxPain</div>}
+        {isATM && <div className="text-[9px] font-normal text-amber-600 leading-tight mt-0.5">ATM</div>}
+        {isMP   && <div className="text-[9px] font-normal text-violet-600 leading-tight mt-0.5">MaxPain</div>}
       </td>
 
       {/* ── PUTS ── */}
@@ -462,16 +462,16 @@ export default function OptionChainPage() {
               <thead>
                 <tr>
                   <th colSpan={7} className="py-3 text-center text-sm font-black tracking-[0.25em] uppercase
-                    bg-gradient-to-r from-emerald-900 via-emerald-800/80 to-emerald-900/40
-                    text-emerald-300 border-r border-emerald-700/60">
+                    bg-gradient-to-r from-emerald-50 via-emerald-100 to-emerald-50
+                    text-emerald-700 border-r border-emerald-200">
                     ▲ CALLS
                   </th>
-                  <th className="py-3 bg-slate-800 border-x border-slate-600/80 text-xs font-bold text-slate-400 tracking-widest uppercase">
+                  <th className="py-3 bg-gray-100 border-x border-gray-300 text-xs font-bold text-gray-500 tracking-widest uppercase">
                     STRIKE
                   </th>
                   <th colSpan={7} className="py-3 text-center text-sm font-black tracking-[0.25em] uppercase
-                    bg-gradient-to-r from-rose-900/40 via-rose-800/80 to-rose-900
-                    text-rose-300 border-l border-rose-700/60">
+                    bg-gradient-to-r from-rose-50 via-rose-100 to-rose-50
+                    text-rose-700 border-l border-rose-200">
                     ▼ PUTS
                   </th>
                 </tr>
@@ -483,7 +483,7 @@ export default function OptionChainPage() {
                   <th className="px-3 py-3 text-right bg-emerald-950/40 text-emerald-500/80">Volume</th>
                   <th className="px-3 py-3 text-right bg-emerald-950/40 text-emerald-500/80">Bid</th>
                   <th className="px-3 py-3 text-right bg-emerald-950/40 text-emerald-500/80 border-r border-slate-700">LTP</th>
-                  <th className="px-3 py-3 text-center bg-slate-800 border-x border-slate-600/80 text-slate-300 text-sm">Price</th>
+                  <th className="px-3 py-3 text-center bg-gray-100 border-x border-gray-300 text-gray-600 text-sm">Price</th>
                   <th className="px-3 py-3 text-left bg-rose-950/40 text-rose-500/80 border-l border-slate-700">LTP</th>
                   <th className="px-3 py-3 text-left bg-rose-950/40 text-rose-500/80">Ask</th>
                   <th className="px-3 py-3 text-left bg-rose-950/40 text-rose-500/80">Volume</th>
