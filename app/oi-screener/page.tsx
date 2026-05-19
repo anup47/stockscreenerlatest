@@ -1,7 +1,7 @@
 'use client';
 import { useState, useCallback, useEffect } from 'react';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
-import type { OIScreenerRow } from '@/app/api/dhan/oi-screener/route';
+import type { OIScreenerRow } from '@/lib/oi-screener';
 
 interface ScreenerResponse {
   bullish:   OIScreenerRow[];

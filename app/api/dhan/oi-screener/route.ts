@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchDhanExpiry, fetchDhanOptionChain } from '@/lib/dhan-api';
+import type { OIScreenerRow } from '@/lib/oi-screener';
 
 export const maxDuration = 55;
 
 // Top 30 liquid stocks + 4 indices = 34 symbols screened
-export const SCREEN_SYMBOLS = [
+const SCREEN_SYMBOLS = [
   // Indices (weekly expiry)
   'NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY',
   // Large-cap liquid F&O stocks
@@ -17,17 +18,6 @@ export const SCREEN_SYMBOLS = [
   'HINDALCO', 'TATACONSUM',
 ];
 
-export interface OIScreenerRow {
-  symbol:       string;
-  expiry:       string;
-  ceOI:         number;
-  peOI:         number;
-  ceOIChg:      number;
-  peOIChg:      number;
-  netOIChg:     number;
-  netOIChgPct:  number;
-  totalOI:      number;
-}
 
 async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
