@@ -23,22 +23,22 @@ function IndexCard({ q }: { q: IndexQuote }) {
   const borderColor = up ? 'border-t-emerald-600' : 'border-t-red-600';
 
   return (
-    <div className={`bg-slate-900 border border-slate-700 border-t-2 ${borderColor} rounded-xl px-4 py-3 space-y-1`}>
+    <div className={`bg-slate-900 border border-slate-700 border-t-2 ${borderColor} rounded-xl px-4 py-4 space-y-1.5`}>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">{q.symbol}</span>
-        <span className={`text-xs font-semibold ${changeColor}`}>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{q.symbol}</span>
+        <span className={`text-xs font-bold ${changeColor}`}>
           {up ? '+' : ''}{q.changePct.toFixed(2)}%
         </span>
       </div>
-      <div className={`text-2xl font-bold font-mono ${q.symbol === 'VIX' ? 'text-amber-400' : 'text-slate-100'}`}>
+      <div className={`text-3xl font-bold font-mono tabular-nums leading-none ${q.symbol === 'VIX' ? 'text-amber-400' : 'text-slate-100'}`}>
         {fmt(q.ltp)}
       </div>
-      <div className={`text-sm font-mono ${changeColor}`}>
+      <div className={`text-sm font-mono tabular-nums font-semibold ${changeColor}`}>
         {up ? '+' : ''}{fmt(q.change)}
       </div>
-      <div className="flex justify-between text-xs text-slate-500 mt-1">
-        <span>H: {fmt(q.high)}</span>
-        <span>L: {fmt(q.low)}</span>
+      <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-medium">
+        <span>H {fmt(q.high)}</span>
+        <span>L {fmt(q.low)}</span>
       </div>
     </div>
   );
@@ -82,7 +82,7 @@ function MoversTable({ movers }: { movers: FnOStock[] }) {
       <div className="flex items-center gap-3 flex-wrap">
         {(['all', 'gainers', 'losers'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded text-sm font-semibold capitalize transition-colors ${filter === f ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+            className={`px-4 py-2 rounded text-sm font-semibold capitalize transition-colors ${filter === f ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:text-gray-900 hover:bg-gray-200'}`}>
             {f}
           </button>
         ))}
@@ -111,7 +111,7 @@ function MoversTable({ movers }: { movers: FnOStock[] }) {
                 <tr key={m.symbol} className="hover:bg-slate-800/40 transition-colors">
                   <td className="px-3 py-2 text-slate-600 text-xs">{i + 1}</td>
                   <td className="px-3 py-2">
-                    <div className="font-mono font-bold text-white text-sm">{m.symbol}</div>
+                    <div className="font-mono font-bold text-gray-900 text-sm">{m.symbol}</div>
                     <div className="text-sm text-slate-500 truncate max-w-[130px]">{m.name}</div>
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-slate-200 text-sm">Rs.{fmt(m.ltp)}</td>
@@ -148,7 +148,7 @@ function MarketBreadth({ movers }: { movers: FnOStock[] }) {
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-slate-300">Market Breadth — F&amp;O Universe</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Market Breadth — F&amp;O Universe</p>
         <span className={`text-sm font-bold ${sentColor}`}>{sentiment}</span>
       </div>
       <div className="flex items-center gap-0 rounded-full overflow-hidden h-3">
@@ -216,8 +216,8 @@ export default function MarketPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Market Dashboard</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Market Dashboard</h1>
+          <p className="text-slate-400 text-xs mt-1 uppercase tracking-wide font-medium">
             NSE indices · F&amp;O movers · Market breadth
             {lastUpdated && <> &nbsp;·&nbsp; Updated {lastUpdated}</>}
           </p>
@@ -255,9 +255,9 @@ export default function MarketPage() {
             { label: 'NIFTY Open',       value: fmt(nifty.open), color: 'text-slate-200' },
             { label: 'Day Change',       value: `${nifty.changePct >= 0 ? '+' : ''}${nifty.changePct.toFixed(2)}%`, color: nifty.changePct >= 0 ? 'text-emerald-400' : 'text-red-400' },
           ].map(({ label, value, color }) => (
-            <div key={label} className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-3">
-              <div className="text-xs text-slate-500 mb-0.5">{label}</div>
-              <div className={`text-lg font-bold font-mono ${color}`}>{value}</div>
+            <div key={label} className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3.5">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">{label}</div>
+              <div className={`text-xl font-bold font-mono tabular-nums ${color}`}>{value}</div>
             </div>
           ))}
         </div>
@@ -268,7 +268,7 @@ export default function MarketPage() {
 
       {/* Top movers */}
       <div>
-        <h2 className="text-base font-semibold text-slate-300 mb-3">Top F&amp;O Movers</h2>
+        <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Top F&amp;O Movers</h2>
         {movers.length > 0 ? (
           <MoversTable movers={movers} />
         ) : loadingMovers ? (

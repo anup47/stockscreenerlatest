@@ -40,7 +40,7 @@ function AddPositionForm({ onAdd }: AddFormProps) {
 
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-4">
-      <p className="text-sm font-semibold text-slate-300">Add Position</p>
+      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Add Position</p>
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <div>
           <label className="text-xs text-slate-500 block mb-1">Symbol</label>
@@ -116,7 +116,7 @@ function PositionRow({
   return (
     <tr className="border-b border-slate-800 hover:bg-slate-800/40 transition-colors">
       <td className="px-3 py-2.5">
-        <div className="font-mono font-bold text-white text-sm">{p.symbol}</div>
+        <div className="font-mono font-bold text-gray-900 text-sm">{p.symbol}</div>
         <div className="text-xs text-slate-500">{p.expiry}</div>
       </td>
       <td className="px-3 py-2.5 text-center">

@@ -312,7 +312,7 @@ function PCRTrendTab({ strikes, atmStrike, pcr }: { strikes: OptionStrike[]; atm
 
       {/* PCR guide */}
       <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 space-y-1">
-        <p className="font-semibold text-slate-300 mb-2">PCR Reference Levels</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">PCR Reference Levels</p>
         {[
           { range: 'PCR > 1.5', label: 'Strongly Bullish', color: 'text-emerald-400' },
           { range: 'PCR 1.2–1.5', label: 'Moderately Bullish', color: 'text-emerald-300' },

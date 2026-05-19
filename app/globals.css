@@ -16,16 +16,16 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Page & panel backgrounds ─────────────────────────────────────── */
-.bg-slate-950          { background-color: #f8fafc; }
+.bg-slate-950          { background-color: #f5f3ee; }
 .bg-slate-900          { background-color: #ffffff; }
-.bg-slate-800          { background-color: #f1f5f9; }
-.bg-slate-700          { background-color: #e2e8f0; }
-.bg-slate-950\/50      { background-color: rgb(248 250 252 / 0.5); }
-.bg-slate-900\/90      { background-color: rgb(255 255 255 / 0.9); }
-.bg-slate-800\/70      { background-color: rgb(241 245 249 / 0.7); }
-.bg-slate-800\/60      { background-color: rgb(241 245 249 / 0.6); }
-.bg-slate-800\/30      { background-color: rgb(241 245 249 / 0.3); }
-.bg-slate-800\/25      { background-color: rgb(241 245 249 / 0.25); }
+.bg-slate-800          { background-color: #f0ede6; }
+.bg-slate-700          { background-color: #e8e4dc; }
+.bg-slate-950\/50      { background-color: rgb(245 243 238 / 0.5); }
+.bg-slate-900\/90      { background-color: rgb(255 255 255 / 0.95); }
+.bg-slate-800\/70      { background-color: rgb(240 237 230 / 0.7); }
+.bg-slate-800\/60      { background-color: rgb(240 237 230 / 0.6); }
+.bg-slate-800\/30      { background-color: rgb(240 237 230 / 0.3); }
+.bg-slate-800\/25      { background-color: rgb(240 237 230 / 0.25); }
 
 /* ── Text ─────────────────────────────────────────────────────────── */
 .text-slate-100  { color: #0f172a; }
@@ -37,20 +37,20 @@
 .text-slate-700  { color: #cfd8dc; }
 
 /* ── Borders ──────────────────────────────────────────────────────── */
-.border-slate-700      { border-color: #e2e8f0; }
-.border-slate-700\/80  { border-color: rgb(226 232 240 / 0.8); }
-.border-slate-700\/60  { border-color: rgb(226 232 240 / 0.6); }
-.border-slate-700\/40  { border-color: rgb(226 232 240 / 0.4); }
-.border-slate-800      { border-color: #f1f5f9; }
-.border-slate-800\/60  { border-color: rgb(241 245 249 / 0.8); }
-.border-slate-800\/40  { border-color: rgb(226 232 240 / 0.5); }
-.border-slate-600      { border-color: #cbd5e1; }
-.border-slate-600\/80  { border-color: rgb(203 213 225 / 0.8); }
-.border-slate-600\/70  { border-color: rgb(203 213 225 / 0.7); }
+.border-slate-700      { border-color: #ddd9d1; }
+.border-slate-700\/80  { border-color: rgb(221 217 209 / 0.8); }
+.border-slate-700\/60  { border-color: rgb(221 217 209 / 0.6); }
+.border-slate-700\/40  { border-color: rgb(221 217 209 / 0.4); }
+.border-slate-800      { border-color: #e8e4dc; }
+.border-slate-800\/60  { border-color: rgb(232 228 220 / 0.8); }
+.border-slate-800\/40  { border-color: rgb(221 217 209 / 0.5); }
+.border-slate-600      { border-color: #ccc7be; }
+.border-slate-600\/80  { border-color: rgb(204 199 190 / 0.8); }
+.border-slate-600\/70  { border-color: rgb(204 199 190 / 0.7); }
 
 /* ── Row dividers ─────────────────────────────────────────────────── */
 .divide-slate-800\/40 > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgb(226 232 240 / 0.6);
+  border-color: rgb(221 217 209 / 0.7);
 }
 
 /* ── Accent text → darken for readability on white ───────────────── */
@@ -117,5 +117,14 @@
 .text-amber-300      { color: #d97706; }
 
 /* ── Hover rows in stats tables ──────────────────────────────────── */
-.hover\:bg-slate-800\/25:hover { background-color: rgb(226 232 240 / 0.5); }
+.hover\:bg-slate-800\/25:hover { background-color: rgb(221 217 209 / 0.4); }
+.hover\:bg-slate-800\/40:hover { background-color: rgb(221 217 209 / 0.5); }
+.hover\:bg-slate-700:hover     { background-color: #e8e4dc; }
+.hover\:text-slate-200:hover   { color: #1e293b; }
 .hover\:brightness-110:hover   { filter: brightness(0.97); }
+
+/* ── Fluid typography — scales all rem-based sizes across screen widths ── */
+html { font-size: clamp(18px, 15.5px + 0.42vw, 20px); }
+.text-\[9px\]  { font-size: clamp(11px, 9.5px + 0.22vw, 13px); }
+.text-\[10px\] { font-size: clamp(12px, 11px  + 0.24vw, 14px); }
+.text-\[11px\] { font-size: clamp(13px, 12px  + 0.24vw, 15px); }

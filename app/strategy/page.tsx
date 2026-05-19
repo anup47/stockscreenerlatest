@@ -156,7 +156,7 @@ export default function StrategyPage() {
           <div className="flex flex-wrap gap-2">
             {STRATEGIES.map(s => (
               <button key={s} onClick={() => applyStrategy(s)}
-                className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${strategy === s && legs.length > 0 ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'}`}>
+                className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${strategy === s && legs.length > 0 ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:text-gray-900 hover:bg-gray-200'}`}>
                 {s}
               </button>
             ))}
@@ -167,7 +167,7 @@ export default function StrategyPage() {
       {/* Leg editor */}
       <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-slate-700 flex items-center justify-between">
-          <p className="text-sm font-semibold text-slate-300">Strategy Legs</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Strategy Legs</p>
           <button onClick={addLeg} className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold">+ Add Leg</button>
         </div>
         {legs.length === 0 ? (
@@ -204,7 +204,7 @@ export default function StrategyPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Metrics */}
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-semibold text-slate-300">Strategy Metrics</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Strategy Metrics</p>
             {[
               { label: 'Max Profit',  value: typeof metrics.maxProfit === 'number' ? `Rs.${fmt(metrics.maxProfit)}` : '∞ Unlimited', color: typeof metrics.maxProfit === 'number' && metrics.maxProfit > 0 ? 'text-emerald-400' : 'text-slate-300' },
               { label: 'Max Loss',    value: typeof metrics.maxLoss   === 'number' ? `Rs.${fmt(metrics.maxLoss)}`   : '∞ Unlimited', color: typeof metrics.maxLoss   === 'number' && metrics.maxLoss   < 0 ? 'text-red-400'     : 'text-slate-300' },
@@ -233,7 +233,7 @@ export default function StrategyPage() {
           {/* Payoff table */}
           <div className="lg:col-span-2 bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-700">
-              <p className="text-sm font-semibold text-slate-300">Payoff at Expiry</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Payoff at Expiry</p>
             </div>
             <div className="overflow-auto max-h-[420px]">
               <table className="w-full text-xs">

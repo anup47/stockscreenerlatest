@@ -404,9 +404,9 @@ export default function OptionChainPage() {
 
       {/* ── Info bar — 9 cards full width ── */}
       {data && (
-        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-5 xl:grid-cols-9 gap-3">
           {[
-            { label: 'Spot Price',       value: fmt(spot),                              color: 'text-white text-xl' },
+            { label: 'Spot Price',       value: fmt(spot),                              color: 'text-gray-900 text-xl' },
             { label: 'ATM Strike',       value: atm.toLocaleString('en-IN'),             color: 'text-amber-300 text-xl' },
             { label: 'Max Pain',         value: maxPain.toLocaleString('en-IN'),         color: 'text-violet-300 text-lg' },
             { label: `PCR · ${pcrLabel}`,value: pcr.toFixed(2),                         color: `${pcrColor} text-xl` },
@@ -417,8 +417,8 @@ export default function OptionChainPage() {
             { label: 'OI Chg Basis', value: 'Prev Day ✓', color: 'text-emerald-400 text-sm' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-center shadow">
-              <div className={`font-bold font-mono leading-tight ${color}`}>{value}</div>
-              <div className="text-xs text-slate-500 mt-1 font-medium">{label}</div>
+              <div className={`font-bold font-mono tabular-nums leading-tight ${color}`}>{value}</div>
+              <div className="text-[10px] text-slate-500 mt-1.5 font-semibold uppercase tracking-wider">{label}</div>
             </div>
           ))}
         </div>
@@ -427,7 +427,7 @@ export default function OptionChainPage() {
       {/* ── Loading ── */}
       {loading && (
         <div className="bg-slate-900 border border-slate-700 rounded-xl p-14 text-center">
-          <p className="text-slate-400 text-base">Loading <span className="text-white font-semibold">{symbol}</span> · <span className="text-amber-300">{expiry}</span></p>
+          <p className="text-slate-400 text-base">Loading <span className="text-gray-900 font-semibold">{symbol}</span> · <span className="text-amber-300">{expiry}</span></p>
           <div className="mt-4 w-56 mx-auto h-1.5 bg-slate-800 rounded-full overflow-hidden">
             <div className="h-full w-2/3 bg-emerald-500 rounded-full animate-pulse" />
           </div>
@@ -438,7 +438,7 @@ export default function OptionChainPage() {
       {data && !loading && strikes.length > 0 && (
         <div className="rounded-xl border border-slate-700/80 overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1200px] border-collapse">
+            <table className="w-full min-w-[1400px] border-collapse">
               <colgroup>
                 {/* Calls: 7 cols */}
                 <col className="w-[9%]" />  {/* Trend */}

@@ -244,7 +244,7 @@ export default function Home() {
   const SortTh = ({ label, col, cls = '' }: { label: string; col: SortKey; cls?: string }) => (
     <th
       onClick={() => handleSort(col)}
-      className={`px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:text-slate-200 transition-colors whitespace-nowrap ${cls}`}
+      className={`px-3 py-3.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-widest cursor-pointer select-none hover:text-gray-700 transition-colors whitespace-nowrap ${cls}`}
     >
       {label}{sortKey === col ? (sortAsc ? ' ▲' : ' ▼') : ''}
     </th>
@@ -276,15 +276,15 @@ export default function Home() {
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-20">
         <div className="w-full px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-white">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold tracking-tight text-gray-900">
                 BSE Group A — Swing Setup Screener
               </h1>
-              <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold ring-1 ring-emerald-500/20">
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-bold ring-1 ring-emerald-500/20 tracking-wide">
                 5 PATTERNS
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
               Coiled Spring &nbsp;·&nbsp; BB Squeeze &nbsp;·&nbsp; VCP &nbsp;·&nbsp; Institutional Spike &nbsp;·&nbsp; Long Base Breakout
             </p>
           </div>
@@ -340,10 +340,10 @@ export default function Home() {
               <button
                 key={f.key}
                 onClick={() => setPatFilter(f.key)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
                   patFilter === f.key
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                    : 'bg-gray-100 text-gray-600 hover:text-gray-900 hover:bg-gray-200'
                 }`}
               >
                 {f.label}
@@ -396,7 +396,7 @@ export default function Home() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-900 border-b border-slate-800">
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-600 w-7">#</th>
+                    <th className="px-3 py-3.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest w-7">#</th>
                     <SortTh label="Symbol"      col="symbol" />
                     <SortTh label="Company"     col="company" />
                     <SortTh label="Price"       col="price" />
@@ -406,13 +406,13 @@ export default function Home() {
                     <SortTh label="ADX"         col="adx" />
                     <SortTh label="Vol Ratio"   col="volRatio" />
                     <SortTh label="RS vs Nifty" col="rsVsNifty" />
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                    <th className="px-3 py-3.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">
                       Patterns
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider min-w-[180px]">
+                    <th className="px-3 py-3.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-widest min-w-[180px]">
                       Setup Notes
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider min-w-[230px]">
+                    <th className="px-3 py-3.5 text-left text-[10px] font-bold text-slate-500 uppercase tracking-widest min-w-[230px]">
                       Trade Setup
                     </th>
                   </tr>
@@ -431,45 +431,45 @@ export default function Home() {
                   ) : (
                     sorted.map((r, i) => (
                       <tr key={r.symbol} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="px-3 py-2.5 text-slate-600 tabular-nums text-xs">{i + 1}</td>
+                        <td className="px-3 py-3 text-slate-600 tabular-nums text-xs">{i + 1}</td>
 
-                        <td className="px-3 py-2.5">
-                          <span className="font-mono font-bold text-white text-sm">{r.symbol}</span>
+                        <td className="px-3 py-3">
+                          <span className="font-mono font-bold text-gray-900 text-sm">{r.symbol}</span>
                         </td>
 
-                        <td className="px-3 py-2.5 text-slate-400 text-sm max-w-[160px] truncate" title={r.company}>
+                        <td className="px-3 py-3 text-slate-400 text-sm max-w-[160px] truncate" title={r.company}>
                           {r.company}
                         </td>
 
-                        <td className="px-3 py-2.5 tabular-nums font-medium text-slate-200 text-sm whitespace-nowrap">
+                        <td className="px-3 py-3 tabular-nums font-medium text-slate-200 text-sm whitespace-nowrap">
                           Rs.{r.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
 
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-3">
                           <ScoreBadge score={r.score} />
                         </td>
 
-                        <td className={`px-3 py-2.5 tabular-nums text-xs ${r.bbSqueeze ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
+                        <td className={`px-3 py-3 tabular-nums text-xs ${r.bbSqueeze ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
                           <Num val={r.bbWidthPct} />
                         </td>
 
-                        <td className={`px-3 py-2.5 tabular-nums text-xs ${r.rsi != null && r.rsi >= 50 && r.rsi <= 68 ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
+                        <td className={`px-3 py-3 tabular-nums text-xs ${r.rsi != null && r.rsi >= 50 && r.rsi <= 68 ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
                           <Num val={r.rsi} decimals={1} />
                         </td>
 
-                        <td className={`px-3 py-2.5 tabular-nums text-xs ${r.adx != null && r.adx < 22 ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
+                        <td className={`px-3 py-3 tabular-nums text-xs ${r.adx != null && r.adx < 22 ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
                           <Num val={r.adx} decimals={1} />
                         </td>
 
-                        <td className={`px-3 py-2.5 tabular-nums text-xs ${r.volDryup ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
+                        <td className={`px-3 py-3 tabular-nums text-xs ${r.volDryup ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
                           <Num val={r.volRatio} />
                         </td>
 
-                        <td className="px-3 py-2.5 tabular-nums text-xs">
+                        <td className="px-3 py-3 tabular-nums text-xs">
                           <RSNum val={r.rsVsNifty} />
                         </td>
 
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-3">
                           <div className="flex gap-1 flex-wrap min-w-[120px]">
                             <PatternBadge flag={r.bbSqueeze}    type="bbSqueeze" />
                             <PatternBadge flag={r.tightSqueeze} type="tightSqueeze" />
@@ -480,11 +480,11 @@ export default function Home() {
                           </div>
                         </td>
 
-                        <td className="px-3 py-2.5 text-slate-400 text-sm max-w-[180px]" title={r.setupNotes}>
+                        <td className="px-3 py-3 text-slate-400 text-sm max-w-[180px]" title={r.setupNotes}>
                           <span className="line-clamp-2 leading-relaxed">{r.setupNotes}</span>
                         </td>
 
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-3">
                           <TradeCard t={r.tradeSetup} />
                         </td>
                       </tr>
@@ -516,13 +516,13 @@ export default function Home() {
         {/* ── Pattern methodology cards ────────────────────────────────── */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
           {PATTERNS.map(p => (
-            <div key={p.name} className={`bg-slate-900/60 border-t-2 ${p.color} border-x border-b border-slate-800 rounded-xl p-4`}>
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="text-xs font-bold text-white">{p.name}</h3>
-                <span className={`text-[10px] font-bold ${p.badgeColor}`}>{p.badge}</span>
+            <div key={p.name} className={`bg-white border-t-2 ${p.color} border border-slate-700 rounded-xl p-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-bold text-gray-800 tracking-wide">{p.name}</h3>
+                <span className={`text-[10px] font-bold ${p.badgeColor} opacity-80`}>{p.badge}</span>
               </div>
               <p className="text-[11px] text-slate-500 leading-relaxed">{p.desc}</p>
-              <div className="mt-2 text-[10px] text-slate-600">Score: {p.pts}</div>
+              <div className="mt-2.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Score: {p.pts}</div>
             </div>
           ))}
         </div>
