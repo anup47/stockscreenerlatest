@@ -55,6 +55,15 @@ export function calcDeltaOI(strikes: OptionStrike[]): DeltaOIRow[] {
   });
 }
 
+// ── ATM detection ─────────────────────────────────────────────────────────────
+
+export function findAtmIndex(strikes: OptionStrike[], spot: number): number {
+  if (strikes.length === 0) return 0;
+  if (spot <= 0) return Math.floor(strikes.length / 2);
+  return strikes.reduce((best, s, idx) =>
+    Math.abs(s.strikePrice - spot) < Math.abs(strikes[best].strikePrice - spot) ? idx : best, 0);
+}
+
 // ── OI Change classification ──────────────────────────────────────────────────
 
 export type OISignal = 'Long Build-up' | 'Short Build-up' | 'Long Unwinding' | 'Short Covering' | 'Neutral';

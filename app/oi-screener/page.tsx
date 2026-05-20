@@ -135,17 +135,17 @@ function Panel({ rows, side, loading }: { rows: OIScreenerRow[]; side: 'bullish'
 
 // ── Diagnostic panel ──────────────────────────────────────────────────────────
 
+function debugChip(s: SymbolDebug['status']): string {
+  if (s === 'ok')        return 'text-emerald-700 bg-emerald-50';
+  if (s === 'api-error') return 'text-red-700 bg-red-50';
+  if (s === 'zero-oi')   return 'text-amber-700 bg-amber-50';
+  return 'text-slate-500 bg-slate-100';
+}
+
 function DebugPanel({ info }: { info: DebugInfo }) {
   const [open, setOpen] = useState(false);
   const ok  = info.symbols.filter(s => s.status === 'ok').length;
   const err = info.symbols.filter(s => s.status !== 'ok').length;
-
-  const chip = (s: SymbolDebug['status']) => {
-    if (s === 'ok')        return 'text-emerald-700 bg-emerald-50';
-    if (s === 'api-error') return 'text-red-700 bg-red-50';
-    if (s === 'zero-oi')   return 'text-amber-700 bg-amber-50';
-    return 'text-slate-500 bg-slate-100';
-  };
 
   return (
     <div className="bg-white border border-slate-700 rounded-2xl overflow-hidden">
@@ -177,7 +177,7 @@ function DebugPanel({ info }: { info: DebugInfo }) {
                   <td className="px-4 py-1.5 font-black font-mono text-gray-900">{s.sym}</td>
                   <td className="px-4 py-1.5 text-slate-400">{s.expiry}</td>
                   <td className="px-4 py-1.5">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${chip(s.status)}`}>{s.status}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${debugChip(s.status)}`}>{s.status}</span>
                   </td>
                   <td className="px-4 py-1.5 text-slate-500 max-w-xs truncate">
                     {s.status === 'ok'
@@ -228,16 +228,17 @@ export default function OIScreenerPage() {
   const [showAll,           setShowAll]           = useState(false);
 
   // Controls
-  const [selectedExpiry,    setSelectedExpiry]    = useState('');          // '' = server default (nearest)
-  const [availableExpiries, setAvailableExpiries] = useState<string[]>([]); // populated after first scan
-  const [n,                 setN]                 = useState(7);            // strikes per side of ATM
-  const [dirty,             setDirty]             = useState(false);        // controls changed since last scan
+  const [selectedExpiry,    setSelectedExpiry]    = useState('');
+  const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
+  const [n,                 setN]                 = useState(7);
+
+  // True when controls differ from the last completed scan — no extra state needed
+  const dirty = n !== (data?.n ?? 7) || selectedExpiry !== (data?.stockExpiry ?? '');
 
   const runScreen = useCallback(async () => {
     if (!isConfigured) return;
     setLoading(true);
     setError('');
-    setDirty(false);
     try {
       const params = new URLSearchParams({ n: String(n) });
       if (selectedExpiry) params.set('stockExpiry', selectedExpiry);
@@ -294,7 +295,7 @@ export default function OIScreenerPage() {
         <Dropdown
           label="Expiry Month (stocks)"
           value={selectedExpiry}
-          onChange={v => { setSelectedExpiry(v); setDirty(true); }}
+          onChange={v => setSelectedExpiry(v)}
           disabled={loading}
         >
           {availableExpiries.length === 0
@@ -309,7 +310,7 @@ export default function OIScreenerPage() {
         <Dropdown
           label="Near-ATM Strikes (N per side)"
           value={n}
-          onChange={v => { setN(Number(v)); setDirty(true); }}
+          onChange={v => setN(Number(v))}
           disabled={loading}
         >
           {N_OPTIONS.map(o => (
@@ -318,8 +319,7 @@ export default function OIScreenerPage() {
         </Dropdown>
 
         {/* Run button */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-bold text-transparent uppercase tracking-widest select-none">run</span>
+        <div className="flex flex-col justify-end">
           <button
             onClick={runScreen}
             disabled={loading}

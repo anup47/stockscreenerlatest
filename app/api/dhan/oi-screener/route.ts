@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchDhanExpiry, fetchDhanOptionChain, getScripAndSeg } from '@/lib/dhan-api';
+import { findAtmIndex } from '@/lib/oi-calculations';
 import type { OIScreenerRow, SymbolDebug } from '@/lib/oi-screener';
 
 export const maxDuration = 55;
@@ -91,13 +92,7 @@ export async function GET(req: NextRequest) {
         return null;
       }
 
-      // Near-ATM filter: n strikes each side of ATM
-      const spot   = data.underlyingPrice;
-      const atmIdx = spot > 0
-        ? data.strikes.reduce((best, s, idx) =>
-            Math.abs(s.strikePrice - spot) < Math.abs(data.strikes[best].strikePrice - spot)
-              ? idx : best, 0)
-        : Math.floor(data.strikes.length / 2);
+      const atmIdx = findAtmIndex(data.strikes, data.underlyingPrice);
 
       const nearStrikes = data.strikes.slice(
         Math.max(0, atmIdx - n),
@@ -132,9 +127,7 @@ export async function GET(req: NextRequest) {
   // Sort all descending; derive bullish (>0 desc) and bearish (<0 asc = most-negative first)
   rows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
   const bullish = rows.filter(r => r.netOIChgPct > 0).slice(0, 5);
-  const bearish = rows.filter(r => r.netOIChgPct < 0)
-                      .sort((a, b) => a.netOIChgPct - b.netOIChgPct)
-                      .slice(0, 5);
+  const bearish = rows.filter(r => r.netOIChgPct < 0).reverse().slice(0, 5);
 
   return NextResponse.json({
     bullish,
