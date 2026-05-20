@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 const tabs = [
   { label: 'Screener',     href: '/' },
   { label: 'Analysis',     href: '/analyse' },
-  { label: 'Options',      href: '/options' },
+  { label: 'Very Short Term', href: '/options' },
   { label: 'Triangle',     href: '/triangle' },
   { label: 'Market',       href: '/market' },
   { label: 'OI Screen',    href: '/oi-screener' },
