@@ -9,13 +9,19 @@ interface DebugInfo {
 }
 
 interface ScreenerResponse {
-  bullish:   OIScreenerRow[];
-  bearish:   OIScreenerRow[];
-  all:       OIScreenerRow[];
-  scanned:   number;
-  scannedAt: string;
-  _debug?:   DebugInfo;
+  bullish:        OIScreenerRow[];
+  bearish:        OIScreenerRow[];
+  all:            OIScreenerRow[];
+  scanned:        number;
+  scannedAt:      string;
+  stockExpiry?:   string;
+  stockExpiries?: string[];
+  weeklyExpiry?:  string;
+  n?:             number;
+  _debug?:        DebugInfo;
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtOI(n: number) {
   const abs  = Math.abs(n);
@@ -26,7 +32,21 @@ function fmtOI(n: number) {
   return `${n >= 0 ? '+' : '−'}${abs.toLocaleString('en-IN')}`;
 }
 
-// ── Single stock card ─────────────────────────────────────────────────────────
+function expiryToMonthLabel(expiry: string): string {
+  // "2026-05-29" → "May 2026"
+  const [y, m] = expiry.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+const N_OPTIONS = [
+  { value: 5,  label: 'N = 5  (11 strikes)' },
+  { value: 7,  label: 'N = 7  (15 strikes)' },
+  { value: 10, label: 'N = 10  (21 strikes)' },
+  { value: 15, label: 'N = 15  (31 strikes)' },
+  { value: 20, label: 'N = 20  (41 strikes)' },
+];
+
+// ── Stock card ────────────────────────────────────────────────────────────────
 
 function StockCard({ row, rank, side }: { row: OIScreenerRow; rank: number; side: 'bullish' | 'bearish' }) {
   const isBull    = side === 'bullish';
@@ -80,8 +100,8 @@ function Panel({ rows, side, loading }: { rows: OIScreenerRow[]; side: 'bullish'
             </p>
             <p className="text-white/75 text-xs font-medium mt-0.5">
               {isBull
-                ? 'Highest (PE OI Chg − CE OI Chg) / Total OI'
-                : 'Lowest (PE OI Chg − CE OI Chg) / Total OI'}
+                ? 'Highest (PE OI Chg − CE OI Chg) / Total OI  ·  ratio > 0 only'
+                : 'Lowest (PE OI Chg − CE OI Chg) / Total OI  ·  ratio < 0 only'}
             </p>
           </div>
         </div>
@@ -102,7 +122,7 @@ function Panel({ rows, side, loading }: { rows: OIScreenerRow[]; side: 'bullish'
           : rows.length === 0
           ? (
             <div className="py-16 text-center text-slate-400 text-sm">
-              No data — click <strong>Run Screen</strong> to scan
+              {side === 'bullish' ? 'No stocks with positive ratio' : 'No stocks with negative ratio'}
             </div>
           )
           : rows.map((row, i) => (
@@ -113,17 +133,17 @@ function Panel({ rows, side, loading }: { rows: OIScreenerRow[]; side: 'bullish'
   );
 }
 
-// ── Debug panel ───────────────────────────────────────────────────────────────
+// ── Diagnostic panel ──────────────────────────────────────────────────────────
 
 function DebugPanel({ info }: { info: DebugInfo }) {
   const [open, setOpen] = useState(false);
-  const okCount    = info.symbols.filter(s => s.status === 'ok').length;
-  const errorCount = info.symbols.filter(s => s.status !== 'ok').length;
+  const ok  = info.symbols.filter(s => s.status === 'ok').length;
+  const err = info.symbols.filter(s => s.status !== 'ok').length;
 
-  const statusColor = (s: SymbolDebug['status']) => {
-    if (s === 'ok')         return 'text-emerald-700 bg-emerald-50';
-    if (s === 'api-error')  return 'text-red-700 bg-red-50';
-    if (s === 'zero-oi')    return 'text-amber-700 bg-amber-50';
+  const chip = (s: SymbolDebug['status']) => {
+    if (s === 'ok')        return 'text-emerald-700 bg-emerald-50';
+    if (s === 'api-error') return 'text-red-700 bg-red-50';
+    if (s === 'zero-oi')   return 'text-amber-700 bg-amber-50';
     return 'text-slate-500 bg-slate-100';
   };
 
@@ -134,8 +154,8 @@ function DebugPanel({ info }: { info: DebugInfo }) {
         className="w-full px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors"
       >
         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-          Diagnostic — {okCount} ok · {errorCount} failed
-          &nbsp;·&nbsp; Expiries: weekly {info.expiries.weekly} · stock {info.expiries.stock}
+          Diagnostic — {ok} ok · {err} failed
+          &nbsp;·&nbsp; weekly {info.expiries.weekly} · stock {info.expiries.stock}
         </p>
         <span className="text-slate-400 text-sm">{open ? '▲ Hide' : '▼ Show'}</span>
       </button>
@@ -157,9 +177,7 @@ function DebugPanel({ info }: { info: DebugInfo }) {
                   <td className="px-4 py-1.5 font-black font-mono text-gray-900">{s.sym}</td>
                   <td className="px-4 py-1.5 text-slate-400">{s.expiry}</td>
                   <td className="px-4 py-1.5">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(s.status)}`}>
-                      {s.status}
-                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${chip(s.status)}`}>{s.status}</span>
                   </td>
                   <td className="px-4 py-1.5 text-slate-500 max-w-xs truncate">
                     {s.status === 'ok'
@@ -176,34 +194,70 @@ function DebugPanel({ info }: { info: DebugInfo }) {
   );
 }
 
+// ── Dropdown component ────────────────────────────────────────────────────────
+
+function Dropdown({ label, value, onChange, disabled, children }: {
+  label: string;
+  value: string | number;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        disabled={disabled}
+        className="px-3 py-2 text-sm font-semibold text-gray-900 bg-white border border-slate-700 rounded-lg disabled:opacity-50 cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors min-w-[160px]"
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OIScreenerPage() {
   const { isConfigured, isHydrated, headers } = useDhanCredentials();
-  const [data,    setData]    = useState<ScreenerResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-  const [showAll, setShowAll] = useState(false);
+  const [data,              setData]              = useState<ScreenerResponse | null>(null);
+  const [loading,           setLoading]           = useState(false);
+  const [error,             setError]             = useState('');
+  const [showAll,           setShowAll]           = useState(false);
+
+  // Controls
+  const [selectedExpiry,    setSelectedExpiry]    = useState('');          // '' = server default (nearest)
+  const [availableExpiries, setAvailableExpiries] = useState<string[]>([]); // populated after first scan
+  const [n,                 setN]                 = useState(7);            // strikes per side of ATM
+  const [dirty,             setDirty]             = useState(false);        // controls changed since last scan
 
   const runScreen = useCallback(async () => {
     if (!isConfigured) return;
     setLoading(true);
     setError('');
+    setDirty(false);
     try {
-      const res  = await fetch('/api/dhan/oi-screener', { headers });
+      const params = new URLSearchParams({ n: String(n) });
+      if (selectedExpiry) params.set('stockExpiry', selectedExpiry);
+      const res  = await fetch(`/api/dhan/oi-screener?${params}`, { headers });
       const json = await res.json() as ScreenerResponse & { error?: string };
       if (!res.ok) { setError(json.error ?? `HTTP ${res.status}`); return; }
       setData(json);
+      // Populate month dropdown from response
+      if (json.stockExpiries?.length) setAvailableExpiries(json.stockExpiries);
+      if (!selectedExpiry && json.stockExpiry) setSelectedExpiry(json.stockExpiry);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [isConfigured, headers]);
+  }, [isConfigured, headers, n, selectedExpiry]);
 
   useEffect(() => {
     if (isHydrated && isConfigured) runScreen();
-  }, [isHydrated, isConfigured, runScreen]);
+  }, [isHydrated, isConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isHydrated) return null;
 
@@ -223,37 +277,75 @@ export default function OIScreenerPage() {
     : null;
 
   return (
-    <main className="px-5 py-5 space-y-6">
+    <main className="px-5 py-5 space-y-5">
 
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-gray-900">F&amp;O OI Change Screener</h1>
-          <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
-            (PE OI Chg − CE OI Chg) / Total OI &nbsp;·&nbsp; {data ? `${data.scanned} symbols scanned · ${scannedTime}` : '~30 F&O symbols'}
-          </p>
-        </div>
-        <button
-          onClick={runScreen}
-          disabled={loading}
-          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-lg text-sm transition-colors"
-        >
-          {loading ? 'Scanning… (30–40s)' : '↻ Run Screen'}
-        </button>
+      {/* ── Header ── */}
+      <div>
+        <h1 className="text-xl font-bold tracking-tight text-gray-900">F&amp;O OI Change Screener</h1>
+        <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
+          (PE OI Chg − CE OI Chg) / Total OI &nbsp;·&nbsp;
+          {data ? `${data.scanned} symbols scanned · ${scannedTime}` : '~30 F&O symbols'}
+        </p>
       </div>
 
-      {/* Error */}
+      {/* ── Controls ── */}
+      <div className="flex flex-wrap items-end gap-4">
+        {/* Month / expiry dropdown */}
+        <Dropdown
+          label="Expiry Month (stocks)"
+          value={selectedExpiry}
+          onChange={v => { setSelectedExpiry(v); setDirty(true); }}
+          disabled={loading}
+        >
+          {availableExpiries.length === 0
+            ? <option value="">Loading…</option>
+            : availableExpiries.map(exp => (
+                <option key={exp} value={exp}>{expiryToMonthLabel(exp)}</option>
+              ))
+          }
+        </Dropdown>
+
+        {/* Strikes per side (N) */}
+        <Dropdown
+          label="Near-ATM Strikes (N per side)"
+          value={n}
+          onChange={v => { setN(Number(v)); setDirty(true); }}
+          disabled={loading}
+        >
+          {N_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </Dropdown>
+
+        {/* Run button */}
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-bold text-transparent uppercase tracking-widest select-none">run</span>
+          <button
+            onClick={runScreen}
+            disabled={loading}
+            className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-50
+              ${dirty
+                ? 'bg-amber-500 hover:bg-amber-400 text-white ring-2 ring-amber-400/50'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+          >
+            {loading ? 'Scanning… (30–40 s)' : dirty ? '↻ Re-run with new settings' : '↻ Run Screen'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Error ── */}
       {error && (
         <div className="bg-red-50 border border-red-300 rounded-xl px-5 py-3 text-red-700 text-sm font-medium">{error}</div>
       )}
 
-      {/* Two panels */}
+      {/* ── Two panels ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Panel rows={data?.bullish ?? []} side="bullish" loading={loading} />
         <Panel rows={data?.bearish ?? []} side="bearish" loading={loading} />
       </div>
 
-      {/* Full ranked list */}
+      {/* ── Full ranked list ── */}
       {data && !loading && (
         <div className="bg-white border border-slate-700 rounded-2xl overflow-hidden">
           <button
@@ -261,7 +353,7 @@ export default function OIScreenerPage() {
             className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
           >
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Full Ranked List — All {data.scanned} Symbols
+              Full Ranked List — All {data.scanned} Symbols · N = {data.n ?? n} strikes per side
             </p>
             <span className="text-slate-400 text-sm">{showAll ? '▲ Hide' : '▼ Show'}</span>
           </button>
@@ -315,7 +407,7 @@ export default function OIScreenerPage() {
         </div>
       )}
 
-      {/* Diagnostic panel */}
+      {/* ── Diagnostic ── */}
       {data?._debug && !loading && (
         <DebugPanel info={data._debug} />
       )}
