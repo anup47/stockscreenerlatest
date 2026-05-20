@@ -92,8 +92,21 @@ export async function GET(req: NextRequest) {
         return null;
       }
 
+      // Narrow to 15 near-ATM strikes: 7 ITM + ATM + 7 OTM
+      const spot   = data.underlyingPrice;
+      const atmIdx = spot > 0
+        ? data.strikes.reduce((best, s, idx) =>
+            Math.abs(s.strikePrice - spot) < Math.abs(data.strikes[best].strikePrice - spot)
+              ? idx : best, 0)
+        : Math.floor(data.strikes.length / 2);  // fallback: centre of chain
+
+      const nearStrikes = data.strikes.slice(
+        Math.max(0, atmIdx - 7),
+        Math.min(data.strikes.length, atmIdx + 8), // +8 → indices atmIdx-7 … atmIdx+7 (15 total)
+      );
+
       let ceOI = 0, peOI = 0, ceOIChg = 0, peOIChg = 0;
-      for (const s of data.strikes) {
+      for (const s of nearStrikes) {
         ceOI    += s.ce.oi;
         peOI    += s.pe.oi;
         ceOIChg += s.ce.oiChange;
@@ -102,14 +115,14 @@ export async function GET(req: NextRequest) {
 
       const totalOI = ceOI + peOI;
       if (totalOI === 0) {
-        debugLog.push({ sym, expiry, status: 'zero-oi', strikes: data.strikes.length });
+        debugLog.push({ sym, expiry, status: 'zero-oi', strikes: nearStrikes.length });
         return null;
       }
 
       const netOIChg    = peOIChg - ceOIChg;
       const netOIChgPct = (netOIChg / totalOI) * 100;
 
-      debugLog.push({ sym, expiry, status: 'ok', strikes: data.strikes.length, totalOI });
+      debugLog.push({ sym, expiry, status: 'ok', strikes: nearStrikes.length, totalOI });
       return { symbol: sym, expiry, ceOI, peOI, ceOIChg, peOIChg, netOIChg, netOIChgPct, totalOI } as OIScreenerRow;
     }));
 
