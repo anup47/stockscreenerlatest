@@ -35,10 +35,6 @@ export async function GET(req: NextRequest) {
   const n = Math.min(20, Math.max(1, parseInt(searchParams.get('n') ?? '7', 10)));
   const batchNum = Math.min(TOTAL_BATCHES, Math.max(1, parseInt(searchParams.get('batch') ?? '1', 10)));
 
-  // Stagger batches by 500ms so option-chain calls don't overlap across parallel browser requests
-  const delayStart = (batchNum - 1) * 500;
-  if (delayStart > 0) await sleep(delayStart);
-
   // Slice symbols for this batch
   const SCREEN_SYMBOLS = ALL_SCREEN_SYMBOLS.slice(
     (batchNum - 1) * BATCH_SIZE,

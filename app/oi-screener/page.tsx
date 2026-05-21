@@ -236,7 +236,8 @@ function Dropdown({ label, value, onChange, disabled, children }: {
 export default function OIScreenerPage() {
   const { isConfigured, isHydrated, headers } = useDhanCredentials();
   const [data,              setData]              = useState<ScreenerData | null>(null);
-  const [loading,           setLoading]           = useState(false);
+  const [loading,           setLoading]           = useState(false);  // skeleton state before first data
+  const [scanning,          setScanning]          = useState(false);  // subsequent batches still running
   const [batchesDone,       setBatchesDone]       = useState(0);
   const [error,             setError]             = useState('');
   const [showAll,           setShowAll]           = useState(false);
@@ -250,10 +251,12 @@ export default function OIScreenerPage() {
   const runScreen = useCallback(async () => {
     if (!isConfigured) return;
     setLoading(true);
+    setScanning(false);
     setError('');
     setBatchesDone(0);
+    setData(null);
 
-    // Phase A: fetch expiries once (fast, ~1-2s) to avoid 4× duplicate Dhan calls
+    // Phase A: prefetch expiry dates once so all 4 batch calls skip duplicate Dhan requests
     interface PrefetchResponse { weeklyExpiry: string; midcpExpiry: string | null; stockExpiry: string; stockExpiries: string[]; error?: string; }
     let prefetch: PrefetchResponse;
     try {
@@ -276,74 +279,64 @@ export default function OIScreenerPage() {
       : prefetch.stockExpiry;
     if (!selectedExpiry) setSelectedExpiry(effectiveExpiry);
 
-    // Phase B: fire 4 batches in parallel, passing pre-fetched expiry dates so each batch
-    // skips its own Phase 1 and never makes duplicate Dhan expiry calls
+    // Phase B: run 4 batches SEQUENTIALLY — same proven rate (2 calls/pair + 1.5s gap) as
+    // the original working 36-symbol version. Parallel batches exceed Dhan's rate limit;
+    // sequential execution does not.
     const baseParams = new URLSearchParams({
-      n:             String(n),
-      weeklyExpiry:  prefetch.weeklyExpiry,
-      midcpExpiry:   prefetch.midcpExpiry ?? '',
-      stockExpiry:   effectiveExpiry,
+      n:            String(n),
+      weeklyExpiry: prefetch.weeklyExpiry,
+      midcpExpiry:  prefetch.midcpExpiry ?? '',
+      stockExpiry:  effectiveExpiry,
     });
 
-    const batchResults = await Promise.allSettled(
-      Array.from({ length: 4 }, (_, i) => {
-        const p = new URLSearchParams(baseParams);
-        p.set('batch', String(i + 1));
-        return fetch(`/api/dhan/oi-screener?${p}`, { headers })
-          .then(res => res.json() as Promise<BatchResponse>)
-          .then(json => { setBatchesDone(prev => prev + 1); return json; });
-      })
-    );
-
-    const allRows: OIScreenerRow[]  = [];
-    const allDebug: SymbolDebug[]   = [];
-    const batchErrors: string[]     = [];
+    const allRows: OIScreenerRow[] = [];
+    const allDebug: SymbolDebug[]  = [];
+    const batchErrors: string[]    = [];
     let refBatch: BatchResponse | null = null;
 
-    for (const [i, result] of batchResults.entries()) {
-      if (result.status === 'rejected') {
-        batchErrors.push(`Batch ${i + 1}: ${String(result.reason)}`);
-      } else {
-        const json = result.value;
+    for (let batch = 1; batch <= 4; batch++) {
+      const p = new URLSearchParams(baseParams);
+      p.set('batch', String(batch));
+      try {
+        const res  = await fetch(`/api/dhan/oi-screener?${p}`, { headers });
+        const json = await res.json() as BatchResponse;
         if (json.error) {
-          batchErrors.push(`Batch ${i + 1}: ${json.error}`);
+          batchErrors.push(`Batch ${batch}: ${json.error}`);
         } else {
           allRows.push(...(json.all ?? []));
           if (json._debug?.symbols) allDebug.push(...json._debug.symbols);
           if (!refBatch) refBatch = json;
+
+          // Show partial results immediately so user sees data as each batch arrives
+          const sorted = [...allRows].sort((a, b) => b.netOIChgPct - a.netOIChgPct);
+          setData({
+            bullish:       sorted.filter(r => r.netOIChgPct > 0).slice(0, 5),
+            bearish:       sorted.filter(r => r.netOIChgPct < 0).reverse().slice(0, 5),
+            all:           sorted,
+            scanned:       sorted.length,
+            scannedAt:     new Date().toISOString(),
+            stockExpiry:   effectiveExpiry,
+            stockExpiries: prefetch.stockExpiries,
+            weeklyExpiry:  prefetch.weeklyExpiry,
+            n,
+            _debug: refBatch._debug ? { expiries: refBatch._debug.expiries, symbols: allDebug } : undefined,
+          });
+          // After first batch has real data, drop skeleton state and show scanning indicator
+          if (batch === 1) { setLoading(false); setScanning(true); }
         }
+      } catch (e) {
+        batchErrors.push(`Batch ${batch}: ${String(e)}`);
       }
+      setBatchesDone(batch);
     }
 
     if (allRows.length === 0) {
       setError(batchErrors.join(' | ') || 'No data returned');
-      setLoading(false);
-      return;
+    } else if (batchErrors.length) {
+      setError(`Partial results (${4 - batchErrors.length}/4 batches ok): ${batchErrors.join(' | ')}`);
     }
-
-    allRows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
-    const bullish = allRows.filter(r => r.netOIChgPct > 0).slice(0, 5);
-    const bearish = allRows.filter(r => r.netOIChgPct < 0).reverse().slice(0, 5);
-
-    const merged: ScreenerData = {
-      bullish,
-      bearish,
-      all:          allRows,
-      scanned:      allRows.length,
-      scannedAt:    new Date().toISOString(),
-      stockExpiry:  refBatch?.stockExpiry,
-      stockExpiries: refBatch?.stockExpiries,
-      weeklyExpiry: refBatch?.weeklyExpiry,
-      n,
-      _debug: refBatch?._debug ? { expiries: refBatch._debug.expiries, symbols: allDebug } : undefined,
-    };
-
-    setData(merged);
-    if (merged.stockExpiries?.length) setAvailableExpiries(merged.stockExpiries);
-    if (!selectedExpiry && merged.stockExpiry) setSelectedExpiry(merged.stockExpiry);
-    if (batchErrors.length) setError(`Partial results (${4 - batchErrors.length}/4 batches ok): ${batchErrors.join(' | ')}`);
-
     setLoading(false);
+    setScanning(false);
   }, [isConfigured, headers, n, selectedExpiry]);
 
   useEffect(() => {
@@ -376,10 +369,12 @@ export default function OIScreenerPage() {
         <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
           (PE OI Chg − CE OI Chg) / Total OI &nbsp;·&nbsp;
           {loading
-            ? batchesDone === 0 ? 'Fetching expiry dates…' : `Scanning… ${batchesDone}/4 batches complete`
+            ? (batchesDone === 0 ? 'Fetching expiry dates…' : `Scanning batch ${batchesDone}/4…`)
+            : scanning
+            ? `${data?.scanned ?? 0} scanned so far · scanning batch ${batchesDone + 1}/4…`
             : data
             ? `${data.scanned} symbols scanned · ${scannedTime}`
-            : '~200 F&O symbols across 4 parallel batches'}
+            : '~200 F&O symbols · scans in 4 sequential batches'}
         </p>
       </div>
 
@@ -413,15 +408,19 @@ export default function OIScreenerPage() {
         <div className="flex flex-col justify-end">
           <button
             onClick={runScreen}
-            disabled={loading}
-            className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-50
-              ${dirty
+            disabled={loading || scanning}
+            className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-60
+              ${loading || scanning
+                ? 'bg-slate-400 text-white cursor-not-allowed'
+                : dirty
                 ? 'bg-amber-500 hover:bg-amber-400 text-white ring-2 ring-amber-400/50'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white'
               }`}
           >
             {loading
-              ? batchesDone === 0 ? 'Fetching expiries…' : `Scanning… (${batchesDone}/4)`
+              ? (batchesDone === 0 ? 'Fetching expiries…' : `Scanning batch ${batchesDone}/4…`)
+              : scanning
+              ? `Scanning batch ${batchesDone + 1}/4…`
               : dirty
               ? '↻ Re-run with new settings'
               : '↻ Run Screen'}
