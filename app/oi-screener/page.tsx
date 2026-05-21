@@ -8,7 +8,7 @@ interface DebugInfo {
   symbols:  SymbolDebug[];
 }
 
-interface ScreenerResponse {
+interface ScreenerData {
   bullish:        OIScreenerRow[];
   bearish:        OIScreenerRow[];
   all:            OIScreenerRow[];
@@ -19,6 +19,20 @@ interface ScreenerResponse {
   weeklyExpiry?:  string;
   n?:             number;
   _debug?:        DebugInfo;
+}
+
+interface BatchResponse {
+  all:            OIScreenerRow[];
+  scanned:        number;
+  scannedAt:      string;
+  stockExpiry:    string;
+  stockExpiries:  string[];
+  weeklyExpiry:   string;
+  n:              number;
+  batchNum:       number;
+  totalBatches:   number;
+  _debug?:        DebugInfo;
+  error?:         string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -33,7 +47,6 @@ function fmtOI(n: number) {
 }
 
 function expiryToMonthLabel(expiry: string): string {
-  // "2026-05-29" → "May 2026"
   const [y, m] = expiry.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 }
@@ -222,38 +235,86 @@ function Dropdown({ label, value, onChange, disabled, children }: {
 
 export default function OIScreenerPage() {
   const { isConfigured, isHydrated, headers } = useDhanCredentials();
-  const [data,              setData]              = useState<ScreenerResponse | null>(null);
+  const [data,              setData]              = useState<ScreenerData | null>(null);
   const [loading,           setLoading]           = useState(false);
+  const [batchesDone,       setBatchesDone]       = useState(0);
   const [error,             setError]             = useState('');
   const [showAll,           setShowAll]           = useState(false);
 
-  // Controls
   const [selectedExpiry,    setSelectedExpiry]    = useState('');
   const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
   const [n,                 setN]                 = useState(7);
 
-  // True when controls differ from the last completed scan — no extra state needed
   const dirty = n !== (data?.n ?? 7) || selectedExpiry !== (data?.stockExpiry ?? '');
 
   const runScreen = useCallback(async () => {
     if (!isConfigured) return;
     setLoading(true);
     setError('');
-    try {
-      const params = new URLSearchParams({ n: String(n) });
-      if (selectedExpiry) params.set('stockExpiry', selectedExpiry);
-      const res  = await fetch(`/api/dhan/oi-screener?${params}`, { headers });
-      const json = await res.json() as ScreenerResponse & { error?: string };
-      if (!res.ok) { setError(json.error ?? `HTTP ${res.status}`); return; }
-      setData(json);
-      // Populate month dropdown from response
-      if (json.stockExpiries?.length) setAvailableExpiries(json.stockExpiries);
-      if (!selectedExpiry && json.stockExpiry) setSelectedExpiry(json.stockExpiry);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
+    setBatchesDone(0);
+
+    const baseParams = new URLSearchParams({ n: String(n) });
+    if (selectedExpiry) baseParams.set('stockExpiry', selectedExpiry);
+
+    const batchResults = await Promise.allSettled(
+      Array.from({ length: 4 }, (_, i) => {
+        const p = new URLSearchParams(baseParams);
+        p.set('batch', String(i + 1));
+        return fetch(`/api/dhan/oi-screener?${p}`, { headers })
+          .then(res => res.json() as Promise<BatchResponse>)
+          .then(json => { setBatchesDone(prev => prev + 1); return json; });
+      })
+    );
+
+    const allRows: OIScreenerRow[]  = [];
+    const allDebug: SymbolDebug[]   = [];
+    const batchErrors: string[]     = [];
+    let refBatch: BatchResponse | null = null;
+
+    for (const [i, result] of batchResults.entries()) {
+      if (result.status === 'rejected') {
+        batchErrors.push(`Batch ${i + 1}: ${String(result.reason)}`);
+      } else {
+        const json = result.value;
+        if (json.error) {
+          batchErrors.push(`Batch ${i + 1}: ${json.error}`);
+        } else {
+          allRows.push(...(json.all ?? []));
+          if (json._debug?.symbols) allDebug.push(...json._debug.symbols);
+          if (!refBatch) refBatch = json;
+        }
+      }
     }
+
+    if (allRows.length === 0) {
+      setError(batchErrors.join(' | ') || 'No data returned');
+      setLoading(false);
+      return;
+    }
+
+    allRows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
+    const bullish = allRows.filter(r => r.netOIChgPct > 0).slice(0, 5);
+    const bearish = allRows.filter(r => r.netOIChgPct < 0).reverse().slice(0, 5);
+
+    const merged: ScreenerData = {
+      bullish,
+      bearish,
+      all:          allRows,
+      scanned:      allRows.length,
+      scannedAt:    new Date().toISOString(),
+      stockExpiry:  refBatch?.stockExpiry,
+      stockExpiries: refBatch?.stockExpiries,
+      weeklyExpiry: refBatch?.weeklyExpiry,
+      n,
+      _debug: refBatch?._debug ? { expiries: refBatch._debug.expiries, symbols: allDebug } : undefined,
+    };
+
+    setData(merged);
+    if (merged.stockExpiries?.length) setAvailableExpiries(merged.stockExpiries);
+    if (!selectedExpiry && merged.stockExpiry) setSelectedExpiry(merged.stockExpiry);
+    if (batchErrors.length) setError(`Partial results (${4 - batchErrors.length}/4 batches ok): ${batchErrors.join(' | ')}`);
+
+    setLoading(false);
   }, [isConfigured, headers, n, selectedExpiry]);
 
   useEffect(() => {
@@ -285,13 +346,16 @@ export default function OIScreenerPage() {
         <h1 className="text-xl font-bold tracking-tight text-gray-900">F&amp;O OI Change Screener</h1>
         <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
           (PE OI Chg − CE OI Chg) / Total OI &nbsp;·&nbsp;
-          {data ? `${data.scanned} symbols scanned · ${scannedTime}` : '~30 F&O symbols'}
+          {loading
+            ? `Scanning… ${batchesDone}/4 batches complete`
+            : data
+            ? `${data.scanned} symbols scanned · ${scannedTime}`
+            : '~200 F&O symbols across 4 parallel batches'}
         </p>
       </div>
 
       {/* ── Controls ── */}
       <div className="flex flex-wrap items-end gap-4">
-        {/* Month / expiry dropdown */}
         <Dropdown
           label="Expiry Month (stocks)"
           value={selectedExpiry}
@@ -306,7 +370,6 @@ export default function OIScreenerPage() {
           }
         </Dropdown>
 
-        {/* Strikes per side (N) */}
         <Dropdown
           label="Near-ATM Strikes (N per side)"
           value={n}
@@ -318,7 +381,6 @@ export default function OIScreenerPage() {
           ))}
         </Dropdown>
 
-        {/* Run button */}
         <div className="flex flex-col justify-end">
           <button
             onClick={runScreen}
@@ -329,7 +391,11 @@ export default function OIScreenerPage() {
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white'
               }`}
           >
-            {loading ? 'Scanning… (30–40 s)' : dirty ? '↻ Re-run with new settings' : '↻ Run Screen'}
+            {loading
+              ? `Scanning… (${batchesDone}/4)`
+              : dirty
+              ? '↻ Re-run with new settings'
+              : '↻ Run Screen'}
           </button>
         </div>
       </div>

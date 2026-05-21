@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchDhanExpiry, fetchDhanOptionChain, getScripAndSeg } from '@/lib/dhan-api';
+import { fetchDhanExpiry, fetchDhanOptionChain, getScripAndSeg, ALL_FNO_SYMBOLS } from '@/lib/dhan-api';
 import { findAtmIndex } from '@/lib/oi-calculations';
 import type { OIScreenerRow, SymbolDebug } from '@/lib/oi-screener';
 
@@ -7,17 +7,14 @@ export const maxDuration = 55;
 
 const WEEKLY_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY']);
 
-const SCREEN_SYMBOLS = [
-  'NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY',
-  'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS',
-  'SBIN', 'AXISBANK', 'KOTAKBANK', 'LT', 'BAJFINANCE',
-  'BHARTIARTL', 'WIPRO', 'HCLTECH', 'MARUTI', 'TITAN',
-  'HINDUNILVR', 'SUNPHARMA', 'DRREDDY', 'EICHERMOT',
-  'ONGC', 'NTPC', 'TATASTEEL', 'ADANIPORTS',
-  'BAJAJFINSV', 'DIVISLAB', 'TECHM', 'ASIANPAINT',
-  'HINDALCO', 'TATACONSUM', 'MANAPPURAM', 'INDUSINDBK',
-  'FEDERALBNK', 'CANBK', 'BANKBARODA', 'COALINDIA',
+// All F&O symbols: indices first, then stocks alphabetically
+const ALL_SCREEN_SYMBOLS = [
+  ...ALL_FNO_SYMBOLS.indices,
+  ...ALL_FNO_SYMBOLS.stocks,
 ];
+
+const TOTAL_BATCHES = 4;
+const BATCH_SIZE = Math.ceil(ALL_SCREEN_SYMBOLS.length / TOTAL_BATCHES);
 
 async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
@@ -36,8 +33,18 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const reqStockExpiry = searchParams.get('stockExpiry') ?? '';
-  // n = strikes per side of ATM (default 7 → 15 total)
   const n = Math.min(20, Math.max(1, parseInt(searchParams.get('n') ?? '7', 10)));
+  const batchNum = Math.min(TOTAL_BATCHES, Math.max(1, parseInt(searchParams.get('batch') ?? '1', 10)));
+
+  // Stagger batches by 500ms so Dhan API calls don't overlap across parallel browser requests
+  const delayStart = (batchNum - 1) * 500;
+  if (delayStart > 0) await sleep(delayStart);
+
+  // Slice symbols for this batch
+  const SCREEN_SYMBOLS = ALL_SCREEN_SYMBOLS.slice(
+    (batchNum - 1) * BATCH_SIZE,
+    batchNum * BATCH_SIZE,
+  );
 
   // Phase 1 — 3 reference expiry calls
   const [weeklyRes, midcpRes, stockRes] = await Promise.all([
@@ -68,7 +75,7 @@ export async function GET(req: NextRequest) {
     hasScripId: !!getScripAndSeg(sym),
   }));
 
-  // Phase 2 — sequential pairs with 1.5 s gap
+  // Phase 2 — sequential pairs with 1.5s gap
   const rows: OIScreenerRow[] = [];
   const debugLog: SymbolDebug[] = [];
 
@@ -125,21 +132,18 @@ export async function GET(req: NextRequest) {
     if (i + 2 < withExpiry.length) await sleep(1500);
   }
 
-  // Sort all descending; derive bullish (>0 desc) and bearish (<0 asc = most-negative first)
   rows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
-  const bullish = rows.filter(r => r.netOIChgPct > 0).slice(0, 5);
-  const bearish = rows.filter(r => r.netOIChgPct < 0).reverse().slice(0, 5);
 
   return NextResponse.json({
-    bullish,
-    bearish,
-    all:            rows,
-    scanned:        rows.length,
-    scannedAt:      new Date().toISOString(),
+    all:           rows,
+    scanned:       rows.length,
+    scannedAt:     new Date().toISOString(),
     stockExpiry,
-    stockExpiries:  allStockExpiries,
+    stockExpiries: allStockExpiries,
     weeklyExpiry,
     n,
+    batchNum,
+    totalBatches:  TOTAL_BATCHES,
     _debug: {
       expiries: { weekly: weeklyExpiry, midcp: midcpExpiry, stock: stockExpiry },
       symbols:  debugLog,
