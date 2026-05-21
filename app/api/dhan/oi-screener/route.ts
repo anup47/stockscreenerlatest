@@ -32,11 +32,10 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const reqStockExpiry = searchParams.get('stockExpiry') ?? '';
   const n = Math.min(20, Math.max(1, parseInt(searchParams.get('n') ?? '7', 10)));
   const batchNum = Math.min(TOTAL_BATCHES, Math.max(1, parseInt(searchParams.get('batch') ?? '1', 10)));
 
-  // Stagger batches by 500ms so Dhan API calls don't overlap across parallel browser requests
+  // Stagger batches by 500ms so option-chain calls don't overlap across parallel browser requests
   const delayStart = (batchNum - 1) * 500;
   if (delayStart > 0) await sleep(delayStart);
 
@@ -46,25 +45,38 @@ export async function GET(req: NextRequest) {
     batchNum * BATCH_SIZE,
   );
 
-  // Phase 1 — 3 reference expiry calls
-  const [weeklyRes, midcpRes, stockRes] = await Promise.all([
-    fetchDhanExpiry('NIFTY',      clientId, accessToken),
-    fetchDhanExpiry('MIDCPNIFTY', clientId, accessToken),
-    fetchDhanExpiry('RELIANCE',   clientId, accessToken),
-  ]);
+  // Phase 1 — use pre-supplied expiries (from /prefetch) or fetch them now
+  const preWeekly = searchParams.get('weeklyExpiry') ?? '';
+  const preMidcp  = searchParams.get('midcpExpiry')  ?? '';
+  const preStock  = searchParams.get('stockExpiry')  ?? '';
 
-  const weeklyExpiry      = weeklyRes.data?.expiries?.[0] ?? null;
-  const midcpExpiry       = midcpRes.data?.expiries?.[0]  ?? null;
-  const allStockExpiries  = stockRes.data?.expiries        ?? [];
+  let weeklyExpiry: string | null;
+  let midcpExpiry:  string | null;
+  let stockExpiry:  string | null;
+  let allStockExpiries: string[];
 
-  const stockExpiry = (reqStockExpiry && allStockExpiries.includes(reqStockExpiry))
-    ? reqStockExpiry
-    : allStockExpiries[0] ?? null;
+  if (preWeekly && preStock) {
+    // Expiries supplied by client — skip Phase 1 entirely
+    weeklyExpiry     = preWeekly;
+    midcpExpiry      = preMidcp || null;
+    stockExpiry      = preStock;
+    allStockExpiries = [];
+  } else {
+    const [weeklyRes, midcpRes, stockRes] = await Promise.all([
+      fetchDhanExpiry('NIFTY',      clientId, accessToken),
+      fetchDhanExpiry('MIDCPNIFTY', clientId, accessToken),
+      fetchDhanExpiry('RELIANCE',   clientId, accessToken),
+    ]);
+    weeklyExpiry     = weeklyRes.data?.expiries?.[0] ?? null;
+    midcpExpiry      = midcpRes.data?.expiries?.[0]  ?? null;
+    allStockExpiries = stockRes.data?.expiries        ?? [];
+    stockExpiry      = allStockExpiries[0] ?? null;
 
-  if (!weeklyExpiry || !stockExpiry) {
-    return NextResponse.json({
-      error: `Expiry fetch failed. NIFTY: ${weeklyRes.error ?? (weeklyExpiry ? 'ok' : 'empty')}  RELIANCE: ${stockRes.error ?? (stockExpiry ? 'ok' : 'empty')}`,
-    }, { status: 502 });
+    if (!weeklyExpiry || !stockExpiry) {
+      return NextResponse.json({
+        error: `Expiry fetch failed. NIFTY: ${weeklyRes.error ?? (weeklyExpiry ? 'ok' : 'empty')}  RELIANCE: ${stockRes.error ?? (stockExpiry ? 'ok' : 'empty')}`,
+      }, { status: 502 });
+    }
   }
 
   const withExpiry = SCREEN_SYMBOLS.map(sym => ({

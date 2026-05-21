@@ -253,8 +253,37 @@ export default function OIScreenerPage() {
     setError('');
     setBatchesDone(0);
 
-    const baseParams = new URLSearchParams({ n: String(n) });
-    if (selectedExpiry) baseParams.set('stockExpiry', selectedExpiry);
+    // Phase A: fetch expiries once (fast, ~1-2s) to avoid 4× duplicate Dhan calls
+    interface PrefetchResponse { weeklyExpiry: string; midcpExpiry: string | null; stockExpiry: string; stockExpiries: string[]; error?: string; }
+    let prefetch: PrefetchResponse;
+    try {
+      const r = await fetch('/api/dhan/oi-screener/prefetch', { headers });
+      prefetch = await r.json() as PrefetchResponse;
+      if (!r.ok || prefetch.error) {
+        setError(prefetch.error ?? `Expiry prefetch failed (HTTP ${r.status})`);
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      setError(`Expiry prefetch failed: ${String(e)}`);
+      setLoading(false);
+      return;
+    }
+
+    if (prefetch.stockExpiries.length) setAvailableExpiries(prefetch.stockExpiries);
+    const effectiveExpiry = (selectedExpiry && prefetch.stockExpiries.includes(selectedExpiry))
+      ? selectedExpiry
+      : prefetch.stockExpiry;
+    if (!selectedExpiry) setSelectedExpiry(effectiveExpiry);
+
+    // Phase B: fire 4 batches in parallel, passing pre-fetched expiry dates so each batch
+    // skips its own Phase 1 and never makes duplicate Dhan expiry calls
+    const baseParams = new URLSearchParams({
+      n:             String(n),
+      weeklyExpiry:  prefetch.weeklyExpiry,
+      midcpExpiry:   prefetch.midcpExpiry ?? '',
+      stockExpiry:   effectiveExpiry,
+    });
 
     const batchResults = await Promise.allSettled(
       Array.from({ length: 4 }, (_, i) => {
@@ -347,7 +376,7 @@ export default function OIScreenerPage() {
         <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-medium">
           (PE OI Chg − CE OI Chg) / Total OI &nbsp;·&nbsp;
           {loading
-            ? `Scanning… ${batchesDone}/4 batches complete`
+            ? batchesDone === 0 ? 'Fetching expiry dates…' : `Scanning… ${batchesDone}/4 batches complete`
             : data
             ? `${data.scanned} symbols scanned · ${scannedTime}`
             : '~200 F&O symbols across 4 parallel batches'}
@@ -392,7 +421,7 @@ export default function OIScreenerPage() {
               }`}
           >
             {loading
-              ? `Scanning… (${batchesDone}/4)`
+              ? batchesDone === 0 ? 'Fetching expiries…' : `Scanning… (${batchesDone}/4)`
               : dirty
               ? '↻ Re-run with new settings'
               : '↻ Run Screen'}
