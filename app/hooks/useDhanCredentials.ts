@@ -36,9 +36,9 @@ export function useDhanCredentials(): DhanCredentials {
     setTokenGeneratedAt(gen);
     setIsHydrated(true);
 
-    // Auto-refresh if token is stale (>23 h) and auto-renew is configured
-    if (id && p && totp && gen) {
-      const ageMs = Date.now() - new Date(gen).getTime();
+    // Auto-refresh if token is stale (>23 h) or age is unknown (e.g. setup link applied on a new device)
+    if (id && p && totp) {
+      const ageMs = gen ? Date.now() - new Date(gen).getTime() : Infinity;
       if (ageMs > 23 * 3_600_000) {
         doRefresh(id, p, totp).then(result => {
           if (result.ok && result.accessToken) {
