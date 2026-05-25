@@ -690,28 +690,35 @@ async function fetchOnePrevOI(
   } catch { _prevOICache.set(secId, 0); return 0; }
 }
 
-// ── Futures OI data (scrip master → market feed quote) ───────────────────────
+// ── Futures OI data (scrip master → market feed quote + historical prev OI) ──
 
 export interface FuturesQuote {
   symbol:      string;
   secId:       number;
+  expiry:      string;
   price:       number;
   changePct:   number;
   oi:          number;
   oiChangePct: number;
 }
 
-let _futSecIds: Map<string, number> | null = null;
-let _futCacheTs = 0;
+interface FuturesEntry {
+  secId:      number;
+  expiry:     string;
+  instrument: 'FUTSTK' | 'FUTIDX';
+}
+
+let _futDataCache: Map<string, FuturesEntry[]> | null = null;
+let _futDataCacheTs = 0;
 
 function futuresSymMatch(tradingSym: string, key: string): boolean {
   if (!tradingSym.startsWith(key)) return false;
   return /\d/.test(tradingSym[key.length] ?? '');
 }
 
-async function loadFuturesSecIds(symbols: string[]): Promise<Map<string, number>> {
+async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEntry[]>> {
   const now = Date.now();
-  if (_futSecIds && now - _futCacheTs < 4 * 3600_000) return _futSecIds;
+  if (_futDataCache && now - _futDataCacheTs < 4 * 3600_000) return _futDataCache;
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -720,7 +727,7 @@ async function loadFuturesSecIds(symbols: string[]): Promise<Map<string, number>
       cache: 'no-store', signal: ctrl.signal,
     });
     clearTimeout(timer);
-    if (!res.ok) return _futSecIds ?? new Map();
+    if (!res.ok) return _futDataCache ?? new Map();
 
     const text  = await res.text();
     const lines = text.split('\n');
@@ -733,21 +740,20 @@ async function loadFuturesSecIds(symbols: string[]): Promise<Map<string, number>
     const iTrading = hdrs.indexOf('SEM_TRADING_SYMBOL');
 
     if (iSecId < 0 || iSeg < 0 || iInstr < 0 || iExpiry < 0 || iTrading < 0) {
-      return _futSecIds ?? new Map();
+      return _futDataCache ?? new Map();
     }
 
     const today = new Date().toISOString().split('T')[0];
 
-    // For each symbol, build variant keys (strip hyphens/ampersands for symbols like BAJAJ-AUTO, M&M)
     const keyVariants = new Map<string, string[]>();
     for (const sym of symbols) {
-      const upper   = sym.toUpperCase();
+      const upper    = sym.toUpperCase();
       const stripped = sym.replace(/[-&]/g, '').toUpperCase();
       keyVariants.set(upper, stripped !== upper ? [upper, stripped] : [upper]);
     }
 
-    // symbol → { secId, expiry } keeping nearest (lowest) expiry >= today
-    const nearest = new Map<string, { secId: number; expiry: string }>();
+    // symbol → expiry → FuturesEntry (deduplicated; one contract per expiry per symbol)
+    const accum = new Map<string, Map<string, FuturesEntry>>();
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
@@ -774,39 +780,101 @@ async function loadFuturesSecIds(symbols: string[]): Promise<Map<string, number>
         }
         if (!matched) continue;
 
-        const cur = nearest.get(sym);
-        if (!cur || rawExp < cur.expiry) nearest.set(sym, { secId, expiry: rawExp });
+        if (!accum.has(sym)) accum.set(sym, new Map());
+        const symMap = accum.get(sym)!;
+        if (!symMap.has(rawExp)) {
+          symMap.set(rawExp, { secId, expiry: rawExp, instrument: instr as 'FUTSTK' | 'FUTIDX' });
+        }
         break;
       }
     }
 
-    const result = new Map<string, number>();
-    for (const [sym, { secId }] of nearest) result.set(sym, secId);
+    const result = new Map<string, FuturesEntry[]>();
+    for (const [sym, expMap] of accum) {
+      result.set(sym, [...expMap.values()].sort((a, b) => a.expiry.localeCompare(b.expiry)));
+    }
 
-    _futSecIds = result;
-    _futCacheTs = now;
+    _futDataCache = result;
+    _futDataCacheTs = now;
     return result;
   } catch {
     clearTimeout(timer);
-    return _futSecIds ?? new Map();
+    return _futDataCache ?? new Map();
   }
+}
+
+async function fetchFuturesPrevOI(
+  secId: number,
+  instrument: 'FUTSTK' | 'FUTIDX',
+  clientId: string,
+  accessToken: string,
+): Promise<number> {
+  const cacheKey = `f:${secId}`;
+  const today = new Date().toISOString().split('T')[0];
+  if (_prevOICacheDate !== today) { _prevOICache.clear(); _prevOICacheDate = today; }
+  if (_prevOICache.has(cacheKey)) return _prevOICache.get(cacheKey)!;
+
+  const dateStr = prevTradingDay();
+  try {
+    const res = await fetch(`${DHAN_BASE}/v2/charts/historical`, {
+      method:  'POST',
+      headers: dhanHeaders(clientId, accessToken),
+      body: JSON.stringify({
+        securityId:      String(secId),
+        exchangeSegment: 'NSE_FO',
+        instrument,
+        expiryCode:      0,
+        fromDate:        dateStr,
+        toDate:          dateStr,
+      }),
+    });
+    if (!res.ok) { _prevOICache.set(cacheKey, 0); return 0; }
+    const data = await res.json() as Record<string, unknown>;
+    const oiArr = (data.oi ?? data.openInterest ?? []) as number[];
+    const oi = oiArr.length > 0 ? Number(oiArr[oiArr.length - 1]) : 0;
+    _prevOICache.set(cacheKey, oi);
+    return oi;
+  } catch { _prevOICache.set(cacheKey, 0); return 0; }
 }
 
 export async function fetchFuturesQuotes(
   symbols: string[],
   clientId: string,
   accessToken: string,
-): Promise<Map<string, FuturesQuote>> {
-  const secIdMap = await loadFuturesSecIds(symbols);
-  if (secIdMap.size === 0) return new Map();
+  expiry?: string,
+): Promise<{ quotes: Map<string, FuturesQuote>; availableExpiries: string[] }> {
+  const dataMap = await loadFuturesData(symbols);
+  if (dataMap.size === 0) return { quotes: new Map(), availableExpiries: [] };
 
-  const revMap = new Map<number, string>();
+  // All distinct expiry dates for the dropdown
+  const expirySet = new Set<string>();
+  for (const entries of dataMap.values()) {
+    for (const e of entries) expirySet.add(e.expiry);
+  }
+  const availableExpiries = [...expirySet].sort();
+
+  // Build secId → { sym, instrument, expiry } for the selected (or nearest) expiry
+  type EntryMeta = { sym: string; instrument: 'FUTSTK' | 'FUTIDX'; expiry: string };
+  const revMap = new Map<number, EntryMeta>();
   const secIds: number[] = [];
-  for (const [sym, id] of secIdMap) { revMap.set(id, sym); secIds.push(id); }
 
-  const result = new Map<string, FuturesQuote>();
+  for (const [sym, entries] of dataMap) {
+    const entry = expiry
+      ? (entries.find(e => e.expiry === expiry) ?? entries[0])
+      : entries[0];
+    if (!entry) continue;
+    revMap.set(entry.secId, { sym, instrument: entry.instrument, expiry: entry.expiry });
+    secIds.push(entry.secId);
+  }
+
+  type RawQ = {
+    sym: string; price: number; prevClose: number; oi: number;
+    oiChgFF: number; instrument: 'FUTSTK' | 'FUTIDX'; secId: number; expiry: string;
+  };
+  const rawQuotes: RawQ[] = [];
   const CHUNK = 100;
 
+  // Step 1: market feed for current price + OI snapshot
   for (let i = 0; i < secIds.length; i += CHUNK) {
     const chunk = secIds.slice(i, i + CHUNK);
     try {
@@ -817,36 +885,51 @@ export async function fetchFuturesQuotes(
       });
       if (!res.ok) continue;
       const json = await res.json() as Record<string, unknown>;
-
-      // Response: { data: { NSE_FO: { "<id>": { last_price, close, oi, oi_day_change, ... } } } }
       const nfoFeed = (
         (json.data as Record<string, unknown>)?.NSE_FO ??
         (json as Record<string, unknown>).NSE_FO
       ) as Record<string, Record<string, unknown>> | undefined;
       if (!nfoFeed) continue;
 
-      for (const [idStr, quote] of Object.entries(nfoFeed)) {
-        const id  = parseInt(idStr, 10);
-        const sym = revMap.get(id);
-        if (!sym || !quote) continue;
-
-        const price     = Number(quote.last_price     ?? quote.ltp            ?? 0);
-        const prevClose = Number(quote.close          ?? quote.prev_close     ?? quote.previous_close ?? 0);
-        const oi        = Number(quote.oi             ?? quote.open_interest  ?? quote.openInterest   ?? 0);
-        const oiChg     = Number(quote.oi_day_change  ?? quote.oiDayChange    ?? quote.oi_change      ?? quote.oiChange ?? 0);
-
-        if (price === 0 || prevClose === 0 || oi === 0) continue;
-
-        const changePct   = ((price - prevClose) / prevClose) * 100;
-        const prevOI      = oi - oiChg;
-        const oiChangePct = prevOI !== 0 ? (oiChg / Math.abs(prevOI)) * 100 : 0;
-
-        result.set(sym, { symbol: sym, secId: id, price, changePct, oi, oiChangePct });
+      for (const [idStr, q] of Object.entries(nfoFeed)) {
+        const id   = parseInt(idStr, 10);
+        const meta = revMap.get(id);
+        if (!meta || !q) continue;
+        const price     = Number(q.last_price    ?? q.ltp           ?? 0);
+        const prevClose = Number(q.close         ?? q.prev_close    ?? q.previous_close ?? 0);
+        const oi        = Number(q.oi            ?? q.open_interest ?? q.openInterest   ?? 0);
+        // Use feed-supplied OI change if present (saves a historical call)
+        const oiChgFF   = Number(q.oi_day_change ?? q.oiDayChange   ?? q.oi_change     ?? q.oiChange ?? 0);
+        if (price === 0 || prevClose === 0) continue;
+        rawQuotes.push({ sym: meta.sym, price, prevClose, oi, oiChgFF, instrument: meta.instrument, secId: id, expiry: meta.expiry });
       }
-    } catch { /* skip failed chunk */ }
+    } catch { /* skip */ }
   }
 
-  return result;
+  // Step 2: previous-day OI from historical candles (20 concurrent)
+  // If the market feed already gave us OI change, skip the historical call.
+  const HIST_BATCH = 20;
+  const quotes = new Map<string, FuturesQuote>();
+
+  for (let i = 0; i < rawQuotes.length; i += HIST_BATCH) {
+    const batch = rawQuotes.slice(i, i + HIST_BATCH);
+    const prevOIs = await Promise.all(batch.map(rq => {
+      if (rq.oiChgFF !== 0) return Promise.resolve(rq.oi - rq.oiChgFF);
+      if (rq.oi === 0)      return Promise.resolve(0);
+      return fetchFuturesPrevOI(rq.secId, rq.instrument, clientId, accessToken);
+    }));
+
+    for (let k = 0; k < batch.length; k++) {
+      const { sym, price, prevClose, oi, expiry: exp, secId } = batch[k];
+      const prevOI      = prevOIs[k];
+      const changePct   = ((price - prevClose) / prevClose) * 100;
+      const oiChg       = oi - prevOI;
+      const oiChangePct = prevOI > 0 ? (oiChg / prevOI) * 100 : 0;
+      quotes.set(sym, { symbol: sym, secId, expiry: exp, price, changePct, oi, oiChangePct });
+    }
+  }
+
+  return { quotes, availableExpiries };
 }
 
 // ── Exported: fetch prev-day OI for every strike in a chain (parallel batches of 10) ──

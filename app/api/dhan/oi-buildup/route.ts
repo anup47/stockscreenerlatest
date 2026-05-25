@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchFuturesQuotes, ALL_FNO_SYMBOLS } from '@/lib/dhan-api';
 
-export const maxDuration = 30;
+export const maxDuration = 55;
 
 export interface OIBuildupRow {
   symbol:      string;
+  expiry:      string;
   price:       number;
   changePct:   number;
   oi:          number;
@@ -12,13 +13,15 @@ export interface OIBuildupRow {
 }
 
 export interface OIBuildupData {
-  lb:        OIBuildupRow[];
-  sb:        OIBuildupRow[];
-  sc:        OIBuildupRow[];
-  lu:        OIBuildupRow[];
-  total:     number;
-  fetchedAt: string;
-  error?:    string;
+  lb:               OIBuildupRow[];
+  sb:               OIBuildupRow[];
+  sc:               OIBuildupRow[];
+  lu:               OIBuildupRow[];
+  total:            number;
+  fetched:          number;
+  availableExpiries: string[];
+  fetchedAt:        string;
+  error?:           string;
 }
 
 const ALL_SCREEN_SYMBOLS = [
@@ -37,7 +40,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const quotes = await fetchFuturesQuotes(ALL_SCREEN_SYMBOLS, clientId, accessToken);
+  const expiry = req.nextUrl.searchParams.get('expiry') ?? undefined;
+  const { quotes, availableExpiries } = await fetchFuturesQuotes(
+    ALL_SCREEN_SYMBOLS, clientId, accessToken, expiry,
+  );
 
   const lb: OIBuildupRow[] = [];
   const sb: OIBuildupRow[] = [];
@@ -46,8 +52,9 @@ export async function GET(req: NextRequest) {
 
   for (const q of quotes.values()) {
     const row: OIBuildupRow = {
-      symbol: q.symbol, price: q.price,
-      changePct: q.changePct, oi: q.oi, oiChangePct: q.oiChangePct,
+      symbol: q.symbol, expiry: q.expiry,
+      price: q.price, changePct: q.changePct,
+      oi: q.oi, oiChangePct: q.oiChangePct,
     };
     if      (q.changePct > 0 && q.oiChangePct > 0) lb.push(row);
     else if (q.changePct < 0 && q.oiChangePct > 0) sb.push(row);
@@ -64,6 +71,8 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     lb, sb, sc, lu, total,
+    fetched: quotes.size,
+    availableExpiries,
     fetchedAt: new Date().toISOString(),
   } satisfies OIBuildupData);
 }

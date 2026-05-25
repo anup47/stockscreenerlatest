@@ -15,6 +15,12 @@ function fmt2(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtExpiry(iso: string) {
+  // "2026-05-29" → "May 2026"
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+}
+
 function Panel({
   title, subtitle, rows, borderColor, priceColor, oiColor, loading,
 }: {
@@ -92,29 +98,36 @@ function Panel({
 
 export default function OIBuildupPage() {
   const { isConfigured, isHydrated, headers } = useDhanCredentials();
-  const [data,    setData]    = useState<OIBuildupData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [data,              setData]              = useState<OIBuildupData | null>(null);
+  const [loading,           setLoading]           = useState(false);
+  const [error,             setError]             = useState('');
+  const [selectedExpiry,    setSelectedExpiry]    = useState('');
+  const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
 
-  const runScreen = useCallback(async () => {
+  const runScreen = useCallback(async (expiry?: string) => {
     if (!isConfigured) return;
     setLoading(true);
     setError('');
     setData(null);
     try {
-      const res  = await fetch('/api/dhan/oi-buildup', { headers });
+      const params = expiry ? `?expiry=${expiry}` : '';
+      const res  = await fetch(`/api/dhan/oi-buildup${params}`, { headers });
       const json = await res.json() as OIBuildupData;
       if (!res.ok || json.error) {
         setError(json.error ?? `HTTP ${res.status}`);
       } else {
         setData(json);
+        if (json.availableExpiries.length) {
+          setAvailableExpiries(json.availableExpiries);
+          if (!selectedExpiry) setSelectedExpiry(json.availableExpiries[0] ?? '');
+        }
       }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [isConfigured, headers]);
+  }, [isConfigured, headers, selectedExpiry]);
 
   useEffect(() => {
     if (isHydrated && isConfigured) runScreen();
@@ -148,23 +161,45 @@ export default function OIBuildupPage() {
           {loading
             ? 'Fetching futures data…'
             : data
-            ? `${total} symbols classified · ${fetchedAt}`
+            ? `${total} classified · ${data.fetched} fetched · ${fetchedAt}`
             : '~205 F&O symbols'}
         </p>
       </div>
 
-      <div className="flex items-center gap-4">
-        <button
-          onClick={runScreen}
-          disabled={loading}
-          className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-60
-            ${loading
-              ? 'bg-slate-400 text-white cursor-not-allowed'
-              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-            }`}
-        >
-          {loading ? 'Loading…' : '↻ Refresh'}
-        </button>
+      {/* Controls */}
+      <div className="flex flex-wrap items-end gap-4">
+        {availableExpiries.length > 0 && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Expiry</span>
+            <select
+              value={selectedExpiry}
+              onChange={e => {
+                setSelectedExpiry(e.target.value);
+                runScreen(e.target.value);
+              }}
+              disabled={loading}
+              className="px-3 py-2 text-sm font-semibold text-gray-900 bg-white border border-slate-300 rounded-lg disabled:opacity-50 cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 min-w-[140px]"
+            >
+              {availableExpiries.map(exp => (
+                <option key={exp} value={exp}>{fmtExpiry(exp)}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <div className="flex flex-col justify-end">
+          <button
+            onClick={() => runScreen(selectedExpiry || undefined)}
+            disabled={loading}
+            className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-60
+              ${loading
+                ? 'bg-slate-400 text-white cursor-not-allowed'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+          >
+            {loading ? 'Loading…' : '↻ Refresh'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -220,7 +255,7 @@ export default function OIBuildupPage() {
       </div>
 
       <div className="text-xs text-slate-600">
-        Futures contract price, OI, and OI change from Dhan market feed. ~205 NSE F&O symbols.
+        Futures contract price &amp; OI from Dhan market feed. OI change vs previous trading day from Dhan historical candles.
       </div>
 
     </main>
