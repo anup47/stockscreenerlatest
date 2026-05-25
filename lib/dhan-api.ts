@@ -690,7 +690,166 @@ async function fetchOnePrevOI(
   } catch { _prevOICache.set(secId, 0); return 0; }
 }
 
-// Exported: fetch prev-day OI for every strike in a chain (parallel batches of 10)
+// ── Futures OI data (scrip master → market feed quote) ───────────────────────
+
+export interface FuturesQuote {
+  symbol:      string;
+  secId:       number;
+  price:       number;
+  changePct:   number;
+  oi:          number;
+  oiChangePct: number;
+}
+
+let _futSecIds: Map<string, number> | null = null;
+let _futCacheTs = 0;
+
+function futuresSymMatch(tradingSym: string, key: string): boolean {
+  if (!tradingSym.startsWith(key)) return false;
+  return /\d/.test(tradingSym[key.length] ?? '');
+}
+
+async function loadFuturesSecIds(symbols: string[]): Promise<Map<string, number>> {
+  const now = Date.now();
+  if (_futSecIds && now - _futCacheTs < 4 * 3600_000) return _futSecIds;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch('https://images.dhan.co/api-data/api-scrip-master.csv', {
+      cache: 'no-store', signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return _futSecIds ?? new Map();
+
+    const text  = await res.text();
+    const lines = text.split('\n');
+    const hdrs  = lines[0].split(',').map(h => h.trim().replace(/['"]/g, ''));
+
+    const iSecId   = hdrs.indexOf('SEM_SMST_SECURITY_ID');
+    const iSeg     = hdrs.indexOf('SEM_SEGMENT');
+    const iInstr   = hdrs.indexOf('SEM_INSTRUMENT_NAME');
+    const iExpiry  = hdrs.indexOf('SEM_EXPIRY_DATE');
+    const iTrading = hdrs.indexOf('SEM_TRADING_SYMBOL');
+
+    if (iSecId < 0 || iSeg < 0 || iInstr < 0 || iExpiry < 0 || iTrading < 0) {
+      return _futSecIds ?? new Map();
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // For each symbol, build variant keys (strip hyphens/ampersands for symbols like BAJAJ-AUTO, M&M)
+    const keyVariants = new Map<string, string[]>();
+    for (const sym of symbols) {
+      const upper   = sym.toUpperCase();
+      const stripped = sym.replace(/[-&]/g, '').toUpperCase();
+      keyVariants.set(upper, stripped !== upper ? [upper, stripped] : [upper]);
+    }
+
+    // symbol → { secId, expiry } keeping nearest (lowest) expiry >= today
+    const nearest = new Map<string, { secId: number; expiry: string }>();
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+
+      const cols = line.split(',');
+      if (cols[iSeg]?.trim() !== 'NSE_FO') continue;
+
+      const instr = cols[iInstr]?.trim() ?? '';
+      if (instr !== 'FUTSTK' && instr !== 'FUTIDX') continue;
+
+      const rawExp = cols[iExpiry]?.trim().replace(/['"]/g, '').split(' ')[0].split('T')[0] ?? '';
+      if (!rawExp || rawExp < today) continue;
+
+      const tradingSym = (cols[iTrading]?.trim() ?? '').toUpperCase();
+      const secIdStr   = cols[iSecId]?.trim().replace(/['"]/g, '') ?? '';
+      const secId      = parseInt(secIdStr, 10);
+      if (!secId || isNaN(secId)) continue;
+
+      for (const [sym, keys] of keyVariants) {
+        let matched = false;
+        for (const key of keys) {
+          if (futuresSymMatch(tradingSym, key)) { matched = true; break; }
+        }
+        if (!matched) continue;
+
+        const cur = nearest.get(sym);
+        if (!cur || rawExp < cur.expiry) nearest.set(sym, { secId, expiry: rawExp });
+        break;
+      }
+    }
+
+    const result = new Map<string, number>();
+    for (const [sym, { secId }] of nearest) result.set(sym, secId);
+
+    _futSecIds = result;
+    _futCacheTs = now;
+    return result;
+  } catch {
+    clearTimeout(timer);
+    return _futSecIds ?? new Map();
+  }
+}
+
+export async function fetchFuturesQuotes(
+  symbols: string[],
+  clientId: string,
+  accessToken: string,
+): Promise<Map<string, FuturesQuote>> {
+  const secIdMap = await loadFuturesSecIds(symbols);
+  if (secIdMap.size === 0) return new Map();
+
+  const revMap = new Map<number, string>();
+  const secIds: number[] = [];
+  for (const [sym, id] of secIdMap) { revMap.set(id, sym); secIds.push(id); }
+
+  const result = new Map<string, FuturesQuote>();
+  const CHUNK = 100;
+
+  for (let i = 0; i < secIds.length; i += CHUNK) {
+    const chunk = secIds.slice(i, i + CHUNK);
+    try {
+      const res = await fetch(`${DHAN_BASE}/v2/marketfeed/quote`, {
+        method:  'POST',
+        headers: dhanHeaders(clientId, accessToken),
+        body:    JSON.stringify({ NSE_FO: chunk }),
+      });
+      if (!res.ok) continue;
+      const json = await res.json() as Record<string, unknown>;
+
+      // Response: { data: { NSE_FO: { "<id>": { last_price, close, oi, oi_day_change, ... } } } }
+      const nfoFeed = (
+        (json.data as Record<string, unknown>)?.NSE_FO ??
+        (json as Record<string, unknown>).NSE_FO
+      ) as Record<string, Record<string, unknown>> | undefined;
+      if (!nfoFeed) continue;
+
+      for (const [idStr, quote] of Object.entries(nfoFeed)) {
+        const id  = parseInt(idStr, 10);
+        const sym = revMap.get(id);
+        if (!sym || !quote) continue;
+
+        const price     = Number(quote.last_price     ?? quote.ltp            ?? 0);
+        const prevClose = Number(quote.close          ?? quote.prev_close     ?? quote.previous_close ?? 0);
+        const oi        = Number(quote.oi             ?? quote.open_interest  ?? quote.openInterest   ?? 0);
+        const oiChg     = Number(quote.oi_day_change  ?? quote.oiDayChange    ?? quote.oi_change      ?? quote.oiChange ?? 0);
+
+        if (price === 0 || prevClose === 0 || oi === 0) continue;
+
+        const changePct   = ((price - prevClose) / prevClose) * 100;
+        const prevOI      = oi - oiChg;
+        const oiChangePct = prevOI !== 0 ? (oiChg / Math.abs(prevOI)) * 100 : 0;
+
+        result.set(sym, { symbol: sym, secId: id, price, changePct, oi, oiChangePct });
+      }
+    } catch { /* skip failed chunk */ }
+  }
+
+  return result;
+}
+
+// ── Exported: fetch prev-day OI for every strike in a chain (parallel batches of 10) ──
 export async function fetchPrevDayOIForChain(
   symbol: string,
   expiry: string,
