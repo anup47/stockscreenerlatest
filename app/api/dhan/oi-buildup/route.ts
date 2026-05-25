@@ -19,6 +19,7 @@ export interface OIBuildupData {
   lu:               OIBuildupRow[];
   total:            number;
   fetched:          number;
+  scripMasterSize:  number;
   availableExpiries: string[];
   fetchedAt:        string;
   error?:           string;
@@ -41,9 +42,16 @@ export async function GET(req: NextRequest) {
   }
 
   const expiry = req.nextUrl.searchParams.get('expiry') ?? undefined;
-  const { quotes, availableExpiries } = await fetchFuturesQuotes(
-    ALL_SCREEN_SYMBOLS, clientId, accessToken, expiry,
-  );
+  const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } =
+    await fetchFuturesQuotes(ALL_SCREEN_SYMBOLS, clientId, accessToken, expiry);
+
+  // Surface actionable errors
+  let error: string | undefined;
+  if (scripMasterSize === 0) {
+    error = `Futures contract data unavailable: ${loadError || 'scrip master download failed'}`;
+  } else if (rawQuotesSize === 0) {
+    error = 'Dhan market feed returned no data for futures. Credentials may have expired.';
+  }
 
   const lb: OIBuildupRow[] = [];
   const sb: OIBuildupRow[] = [];
@@ -71,8 +79,10 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     lb, sb, sc, lu, total,
-    fetched: quotes.size,
+    fetched:         quotes.size,
+    scripMasterSize,
     availableExpiries,
-    fetchedAt: new Date().toISOString(),
+    fetchedAt:       new Date().toISOString(),
+    ...(error ? { error } : {}),
   } satisfies OIBuildupData);
 }

@@ -99,6 +99,9 @@ function Panel({
 export default function OIBuildupPage() {
   const { isConfigured, isHydrated, headers } = useDhanCredentials();
   const [data,              setData]              = useState<OIBuildupData | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [debugData,         setDebugData]         = useState<any>(null);
+  const [debugLoading,      setDebugLoading]      = useState(false);
   const [loading,           setLoading]           = useState(false);
   const [error,             setError]             = useState('');
   const [selectedExpiry,    setSelectedExpiry]    = useState('');
@@ -161,7 +164,7 @@ export default function OIBuildupPage() {
           {loading
             ? 'Fetching futures data…'
             : data
-            ? `${total} classified · ${data.fetched} fetched · ${fetchedAt}`
+            ? `${total} classified · ${data.fetched} fetched · ${data.scripMasterSize} futures in scrip · ${fetchedAt}`
             : '~205 F&O symbols'}
         </p>
       </div>
@@ -203,8 +206,28 @@ export default function OIBuildupPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-300 rounded-xl px-5 py-3 text-red-700 text-sm font-medium">
-          {error}
+        <div className="bg-red-50 border border-red-300 rounded-xl px-5 py-3 text-red-700 text-sm font-medium space-y-2">
+          <div>{error}</div>
+          <button
+            onClick={async () => {
+              setDebugLoading(true);
+              try {
+                const res  = await fetch('/api/dhan/oi-buildup/debug', { headers });
+                const json = await res.json();
+                setDebugData(json);
+              } catch (e) { setDebugData({ error: String(e) }); }
+              finally { setDebugLoading(false); }
+            }}
+            disabled={debugLoading}
+            className="text-xs underline text-red-600 hover:text-red-800 disabled:opacity-60"
+          >
+            {debugLoading ? 'Running diagnostics…' : 'Run diagnostics'}
+          </button>
+        </div>
+      )}
+      {debugData && (
+        <div className="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-xs font-mono text-slate-300 overflow-auto max-h-96 whitespace-pre-wrap">
+          {JSON.stringify(debugData, null, 2)}
         </div>
       )}
 

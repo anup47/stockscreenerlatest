@@ -710,6 +710,7 @@ interface FuturesEntry {
 
 let _futDataCache: Map<string, FuturesEntry[]> | null = null;
 let _futDataCacheTs = 0;
+export let futuresLoadError = ''; // last error from loadFuturesData
 
 function futuresSymMatch(tradingSym: string, key: string): boolean {
   if (!tradingSym.startsWith(key)) return false;
@@ -721,17 +722,23 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
   if (_futDataCache && now - _futDataCacheTs < 4 * 3600_000) return _futDataCache;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  const timer = setTimeout(() => ctrl.abort(), 28_000);
   try {
     const res = await fetch('https://images.dhan.co/api-data/api-scrip-master.csv', {
-      cache: 'no-store', signal: ctrl.signal,
+      cache:   'no-store',
+      signal:  ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; stockscreener/1.0)' },
     });
     clearTimeout(timer);
-    if (!res.ok) return _futDataCache ?? new Map();
+    if (!res.ok) {
+      futuresLoadError = `CSV HTTP ${res.status}`;
+      return _futDataCache ?? new Map();
+    }
 
     const text  = await res.text();
     const lines = text.split('\n');
-    const hdrs  = lines[0].split(',').map(h => h.trim().replace(/['"]/g, ''));
+    // Strip BOM + quotes from every header
+    const hdrs  = lines[0].replace(/^﻿/, '').split(',').map(h => h.trim().replace(/['"]/g, ''));
 
     const iSecId   = hdrs.indexOf('SEM_SMST_SECURITY_ID');
     const iSeg     = hdrs.indexOf('SEM_SEGMENT');
@@ -740,6 +747,7 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
     const iTrading = hdrs.indexOf('SEM_TRADING_SYMBOL');
 
     if (iSecId < 0 || iSeg < 0 || iInstr < 0 || iExpiry < 0 || iTrading < 0) {
+      futuresLoadError = `CSV columns missing. Found: ${hdrs.slice(0, 8).join(' | ')}`;
       return _futDataCache ?? new Map();
     }
 
@@ -752,23 +760,26 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
       keyVariants.set(upper, stripped !== upper ? [upper, stripped] : [upper]);
     }
 
-    // symbol → expiry → FuturesEntry (deduplicated; one contract per expiry per symbol)
     const accum = new Map<string, Map<string, FuturesEntry>>();
+    let nfoFutCount = 0;
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
 
       const cols = line.split(',');
-      if (cols[iSeg]?.trim() !== 'NSE_FO') continue;
+      // Strip quotes from every cell used for comparisons
+      const seg   = cols[iSeg]?.trim().replace(/['"]/g, '') ?? '';
+      if (seg !== 'NSE_FO') continue;
 
-      const instr = cols[iInstr]?.trim() ?? '';
+      const instr = cols[iInstr]?.trim().replace(/['"]/g, '') ?? '';
       if (instr !== 'FUTSTK' && instr !== 'FUTIDX') continue;
+      nfoFutCount++;
 
       const rawExp = cols[iExpiry]?.trim().replace(/['"]/g, '').split(' ')[0].split('T')[0] ?? '';
       if (!rawExp || rawExp < today) continue;
 
-      const tradingSym = (cols[iTrading]?.trim() ?? '').toUpperCase();
+      const tradingSym = (cols[iTrading]?.trim().replace(/['"]/g, '') ?? '').toUpperCase();
       const secIdStr   = cols[iSecId]?.trim().replace(/['"]/g, '') ?? '';
       const secId      = parseInt(secIdStr, 10);
       if (!secId || isNaN(secId)) continue;
@@ -789,16 +800,23 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
       }
     }
 
+    if (accum.size === 0) {
+      futuresLoadError = `No symbols matched (${nfoFutCount} FUTSTK/FUTIDX rows in CSV, ${lines.length} total lines)`;
+      return _futDataCache ?? new Map();
+    }
+
     const result = new Map<string, FuturesEntry[]>();
     for (const [sym, expMap] of accum) {
       result.set(sym, [...expMap.values()].sort((a, b) => a.expiry.localeCompare(b.expiry)));
     }
 
+    futuresLoadError = '';
     _futDataCache = result;
     _futDataCacheTs = now;
     return result;
-  } catch {
+  } catch (e) {
     clearTimeout(timer);
+    futuresLoadError = `CSV exception: ${String(e)}`;
     return _futDataCache ?? new Map();
   }
 }
@@ -842,9 +860,11 @@ export async function fetchFuturesQuotes(
   clientId: string,
   accessToken: string,
   expiry?: string,
-): Promise<{ quotes: Map<string, FuturesQuote>; availableExpiries: string[] }> {
+): Promise<{ quotes: Map<string, FuturesQuote>; availableExpiries: string[]; scripMasterSize: number; rawQuotesSize: number; loadError: string }> {
   const dataMap = await loadFuturesData(symbols);
-  if (dataMap.size === 0) return { quotes: new Map(), availableExpiries: [] };
+  if (dataMap.size === 0) {
+    return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: futuresLoadError };
+  }
 
   // All distinct expiry dates for the dropdown
   const expirySet = new Set<string>();
@@ -929,7 +949,7 @@ export async function fetchFuturesQuotes(
     }
   }
 
-  return { quotes, availableExpiries };
+  return { quotes, availableExpiries, scripMasterSize: dataMap.size, rawQuotesSize: rawQuotes.length, loadError: '' };
 }
 
 // ── Exported: fetch prev-day OI for every strike in a chain (parallel batches of 10) ──
