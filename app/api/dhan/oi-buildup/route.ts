@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   fetchDhanExpiry, fetchDhanOptionChain, getScripAndSeg,
-  ALL_FNO_SYMBOLS, FNO_SCRIP, dhanHeaders, fetchNseIndices,
+  ALL_FNO_SYMBOLS, fetchNseFnoChangePct, fetchNseIndices,
 } from '@/lib/dhan-api';
-import { findAtmIndex } from '@/lib/oi-calculations';
 
 export const maxDuration = 55;
 
@@ -16,7 +15,7 @@ export interface OIBuildupRow {
   peOI:      number;
   ceOIChg:   number;
   peOIChg:   number;
-  totalOI:   number;    // ceOI + peOI (near ATM)
+  totalOI:   number;    // total CE+PE OI across all strikes
   oiChgPct:  number;    // (ceOIChg + peOIChg) / prevTotalOI × 100
 }
 
@@ -31,7 +30,6 @@ export interface OIBuildupData {
   scannedAt:    string;
   stockExpiry:  string;
   weeklyExpiry: string;
-  n:            number;
   error?:       string;
 }
 
@@ -47,48 +45,6 @@ const BATCH_SIZE    = Math.ceil(ALL_SCREEN_SYMBOLS.length / TOTAL_BATCHES);
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
-// Fetch equity price change % for all FNO stocks from Dhan market feed OHLC API.
-// Runs chunks of 100 in parallel; market feed has much higher rate limits than option chain.
-async function fetchEquityChangePct(
-  clientId: string,
-  accessToken: string,
-): Promise<Map<string, number>> {
-  const map     = new Map<string, number>();
-  const entries = Object.entries(FNO_SCRIP);  // [symbol, scripId]
-  const CHUNK   = 100;
-
-  const chunks: [string, number][][] = [];
-  for (let i = 0; i < entries.length; i += CHUNK) {
-    chunks.push(entries.slice(i, i + CHUNK));
-  }
-
-  await Promise.all(chunks.map(async chunk => {
-    try {
-      const res = await fetch('https://api.dhan.co/v2/marketfeed/ohlc', {
-        method:  'POST',
-        headers: dhanHeaders(clientId, accessToken),
-        body:    JSON.stringify({ NSE_EQ: chunk.map(([, id]) => id) }),
-      });
-      if (!res.ok) return;
-
-      const json = await res.json() as {
-        data?: { NSE_EQ?: Record<string, Record<string, unknown>> };
-      };
-      const data = json.data?.NSE_EQ ?? {};
-
-      for (const [sym, scrip] of chunk) {
-        const q = data[String(scrip)];
-        if (!q) continue;
-        const ltp       = Number(q.last_price ?? q.ltp       ?? 0);
-        const prevClose = Number(q.close      ?? q.prev_close ?? q.previous_close ?? 0);
-        if (prevClose > 0) map.set(sym, ((ltp - prevClose) / prevClose) * 100);
-      }
-    } catch { /* leave symbol out of map — won't be classified */ }
-  }));
-
-  return map;
-}
-
 export async function GET(req: NextRequest) {
   const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
   const accessToken = req.headers.get('x-dhan-access-token') ?? '';
@@ -101,7 +57,6 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const n        = Math.min(20, Math.max(1, parseInt(searchParams.get('n')     ?? '7', 10)));
   const batchNum = Math.min(TOTAL_BATCHES, Math.max(1, parseInt(searchParams.get('batch') ?? '1', 10)));
 
   const SCREEN_SYMBOLS = ALL_SCREEN_SYMBOLS.slice(
@@ -131,19 +86,20 @@ export async function GET(req: NextRequest) {
     weeklyExpiry = wRes.data?.expiries?.[0] ?? '';
     midcpExpiry  = mRes.data?.expiries?.[0] ?? null;
     stockExpiry  = sRes.data?.expiries?.[0] ?? '';
-
     if (!weeklyExpiry || !stockExpiry) {
       return NextResponse.json({ error: 'Expiry fetch failed' }, { status: 502 });
     }
   }
 
-  // Fetch price data for equities (Dhan market feed) and indices (NSE) in parallel
-  const [changePctMap, nseIndices] = await Promise.all([
-    fetchEquityChangePct(clientId, accessToken),
+  // Fetch price change % for all F&O stocks at once via NSE public API.
+  // fetchNseFnoChangePct and fetchNseIndices run in parallel for speed.
+  const [fnoChangePct, nseIndices] = await Promise.all([
+    fetchNseFnoChangePct(),
     fetchNseIndices(),
   ]);
+  // Overlay index % changes (NIFTY, BANKNIFTY, etc.)
   for (const q of nseIndices) {
-    if (INDEX_SYMS.has(q.symbol)) changePctMap.set(q.symbol, q.changePct);
+    if (INDEX_SYMS.has(q.symbol)) fnoChangePct.set(q.symbol, q.changePct);
   }
 
   // Build symbol → expiry mapping for this batch
@@ -160,7 +116,7 @@ export async function GET(req: NextRequest) {
   const sc: OIBuildupRow[] = [];
   const lu: OIBuildupRow[] = [];
 
-  // Phase 2 — sequential pairs with 1.5 s gap (proven Dhan rate limit)
+  // Sequential pairs with 1.5 s gap — same proven Dhan rate-limit approach as OI Screener
   for (let i = 0; i < withExpiry.length; i += 2) {
     const pair = withExpiry.slice(i, i + 2);
 
@@ -170,14 +126,9 @@ export async function GET(req: NextRequest) {
       const { data } = await fetchDhanOptionChain(sym, expiry, clientId, accessToken);
       if (!data || data.strikes.length === 0) return null;
 
-      const atmIdx      = findAtmIndex(data.strikes, data.underlyingPrice);
-      const nearStrikes = data.strikes.slice(
-        Math.max(0, atmIdx - n),
-        Math.min(data.strikes.length, atmIdx + n + 1),
-      );
-
+      // Sum OI and OI-change across ALL strikes (total options market activity)
       let ceOI = 0, peOI = 0, ceOIChg = 0, peOIChg = 0;
-      for (const s of nearStrikes) {
+      for (const s of data.strikes) {
         ceOI    += s.ce.oi;
         peOI    += s.pe.oi;
         ceOIChg += s.ce.oiChange;
@@ -191,7 +142,8 @@ export async function GET(req: NextRequest) {
       const prevTotalOI = totalOI - totalOIChg;
       const oiChgPct    = prevTotalOI !== 0 ? (totalOIChg / Math.abs(prevTotalOI)) * 100 : 0;
 
-      const changePct = changePctMap.get(sym) ?? 0;
+      const changePct = fnoChangePct.get(sym) ?? 0;
+      if (changePct === 0) return null; // no price data — skip
 
       return {
         symbol: sym, expiry,
@@ -224,6 +176,5 @@ export async function GET(req: NextRequest) {
     scannedAt:    new Date().toISOString(),
     stockExpiry,
     weeklyExpiry,
-    n,
   } satisfies OIBuildupData);
 }

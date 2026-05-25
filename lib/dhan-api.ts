@@ -430,6 +430,40 @@ async function fetchNseCookies(): Promise<string> {
   } catch { return ''; }
 }
 
+// Fetch % price change for all NSE F&O stocks in one call (no per-symbol rate limit)
+export async function fetchNseFnoChangePct(): Promise<Map<string, number>> {
+  try {
+    const cookies = await fetchNseCookies();
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12_000);
+    let res: Response;
+    try {
+      res = await fetch(
+        'https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O',
+        {
+          headers: {
+            ...NSE_HEADERS,
+            'Accept': 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(cookies ? { Cookie: cookies } : {}),
+          },
+          cache: 'no-store',
+          signal: ctrl.signal,
+        },
+      );
+    } finally { clearTimeout(t); }
+    if (!res.ok) return new Map();
+    const json = await res.json() as { data?: Record<string, unknown>[] };
+    const map = new Map<string, number>();
+    for (const stock of json.data ?? []) {
+      const symbol  = String(stock.symbol  ?? '').trim().toUpperCase();
+      const pChange = Number(stock.pChange  ?? stock.percentChange ?? 0);
+      if (symbol) map.set(symbol, pChange);
+    }
+    return map;
+  } catch { return new Map(); }
+}
+
 interface NseRecord {
   strikePrice: number;
   expiryDate?: string;

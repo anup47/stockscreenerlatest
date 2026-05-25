@@ -113,7 +113,7 @@ interface ScanData {
   scannedAt:   string;
   stockExpiry: string;
   weeklyExpiry: string;
-  n:           number;
+  n:           number; // unused, kept for type compat
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -127,7 +127,6 @@ export default function OIBuildupPage() {
   const [error,             setError]             = useState('');
   const [selectedExpiry,    setSelectedExpiry]    = useState('');
   const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
-  const [n,                 setN]                 = useState(7);
 
   const runScreen = useCallback(async () => {
     if (!isConfigured) return;
@@ -167,7 +166,6 @@ export default function OIBuildupPage() {
     if (!selectedExpiry) setSelectedExpiry(effectiveExpiry);
 
     const baseParams = new URLSearchParams({
-      n:            String(n),
       weeklyExpiry: prefetch.weeklyExpiry,
       midcpExpiry:  prefetch.midcpExpiry ?? '',
       stockExpiry:  effectiveExpiry,
@@ -203,11 +201,11 @@ export default function OIBuildupPage() {
           const total = allLB.length + allSB.length + allSC.length + allLU.length;
           setData({
             lb: [...allLB], sb: [...allSB], sc: [...allSC], lu: [...allLU],
-            scanned:     total,
-            scannedAt:   new Date().toISOString(),
-            stockExpiry: effectiveExpiry,
+            scanned:      total,
+            scannedAt:    new Date().toISOString(),
+            stockExpiry:  effectiveExpiry,
             weeklyExpiry: prefetch.weeklyExpiry,
-            n,
+            n:            0,
           });
           if (batch === 1) { setLoading(false); setScanning(true); }
         }
@@ -225,7 +223,7 @@ export default function OIBuildupPage() {
     }
     setLoading(false);
     setScanning(false);
-  }, [isConfigured, headers, n, selectedExpiry]);
+  }, [isConfigured, headers, selectedExpiry]);
 
   useEffect(() => {
     if (isHydrated && isConfigured) runScreen();
@@ -287,20 +285,6 @@ export default function OIBuildupPage() {
                   </option>
                 ))
             }
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ATM Strikes (N)</span>
-          <select
-            value={n}
-            onChange={e => setN(Number(e.target.value))}
-            disabled={loading}
-            className="px-3 py-2 text-sm font-semibold text-gray-900 bg-white border border-slate-700 rounded-lg disabled:opacity-50 cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-          >
-            {[5, 7, 10, 15, 20].map(v => (
-              <option key={v} value={v}>N = {v}  ({2 * v + 1} strikes)</option>
-            ))}
           </select>
         </label>
 
@@ -378,8 +362,8 @@ export default function OIBuildupPage() {
       </div>
 
       <div className="text-xs text-slate-600">
-        Price data from Dhan market feed (NSE_EQ) and NSE India public API for indices.
-        OI is CE + PE open interest near ATM from Dhan option chain.
+        Price change % from NSE India public API (all F&amp;O stocks + indices).
+        OI is total CE + PE open interest across all strikes from Dhan option chain.
         OI Chg% = (CE OI chg + PE OI chg) ÷ previous total OI.
       </div>
 
