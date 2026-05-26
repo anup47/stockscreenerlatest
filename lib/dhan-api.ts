@@ -497,11 +497,17 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   for (const [symbol, d] of stockData) {
     if (NSE_INDEX_SYMS.has(symbol)) continue;
     if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
-    if (d.pChange === 0 && d.oi === 0) continue;
+    // equity-stockIndices doesn't include OI fields — use allFut OI data for stocks too
+    const futOI = indexOI.get(symbol);
+    const oi = futOI?.latestOI ?? d.oi;
+    const oiChangePct = futOI
+      ? (futOI.prevOI > 0 ? ((futOI.latestOI - futOI.prevOI) / futOI.prevOI) * 100 : futOI.avgInOI)
+      : d.oiChangePct;
+    if (d.pChange === 0 && oi === 0) continue;
     quotes.set(symbol, {
       symbol, secId: 0, expiry: expiry ?? '',
       price: d.price, changePct: d.pChange,
-      oi: d.oi, oiChangePct: d.oiChangePct,
+      oi, oiChangePct,
     });
   }
 
