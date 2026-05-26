@@ -971,7 +971,7 @@ async function fetchFuturesHistorical(
   clientId: string,
   accessToken: string,
 ): Promise<FuturesHistQuote> {
-  const toDate = prevTradingDay();
+  const toDate = new Date().toISOString().split('T')[0]; // today — includes current incomplete candle for live OI
   const fromDate = (() => {
     const d = new Date(toDate + 'T00:00:00Z');
     d.setUTCDate(d.getUTCDate() - 10);
