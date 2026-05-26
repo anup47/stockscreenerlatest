@@ -1,7 +1,6 @@
 'use client';
 import { useState, useCallback, useEffect } from 'react';
 import type { OIBuildupData, OIBuildupRow } from '@/app/api/dhan/oi-buildup/route';
-import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
 function fmtOI(n: number) {
   const abs = Math.abs(n);
@@ -96,7 +95,6 @@ function Panel({
 }
 
 export default function OIBuildupPage() {
-  const { clientId, accessToken } = useDhanCredentials();
   const [data,              setData]              = useState<OIBuildupData | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [debugData,         setDebugData]         = useState<any>(null);
@@ -112,10 +110,7 @@ export default function OIBuildupPage() {
     setData(null);
     try {
       const params = expiry ? `?expiry=${expiry}` : '';
-      const headers: HeadersInit = {};
-      if (clientId)    headers['x-dhan-client-id']    = clientId;
-      if (accessToken) headers['x-dhan-access-token'] = accessToken;
-      const res  = await fetch(`/api/dhan/oi-buildup${params}`, { headers });
+      const res  = await fetch(`/api/dhan/oi-buildup${params}`);
       const json = await res.json() as OIBuildupData;
       if (!res.ok || json.error) {
         setError(json.error ?? `HTTP ${res.status}`);
@@ -131,7 +126,7 @@ export default function OIBuildupPage() {
     } finally {
       setLoading(false);
     }
-  }, [availableExpiries.length, selectedExpiry, clientId, accessToken]);
+  }, [availableExpiries.length, selectedExpiry]);
 
   useEffect(() => { runScreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -261,10 +256,8 @@ export default function OIBuildupPage() {
       </div>
 
       <div className="text-xs text-slate-600">
-        {selectedExpiry && clientId
-          ? `OI sourced from Dhan historical API for ${fmtExpiry(selectedExpiry)} expiry — per-contract OI vs previous session. Falls back to NSE near-month if Dhan unavailable.`
-          : 'OI sourced from NSE near-month contracts (live). Select a specific expiry with Dhan credentials configured for per-expiry OI.'
-        }
+        OI sourced from NSE (near-month contracts, live). Expiry filter narrows which symbols appear — OI values always reflect the near-month contract.
+
       </div>
 
     </main>

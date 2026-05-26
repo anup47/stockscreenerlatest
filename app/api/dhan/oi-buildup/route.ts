@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchFuturesQuotesFromNSE, fetchFuturesQuotes, ALL_FNO_SYMBOLS } from '@/lib/dhan-api';
+import { fetchFuturesQuotesFromNSE } from '@/lib/dhan-api';
 
 export const maxDuration = 55;
 
@@ -26,24 +26,10 @@ export interface OIBuildupData {
 }
 
 export async function GET(req: NextRequest) {
-  const expiry     = req.nextUrl.searchParams.get('expiry') ?? undefined;
-  const clientId   = req.headers.get('x-dhan-client-id')    ?? '';
-  const accessToken = req.headers.get('x-dhan-access-token') ?? '';
+  const expiry = req.nextUrl.searchParams.get('expiry') ?? undefined;
 
-  // When a specific expiry is selected AND Dhan credentials are available,
-  // use Dhan historical API for accurate per-expiry OI data.
-  // If Dhan returns nothing (e.g. expiry day, rate limit), fall back to NSE allFut.
-  const useDhan = !!(expiry && clientId && accessToken);
-  let result = useDhan
-    ? await fetchFuturesQuotes([...ALL_FNO_SYMBOLS.indices, ...ALL_FNO_SYMBOLS.stocks], clientId, accessToken, expiry)
-    : await fetchFuturesQuotesFromNSE(expiry);
-
-  // Dhan returned nothing — fall back to NSE (happens on expiry day or API errors)
-  if (useDhan && result.rawQuotesSize === 0) {
-    result = await fetchFuturesQuotesFromNSE(expiry);
-  }
-
-  const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } = result;
+  const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } =
+    await fetchFuturesQuotesFromNSE(expiry);
 
   let error: string | undefined;
   if (scripMasterSize === 0) {
