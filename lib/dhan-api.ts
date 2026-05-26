@@ -440,58 +440,40 @@ const NSE_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'])
 
 const ALL_SCREEN_SYMS = [...ALL_FNO_SYMBOLS.indices, ...ALL_FNO_SYMBOLS.stocks];
 
-export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
-  quotes:            Map<string, FuturesQuote>;
-  availableExpiries: string[];
-  scripMasterSize:   number;
-  rawQuotesSize:     number;
-  loadError:         string;
+export async function fetchFuturesQuotesFromNSE(): Promise<{
+  quotes:          Map<string, FuturesQuote>;
+  scripMasterSize: number;
+  rawQuotesSize:   number;
+  loadError:       string;
 }> {
-  // Stage 1: scrip master (slow) + cookies (slow) in parallel
-  const [cookies, futData] = await Promise.all([
-    fetchNseCookies(),
-    loadFuturesData(ALL_SCREEN_SYMS),
-  ]);
+  // Stage 1: cookies for NSE API calls
+  const cookies = await fetchNseCookies();
 
-  // Stage 2: allFut OI (all 200+ symbols) + index prices — one shared cookie
+  // Stage 2: allFut OI (all 200+ symbols) + index prices in parallel
   const [allFutOI, indices] = await Promise.all([
     fetchNseIndexFutOI(cookies),
     fetchNseIndices(),
   ]);
 
   if (allFutOI.size === 0) {
-    return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE API returned no data' };
+    return { quotes: new Map(), scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE API returned no data' };
   }
 
   // Stage 3: Yahoo Finance prices for all F&O stocks (batches of 20, in parallel)
   const stockSymbols = [...allFutOI.keys()].filter(s => !NSE_INDEX_SYMS.has(s));
   const yahooPrices = await fetchYahooPrices(stockSymbols);
 
-  // Expiry dates from scrip master for the dropdown
-  const expirySet = new Set<string>();
-  for (const entries of futData.values()) {
-    for (const e of entries) expirySet.add(e.expiry);
-  }
-  const availableExpiries = [...expirySet].sort();
-
-  const symbolsForExpiry: Set<string> | null = expiry
-    ? new Set([...futData.entries()]
-        .filter(([, entries]) => entries.some(e => e.expiry === expiry))
-        .map(([sym]) => sym.toUpperCase()))
-    : null;
-
   const indexBySymbol = new Map(indices.map(i => [i.symbol.toUpperCase(), i]));
   const quotes = new Map<string, FuturesQuote>();
 
   // F&O stocks: OI from allFut, price from Yahoo
   for (const symbol of stockSymbols) {
-    if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
     const oi = allFutOI.get(symbol)!;
     const oiChangePct = oi.prevOI > 0 ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100 : oi.avgInOI;
     const yp = yahooPrices.get(symbol);
-    if (!yp && oiChangePct === 0) continue; // no data at all
+    if (!yp && oiChangePct === 0) continue;
     quotes.set(symbol, {
-      symbol, secId: 0, expiry: expiry ?? '',
+      symbol, secId: 0, expiry: '',
       price:     yp?.price   ?? oi.underlyingValue,
       changePct: yp?.pChange ?? 0,
       oi:        oi.latestOI,
@@ -501,7 +483,6 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
 
   // Indices: OI from allFut, price from NSE allIndices
   for (const symbol of NSE_INDEX_SYMS) {
-    if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
     const oi  = allFutOI.get(symbol);
     const idx = indexBySymbol.get(symbol);
     if (!oi && !idx) continue;
@@ -509,7 +490,7 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
       ? (oi.prevOI > 0 ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100 : oi.avgInOI)
       : 0;
     quotes.set(symbol, {
-      symbol, secId: 0, expiry: expiry ?? '',
+      symbol, secId: 0, expiry: '',
       price:       idx?.ltp       ?? (oi?.underlyingValue ?? 0),
       changePct:   idx?.changePct ?? 0,
       oi:          oi?.latestOI   ?? 0,
@@ -517,8 +498,7 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
     });
   }
 
-  const totalSymbols = allFutOI.size;
-  return { quotes, availableExpiries, scripMasterSize: totalSymbols, rawQuotesSize: quotes.size, loadError: '' };
+  return { quotes, scripMasterSize: allFutOI.size, rawQuotesSize: quotes.size, loadError: '' };
 }
 
 // ── NSE F&O top movers (TradingView scanner fallback) ────────────────────────

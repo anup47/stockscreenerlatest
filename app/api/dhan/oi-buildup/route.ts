@@ -13,23 +13,21 @@ export interface OIBuildupRow {
 }
 
 export interface OIBuildupData {
-  lb:               OIBuildupRow[];
-  sb:               OIBuildupRow[];
-  sc:               OIBuildupRow[];
-  lu:               OIBuildupRow[];
-  total:            number;
-  fetched:          number;
-  scripMasterSize:  number;
-  availableExpiries: string[];
-  fetchedAt:        string;
-  error?:           string;
+  lb:              OIBuildupRow[];
+  sb:              OIBuildupRow[];
+  sc:              OIBuildupRow[];
+  lu:              OIBuildupRow[];
+  total:           number;
+  fetched:         number;
+  scripMasterSize: number;
+  fetchedAt:       string;
+  error?:          string;
 }
 
 export async function GET(req: NextRequest) {
-  const expiry = req.nextUrl.searchParams.get('expiry') ?? undefined;
-
-  const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } =
-    await fetchFuturesQuotesFromNSE(expiry);
+  void req;
+  const { quotes, scripMasterSize, rawQuotesSize, loadError } =
+    await fetchFuturesQuotesFromNSE();
 
   let error: string | undefined;
   if (scripMasterSize === 0) {
@@ -66,7 +64,6 @@ export async function GET(req: NextRequest) {
     lb, sb, sc, lu, total,
     fetched:         quotes.size,
     scripMasterSize,
-    availableExpiries,
     fetchedAt:       new Date().toISOString(),
     ...(error ? { error } : {}),
   } satisfies OIBuildupData);
