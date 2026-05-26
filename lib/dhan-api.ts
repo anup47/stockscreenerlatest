@@ -363,9 +363,8 @@ interface NseFutOIEntry {
   underlyingValue: number;
 }
 
-async function fetchNseIndexFutOI(): Promise<Map<string, NseFutOIEntry>> {
+async function fetchNseIndexFutOI(cookies: string): Promise<Map<string, NseFutOIEntry>> {
   try {
-    const cookies = await fetchNseCookies();
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 12_000);
     let res: Response;
@@ -412,9 +411,8 @@ interface NseFnoFullEntry {
   oiChangePct: number;
 }
 
-async function fetchNseFnoFullData(): Promise<Map<string, NseFnoFullEntry>> {
+async function fetchNseFnoFullData(cookies: string): Promise<Map<string, NseFnoFullEntry>> {
   try {
-    const cookies = await fetchNseCookies();
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 12_000);
     let res: Response;
@@ -461,11 +459,17 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   rawQuotesSize:     number;
   loadError:         string;
 }> {
-  const [stockData, indexOI, indices, futData] = await Promise.all([
-    fetchNseFnoFullData(),
-    fetchNseIndexFutOI(),
-    fetchNseIndices(),
+  // Cookies and scrip master are both slow — fetch in parallel.
+  // One cookie fetch shared between both NSE API calls that need it.
+  const [cookies, futData] = await Promise.all([
+    fetchNseCookies(),
     loadFuturesData(ALL_SCREEN_SYMS),
+  ]);
+
+  const [stockData, indexOI, indices] = await Promise.all([
+    fetchNseFnoFullData(cookies),
+    fetchNseIndexFutOI(cookies),
+    fetchNseIndices(),
   ]);
 
   if (stockData.size === 0 && indexOI.size === 0) {
@@ -608,7 +612,8 @@ async function fetchNseCookies(): Promise<string> {
 }
 
 export async function fetchNseFnoChangePct(): Promise<Map<string, number>> {
-  const data = await fetchNseFnoFullData();
+  const cookies = await fetchNseCookies();
+  const data = await fetchNseFnoFullData(cookies);
   const map = new Map<string, number>();
   for (const [sym, d] of data) map.set(sym, d.pChange);
   return map;
