@@ -262,8 +262,8 @@ export default function OIBuildupPage() {
 
       <div className="text-xs text-slate-600">
         {selectedExpiry && clientId
-          ? `OI sourced from Dhan historical API for ${fmtExpiry(selectedExpiry)} expiry contracts specifically. Price and OI reflect previous close (EOD data).`
-          : 'OI sourced from NSE (near-month contracts). Select a specific expiry with Dhan credentials configured to see per-expiry OI data.'
+          ? `OI sourced from Dhan historical API for ${fmtExpiry(selectedExpiry)} expiry — per-contract OI vs previous session. Falls back to NSE near-month if Dhan unavailable.`
+          : 'OI sourced from NSE near-month contracts (live). Select a specific expiry with Dhan credentials configured for per-expiry OI.'
         }
       </div>
 

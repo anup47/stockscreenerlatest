@@ -32,17 +32,24 @@ export async function GET(req: NextRequest) {
 
   // When a specific expiry is selected AND Dhan credentials are available,
   // use Dhan historical API for accurate per-expiry OI data.
-  // Otherwise fall back to NSE allFut (near-month, no credentials needed).
+  // If Dhan returns nothing (e.g. expiry day, rate limit), fall back to NSE allFut.
   const useDhan = !!(expiry && clientId && accessToken);
-  const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } = useDhan
+  let result = useDhan
     ? await fetchFuturesQuotes([...ALL_FNO_SYMBOLS.indices, ...ALL_FNO_SYMBOLS.stocks], clientId, accessToken, expiry)
     : await fetchFuturesQuotesFromNSE(expiry);
 
+  // Dhan returned nothing — fall back to NSE (happens on expiry day or API errors)
+  if (useDhan && result.rawQuotesSize === 0) {
+    result = await fetchFuturesQuotesFromNSE(expiry);
+  }
+
+  const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } = result;
+
   let error: string | undefined;
   if (scripMasterSize === 0) {
-    error = `Futures OI data unavailable: ${loadError || 'NSE API did not respond'}`;
+    error = `Futures OI data unavailable: ${loadError || 'API did not respond'}`;
   } else if (rawQuotesSize === 0) {
-    error = 'No futures data returned from NSE. Market may be closed or NSE API is unavailable.';
+    error = 'No futures data returned. Market may be closed or APIs unavailable.';
   }
 
   const lb: OIBuildupRow[] = [];

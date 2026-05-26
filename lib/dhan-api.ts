@@ -1050,9 +1050,9 @@ export async function fetchFuturesQuotes(
         .then(h => ({ secId, sym: meta.sym, expiry: meta.expiry, ...h }));
     }));
     for (const r of results) {
-      if (r.price === 0 || r.prevClose === 0) continue;
-      const changePct   = ((r.price - r.prevClose) / r.prevClose) * 100;
-      const oiChangePct = r.prevOI > 0 ? ((r.oi - r.prevOI) / r.prevOI) * 100 : 0;
+      if (r.price === 0) continue;
+      const changePct   = r.prevClose > 0 ? ((r.price - r.prevClose) / r.prevClose) * 100 : 0;
+      const oiChangePct = r.prevOI   > 0 ? ((r.oi    - r.prevOI)    / r.prevOI)    * 100 : 0;
       quotes.set(r.sym, { symbol: r.sym, secId: r.secId, expiry: r.expiry, price: r.price, changePct, oi: r.oi, oiChangePct });
     }
   }
