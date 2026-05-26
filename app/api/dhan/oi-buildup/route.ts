@@ -24,8 +24,7 @@ export interface OIBuildupData {
   error?:          string;
 }
 
-export async function GET(req: NextRequest) {
-  void req;
+export async function GET(_req: NextRequest) {
   const { quotes, scripMasterSize, rawQuotesSize, loadError } =
     await fetchFuturesQuotesFromNSE();
 

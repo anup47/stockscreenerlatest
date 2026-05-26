@@ -438,22 +438,19 @@ async function fetchYahooPrices(nseSymbols: string[]): Promise<Map<string, { pri
 
 const NSE_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
 
-const ALL_SCREEN_SYMS = [...ALL_FNO_SYMBOLS.indices, ...ALL_FNO_SYMBOLS.stocks];
-
 export async function fetchFuturesQuotesFromNSE(): Promise<{
   quotes:          Map<string, FuturesQuote>;
   scripMasterSize: number;
   rawQuotesSize:   number;
   loadError:       string;
 }> {
-  // Stage 1: cookies for NSE API calls
-  const cookies = await fetchNseCookies();
-
-  // Stage 2: allFut OI (all 200+ symbols) + index prices in parallel
-  const [allFutOI, indices] = await Promise.all([
-    fetchNseIndexFutOI(cookies),
+  // fetchNseIndices needs no auth; start it immediately alongside cookie fetch
+  const [cookies, indices] = await Promise.all([
+    fetchNseCookies(),
     fetchNseIndices(),
   ]);
+
+  const allFutOI = await fetchNseIndexFutOI(cookies);
 
   if (allFutOI.size === 0) {
     return { quotes: new Map(), scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE API returned no data' };
