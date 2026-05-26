@@ -808,18 +808,18 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
   }
 }
 
-async function fetchFuturesPrevOI(
+interface FuturesHistQuote { price: number; prevClose: number; oi: number; prevOI: number; }
+
+// Fetches yesterday+today candles in one call — gives price, prevClose, OI, prevOI.
+// Replaces market-feed (which requires a separate API tier) + a second historical call.
+async function fetchFuturesHistorical(
   secId: number,
   instrument: 'FUTSTK' | 'FUTIDX',
   clientId: string,
   accessToken: string,
-): Promise<number> {
-  const cacheKey = `f:${secId}`;
-  const today = new Date().toISOString().split('T')[0];
-  if (_prevOICacheDate !== today) { _prevOICache.clear(); _prevOICacheDate = today; }
-  if (_prevOICache.has(cacheKey)) return _prevOICache.get(cacheKey)!;
-
-  const dateStr = prevTradingDay();
+): Promise<FuturesHistQuote> {
+  const today   = new Date().toISOString().split('T')[0];
+  const prevDay = prevTradingDay();
   try {
     const res = await fetch(`${DHAN_BASE}/v2/charts/historical`, {
       method:  'POST',
@@ -829,17 +829,23 @@ async function fetchFuturesPrevOI(
         exchangeSegment: 'NSE_FO',
         instrument,
         expiryCode:      0,
-        fromDate:        dateStr,
-        toDate:          dateStr,
+        fromDate:        prevDay,
+        toDate:          today,
       }),
     });
-    if (!res.ok) { _prevOICache.set(cacheKey, 0); return 0; }
+    if (!res.ok) return { price: 0, prevClose: 0, oi: 0, prevOI: 0 };
     const data = await res.json() as Record<string, unknown>;
-    const oiArr = (data.oi ?? data.openInterest ?? []) as number[];
-    const oi = oiArr.length > 0 ? Number(oiArr[oiArr.length - 1]) : 0;
-    _prevOICache.set(cacheKey, oi);
-    return oi;
-  } catch { _prevOICache.set(cacheKey, 0); return 0; }
+    const c = (data.close ?? []) as number[];
+    const o = (data.oi    ?? data.openInterest ?? []) as number[];
+    const n = c.length;
+    if (n === 0) return { price: 0, prevClose: 0, oi: 0, prevOI: 0 };
+    return {
+      price:     Number(c[n - 1]),
+      prevClose: n >= 2 ? Number(c[n - 2]) : 0,
+      oi:        Number(o[n - 1] ?? 0),
+      prevOI:    n >= 2 ? Number(o[n - 2] ?? 0) : 0,
+    };
+  } catch { return { price: 0, prevClose: 0, oi: 0, prevOI: 0 }; }
 }
 
 export async function fetchFuturesQuotes(
@@ -874,69 +880,27 @@ export async function fetchFuturesQuotes(
     secIds.push(entry.secId);
   }
 
-  type RawQ = {
-    sym: string; price: number; prevClose: number; oi: number;
-    oiChgFF: number; instrument: 'FUTSTK' | 'FUTIDX'; secId: number; expiry: string;
-  };
-  const rawQuotes: RawQ[] = [];
-  const CHUNK = 100;
-
-  // Step 1: market feed for current price + OI snapshot
-  for (let i = 0; i < secIds.length; i += CHUNK) {
-    const chunk = secIds.slice(i, i + CHUNK);
-    try {
-      const res = await fetch(`${DHAN_BASE}/v2/marketfeed/quote`, {
-        method:  'POST',
-        headers: dhanHeaders(clientId, accessToken),
-        body:    JSON.stringify({ NSE_FO: chunk }),
-      });
-      if (!res.ok) continue;
-      const json = await res.json() as Record<string, unknown>;
-      const nfoFeed = (
-        (json.data as Record<string, unknown>)?.NSE_FO ??
-        (json as Record<string, unknown>).NSE_FO
-      ) as Record<string, Record<string, unknown>> | undefined;
-      if (!nfoFeed) continue;
-
-      for (const [idStr, q] of Object.entries(nfoFeed)) {
-        const id   = parseInt(idStr, 10);
-        const meta = revMap.get(id);
-        if (!meta || !q) continue;
-        const price     = Number(q.last_price    ?? q.ltp           ?? 0);
-        const prevClose = Number(q.close         ?? q.prev_close    ?? q.previous_close ?? 0);
-        const oi        = Number(q.oi            ?? q.open_interest ?? q.openInterest   ?? 0);
-        // Use feed-supplied OI change if present (saves a historical call)
-        const oiChgFF   = Number(q.oi_day_change ?? q.oiDayChange   ?? q.oi_change     ?? q.oiChange ?? 0);
-        if (price === 0 || prevClose === 0) continue;
-        rawQuotes.push({ sym: meta.sym, price, prevClose, oi, oiChgFF, instrument: meta.instrument, secId: id, expiry: meta.expiry });
-      }
-    } catch { /* skip */ }
-  }
-
-  // Step 2: previous-day OI from historical candles (20 concurrent)
-  // If the market feed already gave us OI change, skip the historical call.
+  // Use historical candles (already proven to work for option chain prev-OI).
+  // fromDate=yesterday + toDate=today returns 2 candles → price, prevClose, OI, prevOI in one call.
   const HIST_BATCH = 20;
   const quotes = new Map<string, FuturesQuote>();
 
-  for (let i = 0; i < rawQuotes.length; i += HIST_BATCH) {
-    const batch = rawQuotes.slice(i, i + HIST_BATCH);
-    const prevOIs = await Promise.all(batch.map(rq => {
-      if (rq.oiChgFF !== 0) return Promise.resolve(rq.oi - rq.oiChgFF);
-      if (rq.oi === 0)      return Promise.resolve(0);
-      return fetchFuturesPrevOI(rq.secId, rq.instrument, clientId, accessToken);
+  for (let i = 0; i < secIds.length; i += HIST_BATCH) {
+    const batch = secIds.slice(i, i + HIST_BATCH);
+    const results = await Promise.all(batch.map(secId => {
+      const meta = revMap.get(secId)!;
+      return fetchFuturesHistorical(secId, meta.instrument, clientId, accessToken)
+        .then(h => ({ secId, sym: meta.sym, expiry: meta.expiry, ...h }));
     }));
-
-    for (let k = 0; k < batch.length; k++) {
-      const { sym, price, prevClose, oi, expiry: exp, secId } = batch[k];
-      const prevOI      = prevOIs[k];
-      const changePct   = ((price - prevClose) / prevClose) * 100;
-      const oiChg       = oi - prevOI;
-      const oiChangePct = prevOI > 0 ? (oiChg / prevOI) * 100 : 0;
-      quotes.set(sym, { symbol: sym, secId, expiry: exp, price, changePct, oi, oiChangePct });
+    for (const r of results) {
+      if (r.price === 0 || r.prevClose === 0) continue;
+      const changePct   = ((r.price - r.prevClose) / r.prevClose) * 100;
+      const oiChangePct = r.prevOI > 0 ? ((r.oi - r.prevOI) / r.prevOI) * 100 : 0;
+      quotes.set(r.sym, { symbol: r.sym, secId: r.secId, expiry: r.expiry, price: r.price, changePct, oi: r.oi, oiChangePct });
     }
   }
 
-  return { quotes, availableExpiries, scripMasterSize: dataMap.size, rawQuotesSize: rawQuotes.length, loadError: '' };
+  return { quotes, availableExpiries, scripMasterSize: dataMap.size, rawQuotesSize: quotes.size, loadError: '' };
 }
 
 // ── Exported: fetch prev-day OI for every strike in a chain (parallel batches of 10) ──

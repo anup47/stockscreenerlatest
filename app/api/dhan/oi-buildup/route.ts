@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
   if (scripMasterSize === 0) {
     error = `Futures contract data unavailable: ${loadError || 'scrip master download failed'}`;
   } else if (rawQuotesSize === 0) {
-    error = 'Dhan market feed returned no data for futures. Credentials may have expired.';
+    error = 'No futures price data returned from Dhan. Credentials may have expired or market is closed.';
   }
 
   const lb: OIBuildupRow[] = [];
