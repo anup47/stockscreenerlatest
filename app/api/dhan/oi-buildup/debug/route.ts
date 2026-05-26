@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
     });
     out.histA_status = r.status;
     out.histA_label  = `fromDate=${yesterday} toDate=${today}`;
-    out.histA_body   = await r.json().catch(() => await r.text().catch(() => null));
+    out.histA_body   = await r.json().catch(() => null);
   } catch (e) { out.histA_error = String(e); }
 
   // ── 3. Historical API: fromDate=weekAgo toDate=yesterday ─────────────────
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
     });
     out.histB_status = r.status;
     out.histB_label  = `fromDate=${weekAgo} toDate=${yesterday}`;
-    out.histB_body   = await r.json().catch(() => await r.text().catch(() => null));
+    out.histB_body   = await r.json().catch(() => null);
   } catch (e) { out.histB_error = String(e); }
 
   // ── 4. Market feed (quick sanity check) ───────────────────────────────────
@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
       body:    JSON.stringify({ NSE_FO: [sampleSecId] }),
     });
     out.mf_status = r.status;
-    out.mf_body   = await r.json().catch(() => await r.text().catch(() => null));
+    out.mf_body   = await r.json().catch(() => null);
   } catch (e) { out.mf_error = String(e); }
 
   return NextResponse.json(out);
