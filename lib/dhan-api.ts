@@ -402,50 +402,38 @@ async function fetchNseIndexFutOI(cookies: string): Promise<Map<string, NseFutOI
   } catch { return new Map(); }
 }
 
-// ── NSE F&O stocks: price + OI for ALL ~200 F&O stocks in one call ───────────
+// ── Yahoo Finance: batch price + pChange for NSE stocks (max 20 per call) ─────
 
-interface NseFnoFullEntry {
-  price:       number;
-  pChange:     number;
-  oi:          number;
-  oiChangePct: number;
-}
+async function fetchYahooPrices(nseSymbols: string[]): Promise<Map<string, { price: number; pChange: number }>> {
+  const map = new Map<string, { price: number; pChange: number }>();
+  if (nseSymbols.length === 0) return map;
 
-async function fetchNseFnoFullData(cookies: string): Promise<Map<string, NseFnoFullEntry>> {
-  try {
+  // Yahoo uses M&M.NS, BAJAJ-AUTO.NS etc — NSE symbols are mostly compatible
+  const BATCH = 20;
+  const batches: string[][] = [];
+  for (let i = 0; i < nseSymbols.length; i += BATCH) batches.push(nseSymbols.slice(i, i + BATCH));
+
+  const results = await Promise.allSettled(batches.map(async batch => {
+    const syms = batch.map(s => encodeURIComponent(s + '.NS')).join(',');
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12_000);
-    let res: Response;
+    const t = setTimeout(() => ctrl.abort(), 10_000);
     try {
-      res = await fetch(
-        'https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O',
-        {
-          headers: {
-            ...NSE_HEADERS,
-            'Accept': 'application/json, text/plain, */*',
-            'X-Requested-With': 'XMLHttpRequest',
-            ...(cookies ? { Cookie: cookies } : {}),
-          },
-          cache: 'no-store',
-          signal: ctrl.signal,
-        },
+      const res = await fetch(
+        `https://query2.finance.yahoo.com/v8/finance/spark?symbols=${syms}&range=1d&interval=1d`,
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, cache: 'no-store', signal: ctrl.signal },
       );
+      if (!res.ok) return;
+      const json = await res.json() as Record<string, { close?: number[]; chartPreviousClose?: number }>;
+      for (const [yahooSym, d] of Object.entries(json)) {
+        const nse = yahooSym.replace(/\.NS$/, '').toUpperCase();
+        const cur  = d.close?.[d.close.length - 1] ?? 0;
+        const prev = d.chartPreviousClose ?? 0;
+        map.set(nse, { price: cur, pChange: prev > 0 ? (cur - prev) / prev * 100 : 0 });
+      }
     } finally { clearTimeout(t); }
-    if (!res.ok) return new Map();
-    const json = await res.json() as { data?: Record<string, unknown>[] };
-    const map = new Map<string, NseFnoFullEntry>();
-    for (const stock of json.data ?? []) {
-      const symbol = String(stock.symbol ?? '').trim().toUpperCase();
-      if (!symbol) continue;
-      map.set(symbol, {
-        price:       Number(stock.lastPrice ?? stock.ltp ?? 0),
-        pChange:     Number(stock.pChange   ?? stock.percentChange ?? 0),
-        oi:          Number(stock.openInterest ?? 0),
-        oiChangePct: Number(stock.pchangeinOpenInterest ?? 0),
-      });
-    }
-    return map;
-  } catch { return new Map(); }
+  }));
+  void results; // errors silently swallowed per batch
+  return map;
 }
 
 const NSE_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
@@ -459,22 +447,25 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   rawQuotesSize:     number;
   loadError:         string;
 }> {
-  // Cookies and scrip master are both slow — fetch in parallel.
-  // One cookie fetch shared between both NSE API calls that need it.
+  // Stage 1: scrip master (slow) + cookies (slow) in parallel
   const [cookies, futData] = await Promise.all([
     fetchNseCookies(),
     loadFuturesData(ALL_SCREEN_SYMS),
   ]);
 
-  const [stockData, indexOI, indices] = await Promise.all([
-    fetchNseFnoFullData(cookies),
+  // Stage 2: allFut OI (all 200+ symbols) + index prices — one shared cookie
+  const [allFutOI, indices] = await Promise.all([
     fetchNseIndexFutOI(cookies),
     fetchNseIndices(),
   ]);
 
-  if (stockData.size === 0 && indexOI.size === 0) {
+  if (allFutOI.size === 0) {
     return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE API returned no data' };
   }
+
+  // Stage 3: Yahoo Finance prices for all F&O stocks (batches of 20, in parallel)
+  const stockSymbols = [...allFutOI.keys()].filter(s => !NSE_INDEX_SYMS.has(s));
+  const yahooPrices = await fetchYahooPrices(stockSymbols);
 
   // Expiry dates from scrip master for the dropdown
   const expirySet = new Set<string>();
@@ -483,7 +474,6 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   }
   const availableExpiries = [...expirySet].sort();
 
-  // When an expiry is selected, filter to symbols that have a contract for it
   const symbolsForExpiry: Set<string> | null = expiry
     ? new Set([...futData.entries()]
         .filter(([, entries]) => entries.some(e => e.expiry === expiry))
@@ -491,29 +481,28 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
     : null;
 
   const indexBySymbol = new Map(indices.map(i => [i.symbol.toUpperCase(), i]));
-
   const quotes = new Map<string, FuturesQuote>();
 
-  for (const [symbol, d] of stockData) {
-    if (NSE_INDEX_SYMS.has(symbol)) continue;
+  // F&O stocks: OI from allFut, price from Yahoo
+  for (const symbol of stockSymbols) {
     if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
-    // equity-stockIndices doesn't include OI fields — use allFut OI data for stocks too
-    const futOI = indexOI.get(symbol);
-    const oi = futOI?.latestOI ?? d.oi;
-    const oiChangePct = futOI
-      ? (futOI.prevOI > 0 ? ((futOI.latestOI - futOI.prevOI) / futOI.prevOI) * 100 : futOI.avgInOI)
-      : d.oiChangePct;
-    if (d.pChange === 0 && oi === 0) continue;
+    const oi = allFutOI.get(symbol)!;
+    const oiChangePct = oi.prevOI > 0 ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100 : oi.avgInOI;
+    const yp = yahooPrices.get(symbol);
+    if (!yp && oiChangePct === 0) continue; // no data at all
     quotes.set(symbol, {
       symbol, secId: 0, expiry: expiry ?? '',
-      price: d.price, changePct: d.pChange,
-      oi, oiChangePct,
+      price:     yp?.price   ?? oi.underlyingValue,
+      changePct: yp?.pChange ?? 0,
+      oi:        oi.latestOI,
+      oiChangePct,
     });
   }
 
+  // Indices: OI from allFut, price from NSE allIndices
   for (const symbol of NSE_INDEX_SYMS) {
     if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
-    const oi  = indexOI.get(symbol);
+    const oi  = allFutOI.get(symbol);
     const idx = indexBySymbol.get(symbol);
     if (!oi && !idx) continue;
     const oiChangePct = oi
@@ -528,7 +517,7 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
     });
   }
 
-  const totalSymbols = stockData.size + NSE_INDEX_SYMS.size;
+  const totalSymbols = allFutOI.size;
   return { quotes, availableExpiries, scripMasterSize: totalSymbols, rawQuotesSize: quotes.size, loadError: '' };
 }
 
@@ -619,9 +608,11 @@ async function fetchNseCookies(): Promise<string> {
 
 export async function fetchNseFnoChangePct(): Promise<Map<string, number>> {
   const cookies = await fetchNseCookies();
-  const data = await fetchNseFnoFullData(cookies);
+  const allFut = await fetchNseIndexFutOI(cookies);
+  const stocks = [...allFut.keys()].filter(s => !new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']).has(s));
+  const prices = await fetchYahooPrices(stocks);
   const map = new Map<string, number>();
-  for (const [sym, d] of data) map.set(sym, d.pChange);
+  for (const [sym, d] of prices) map.set(sym, d.pChange);
   return map;
 }
 
