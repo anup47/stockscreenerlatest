@@ -256,8 +256,7 @@ export default function OIBuildupPage() {
       </div>
 
       <div className="text-xs text-slate-600">
-        OI sourced from NSE (near-month contracts, live). Expiry filter narrows which symbols appear — OI values always reflect the near-month contract.
-
+        OI is aggregate across all active expiries (May+Jun+Jul combined) — sourced live from NSE. Expiry filter narrows which symbols appear but does not change OI values.
       </div>
 
     </main>
