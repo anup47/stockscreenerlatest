@@ -14,6 +14,11 @@ function fmt2(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtExpiry(iso: string) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+}
+
 function Panel({
   title, subtitle, rows, borderColor, priceColor, oiColor, loading,
 }: {
@@ -90,31 +95,38 @@ function Panel({
 }
 
 export default function OIBuildupPage() {
-  const [data,         setData]         = useState<OIBuildupData | null>(null);
+  const [data,              setData]              = useState<OIBuildupData | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [debugData,    setDebugData]    = useState<any>(null);
-  const [debugLoading, setDebugLoading] = useState(false);
-  const [loading,      setLoading]      = useState(false);
-  const [error,        setError]        = useState('');
+  const [debugData,         setDebugData]         = useState<any>(null);
+  const [debugLoading,      setDebugLoading]      = useState(false);
+  const [loading,           setLoading]           = useState(false);
+  const [error,             setError]             = useState('');
+  const [selectedExpiry,    setSelectedExpiry]    = useState('');
+  const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
 
-  const runScreen = useCallback(async () => {
+  const runScreen = useCallback(async (expiry?: string) => {
     setLoading(true);
     setError('');
     setData(null);
     try {
-      const res  = await fetch('/api/dhan/oi-buildup');
+      const params = expiry ? `?expiry=${expiry}` : '';
+      const res  = await fetch(`/api/dhan/oi-buildup${params}`);
       const json = await res.json() as OIBuildupData;
       if (!res.ok || json.error) {
         setError(json.error ?? `HTTP ${res.status}`);
       } else {
         setData(json);
+        if (json.availableExpiries.length && !availableExpiries.length) {
+          setAvailableExpiries(json.availableExpiries);
+          if (!selectedExpiry) setSelectedExpiry(json.availableExpiries[0] ?? '');
+        }
       }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [availableExpiries.length, selectedExpiry]);
 
   useEffect(() => { runScreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -140,8 +152,26 @@ export default function OIBuildupPage() {
 
       {/* Controls */}
       <div className="flex flex-wrap items-end gap-4">
+        {availableExpiries.length > 0 && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Expiry</span>
+            <select
+              value={selectedExpiry}
+              onChange={e => {
+                setSelectedExpiry(e.target.value);
+                runScreen(e.target.value);
+              }}
+              disabled={loading}
+              className="px-3 py-2 text-sm font-semibold text-gray-900 bg-white border border-slate-300 rounded-lg disabled:opacity-50 cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 min-w-[140px]"
+            >
+              {availableExpiries.map(exp => (
+                <option key={exp} value={exp}>{fmtExpiry(exp)}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <button
-          onClick={() => runScreen()}
+          onClick={() => runScreen(selectedExpiry || undefined)}
           disabled={loading}
           className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-60
             ${loading
@@ -226,7 +256,7 @@ export default function OIBuildupPage() {
       </div>
 
       <div className="text-xs text-slate-600">
-        Futures OI &amp; price change sourced from NSE public APIs. No Dhan credentials required.
+        Futures OI sourced from NSE (aggregate across all active expiries). Price change from NSE equity APIs. Expiry filter narrows symbols — OI values remain aggregate.
       </div>
 
     </main>

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { fetchFuturesQuotesFromNSE } from '@/lib/dhan-api';
 
 export const maxDuration = 55;
@@ -25,9 +25,10 @@ export interface OIBuildupData {
   error?:           string;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const expiry = req.nextUrl.searchParams.get('expiry') ?? undefined;
   const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } =
-    await fetchFuturesQuotesFromNSE();
+    await fetchFuturesQuotesFromNSE(expiry);
 
   let error: string | undefined;
   if (scripMasterSize === 0) {

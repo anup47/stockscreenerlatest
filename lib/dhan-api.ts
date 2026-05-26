@@ -405,28 +405,48 @@ async function fetchNseFuturesOI(): Promise<Map<string, NseFutOIEntry>> {
 
 const NSE_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
 
-export async function fetchFuturesQuotesFromNSE(): Promise<{
+const ALL_SCREEN_SYMS = [...ALL_FNO_SYMBOLS.indices, ...ALL_FNO_SYMBOLS.stocks];
+
+export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   quotes:            Map<string, FuturesQuote>;
   availableExpiries: string[];
   scripMasterSize:   number;
   rawQuotesSize:     number;
   loadError:         string;
 }> {
-  const [oiMap, stockChangePct, indices] = await Promise.all([
+  // Run NSE data calls and Dhan scrip master in parallel — scrip master is
+  // cached for 4 h so repeat calls are instant.
+  const [oiMap, stockChangePct, indices, futData] = await Promise.all([
     fetchNseFuturesOI(),
     fetchNseFnoChangePct(),
     fetchNseIndices(),
+    loadFuturesData(ALL_SCREEN_SYMS),
   ]);
 
   if (oiMap.size === 0) {
     return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE futures OI API returned no data' };
   }
 
+  // Collect distinct expiry dates from scrip master for the dropdown
+  const expirySet = new Set<string>();
+  for (const entries of futData.values()) {
+    for (const e of entries) expirySet.add(e.expiry);
+  }
+  const availableExpiries = [...expirySet].sort();
+
+  // When an expiry is selected, only include symbols that have a contract for it
+  const symbolsForExpiry: Set<string> | null = expiry
+    ? new Set([...futData.entries()]
+        .filter(([, entries]) => entries.some(e => e.expiry === expiry))
+        .map(([sym]) => sym.toUpperCase()))
+    : null;
+
   const indexChangePct = new Map<string, number>();
   for (const idx of indices) indexChangePct.set(idx.symbol.toUpperCase(), idx.changePct);
 
   const quotes = new Map<string, FuturesQuote>();
   for (const [symbol, oi] of oiMap) {
+    if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
     const isIndex   = NSE_INDEX_SYMS.has(symbol);
     const changePct = isIndex
       ? (indexChangePct.get(symbol) ?? 0)
@@ -434,10 +454,10 @@ export async function fetchFuturesQuotesFromNSE(): Promise<{
     const oiChangePct = oi.prevOI > 0
       ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100
       : oi.avgInOI;
-    quotes.set(symbol, { symbol, secId: 0, expiry: '', price: oi.underlyingValue, changePct, oi: oi.latestOI, oiChangePct });
+    quotes.set(symbol, { symbol, secId: 0, expiry: expiry ?? '', price: oi.underlyingValue, changePct, oi: oi.latestOI, oiChangePct });
   }
 
-  return { quotes, availableExpiries: [], scripMasterSize: oiMap.size, rawQuotesSize: quotes.size, loadError: '' };
+  return { quotes, availableExpiries, scripMasterSize: oiMap.size, rawQuotesSize: quotes.size, loadError: '' };
 }
 
 // ── NSE F&O top movers (TradingView scanner fallback) ────────────────────────
