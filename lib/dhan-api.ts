@@ -771,12 +771,15 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
       if (!line.trim()) continue;
 
       const cols = line.split(',');
-      const seg  = cols[iSeg]?.trim().replace(/['"]/g, '') ?? '';
-      if (seg !== 'NSE_FO') continue;
 
-      // Identify futures by trading symbol suffix — works regardless of instrument name format
+      // Identify futures by trading symbol suffix — works regardless of segment/instrument name
       const tradingSym = (cols[iTrading]?.trim().replace(/['"]/g, '') ?? '').toUpperCase();
       if (!tradingSym.endsWith('FUT')) continue;
+
+      // Only NSE futures (segment starts with NSE or IDX)
+      const seg = cols[iSeg]?.trim().replace(/['"]/g, '') ?? '';
+      if (!seg.startsWith('NSE') && !seg.startsWith('IDX')) continue;
+
       nfoFutCount++;
 
       const rawExp = cols[iExpiry]?.trim().replace(/['"]/g, '').split(' ')[0].split('T')[0] ?? '';
@@ -806,7 +809,7 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
     }
 
     if (accum.size === 0) {
-      futuresLoadError = `No symbols matched (${nfoFutCount} FUT-suffix rows in NSE_FO, ${lines.length} total CSV lines)`;
+      futuresLoadError = `No symbols matched (${nfoFutCount} FUT-suffix rows found, ${lines.length} total CSV lines)`;
       return _futDataCache ?? new Map();
     }
 

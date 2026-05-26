@@ -41,31 +41,34 @@ export async function GET(req: NextRequest) {
       out.colIndices = { iSeg, iInstr, iSecId, iExpiry, iTrade };
 
       const today = new Date().toISOString().split('T')[0];
-      const instrCounts: Record<string, number> = {};
+      const segCounts: Record<string, number> = {};
+      const instrCountsInNSE_FO: Record<string, number> = {};
       const futRows: Record<string, string>[] = [];
 
       for (let i = 1; i < lines.length; i++) {
         const cols  = lines[i].split(',');
         const seg   = cols[iSeg]?.trim().replace(/['"]/g, '') ?? '';
-        if (seg !== 'NSE_FO') continue;
-
         const instr = cols[iInstr]?.trim().replace(/['"]/g, '') ?? '';
-        instrCounts[instr] = (instrCounts[instr] ?? 0) + 1;
+        const trading = (cols[iTrade]?.trim().replace(/['"]/g, '') ?? '').toUpperCase();
 
-        const trading = cols[iTrade]?.trim().replace(/['"]/g, '') ?? '';
-        if (trading.toUpperCase().endsWith('FUT') && futRows.length < 15) {
-          const exp = (cols[iExpiry]?.trim().replace(/['"]/g, '') ?? '').split(' ')[0];
-          if (exp >= today) {
-            futRows.push({
-              secId:   cols[iSecId]?.trim().replace(/['"]/g, '') ?? '',
-              instr,
-              expiry:  exp,
-              trading,
-            });
+        // Count all segments for the FUT rows
+        if (trading.endsWith('FUT')) {
+          segCounts[seg] = (segCounts[seg] ?? 0) + 1;
+          if (futRows.length < 15) {
+            const exp = (cols[iExpiry]?.trim().replace(/['"]/g, '') ?? '').split(' ')[0];
+            if (exp >= today) {
+              futRows.push({ secId: cols[iSecId]?.trim().replace(/['"]/g, '') ?? '', seg, instr, expiry: exp, trading });
+            }
           }
         }
+
+        // Also count instrument types within NSE_FO for reference
+        if (seg === 'NSE_FO') {
+          instrCountsInNSE_FO[instr] = (instrCountsInNSE_FO[instr] ?? 0) + 1;
+        }
       }
-      out.instrCountsInNSE_FO = instrCounts;
+      out.futSegmentCounts    = segCounts;
+      out.instrCountsInNSE_FO = instrCountsInNSE_FO;
       out.sampleFutRows       = futRows;
 
       // Test symbol matching for a few known symbols
