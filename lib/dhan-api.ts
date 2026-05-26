@@ -810,16 +810,21 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
 
 interface FuturesHistQuote { price: number; prevClose: number; oi: number; prevOI: number; }
 
-// Fetches yesterday+today candles in one call — gives price, prevClose, OI, prevOI.
-// Replaces market-feed (which requires a separate API tier) + a second historical call.
+// Fetches the last two completed daily candles for price, prevClose, OI, prevOI.
+// Uses toDate=yesterday (not today) so only completed candles are returned.
+// fromDate is 10 calendar days back to safely span any market holidays.
 async function fetchFuturesHistorical(
   secId: number,
   instrument: 'FUTSTK' | 'FUTIDX',
   clientId: string,
   accessToken: string,
 ): Promise<FuturesHistQuote> {
-  const today   = new Date().toISOString().split('T')[0];
-  const prevDay = prevTradingDay();
+  const toDate = prevTradingDay();
+  const fromDate = (() => {
+    const d = new Date(toDate + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - 10);
+    return d.toISOString().split('T')[0];
+  })();
   try {
     const res = await fetch(`${DHAN_BASE}/v2/charts/historical`, {
       method:  'POST',
@@ -829,8 +834,8 @@ async function fetchFuturesHistorical(
         exchangeSegment: 'NSE_FO',
         instrument,
         expiryCode:      0,
-        fromDate:        prevDay,
-        toDate:          today,
+        fromDate,
+        toDate,
       }),
     });
     if (!res.ok) return { price: 0, prevClose: 0, oi: 0, prevOI: 0 };
