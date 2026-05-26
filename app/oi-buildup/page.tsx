@@ -1,6 +1,5 @@
 'use client';
 import { useState, useCallback, useEffect } from 'react';
-import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import type { OIBuildupData, OIBuildupRow } from '@/app/api/dhan/oi-buildup/route';
 
 function fmtOI(n: number) {
@@ -13,12 +12,6 @@ function fmtOI(n: number) {
 
 function fmt2(n: number) {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtExpiry(iso: string) {
-  // "2026-05-29" → "May 2026"
-  const d = new Date(iso + 'T00:00:00');
-  return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
 }
 
 function Panel({
@@ -97,57 +90,33 @@ function Panel({
 }
 
 export default function OIBuildupPage() {
-  const { isConfigured, isHydrated, headers } = useDhanCredentials();
-  const [data,              setData]              = useState<OIBuildupData | null>(null);
+  const [data,         setData]         = useState<OIBuildupData | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [debugData,         setDebugData]         = useState<any>(null);
-  const [debugLoading,      setDebugLoading]      = useState(false);
-  const [loading,           setLoading]           = useState(false);
-  const [error,             setError]             = useState('');
-  const [selectedExpiry,    setSelectedExpiry]    = useState('');
-  const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
+  const [debugData,    setDebugData]    = useState<any>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
 
-  const runScreen = useCallback(async (expiry?: string) => {
-    if (!isConfigured) return;
+  const runScreen = useCallback(async () => {
     setLoading(true);
     setError('');
     setData(null);
     try {
-      const params = expiry ? `?expiry=${expiry}` : '';
-      const res  = await fetch(`/api/dhan/oi-buildup${params}`, { headers });
+      const res  = await fetch('/api/dhan/oi-buildup');
       const json = await res.json() as OIBuildupData;
       if (!res.ok || json.error) {
         setError(json.error ?? `HTTP ${res.status}`);
       } else {
         setData(json);
-        if (json.availableExpiries.length) {
-          setAvailableExpiries(json.availableExpiries);
-          if (!selectedExpiry) setSelectedExpiry(json.availableExpiries[0] ?? '');
-        }
       }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [isConfigured, headers, selectedExpiry]);
+  }, []);
 
-  useEffect(() => {
-    if (isHydrated && isConfigured) runScreen();
-  }, [isHydrated, isConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!isHydrated) return null;
-
-  if (!isConfigured) {
-    return (
-      <main className="flex flex-col items-center justify-center py-24 gap-3">
-        <p className="text-slate-500">Dhan credentials not configured.</p>
-        <a href="/settings" className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded hover:bg-emerald-500 transition-colors">
-          Go to Settings
-        </a>
-      </main>
-    );
-  }
+  useEffect(() => { runScreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const total     = data ? data.lb.length + data.sb.length + data.sc.length + data.lu.length : 0;
   const fetchedAt = data
@@ -171,38 +140,17 @@ export default function OIBuildupPage() {
 
       {/* Controls */}
       <div className="flex flex-wrap items-end gap-4">
-        {availableExpiries.length > 0 && (
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Expiry</span>
-            <select
-              value={selectedExpiry}
-              onChange={e => {
-                setSelectedExpiry(e.target.value);
-                runScreen(e.target.value);
-              }}
-              disabled={loading}
-              className="px-3 py-2 text-sm font-semibold text-gray-900 bg-white border border-slate-300 rounded-lg disabled:opacity-50 cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 min-w-[140px]"
-            >
-              {availableExpiries.map(exp => (
-                <option key={exp} value={exp}>{fmtExpiry(exp)}</option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <div className="flex flex-col justify-end">
-          <button
-            onClick={() => runScreen(selectedExpiry || undefined)}
-            disabled={loading}
-            className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-60
-              ${loading
-                ? 'bg-slate-400 text-white cursor-not-allowed'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-              }`}
-          >
-            {loading ? 'Loading…' : '↻ Refresh'}
-          </button>
-        </div>
+        <button
+          onClick={() => runScreen()}
+          disabled={loading}
+          className={`px-5 py-2 font-bold rounded-lg text-sm transition-colors disabled:opacity-60
+            ${loading
+              ? 'bg-slate-400 text-white cursor-not-allowed'
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            }`}
+        >
+          {loading ? 'Loading…' : '↻ Refresh'}
+        </button>
       </div>
 
       {error && (
@@ -212,7 +160,7 @@ export default function OIBuildupPage() {
             onClick={async () => {
               setDebugLoading(true);
               try {
-                const res  = await fetch('/api/dhan/oi-buildup/debug', { headers });
+                const res  = await fetch('/api/dhan/oi-buildup/debug');
                 const json = await res.json();
                 setDebugData(json);
               } catch (e) { setDebugData({ error: String(e) }); }
@@ -278,7 +226,7 @@ export default function OIBuildupPage() {
       </div>
 
       <div className="text-xs text-slate-600">
-        Futures contract price &amp; OI from Dhan market feed. OI change vs previous trading day from Dhan historical candles.
+        Futures OI &amp; price change sourced from NSE public APIs. No Dhan credentials required.
       </div>
 
     </main>

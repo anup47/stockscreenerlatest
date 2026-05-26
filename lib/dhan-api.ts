@@ -352,6 +352,94 @@ export async function fetchNseIndices(): Promise<IndexQuote[]> {
   } catch { return []; }
 }
 
+// ── NSE futures OI (all underlyings, live — no credentials needed) ───────────
+
+interface NseFutOIEntry {
+  symbol:          string;
+  latestOI:        number;
+  prevOI:          number;
+  changeInOI:      number;
+  avgInOI:         number; // OI % change vs prev session
+  underlyingValue: number;
+}
+
+async function fetchNseFuturesOI(): Promise<Map<string, NseFutOIEntry>> {
+  try {
+    const cookies = await fetchNseCookies();
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12_000);
+    let res: Response;
+    try {
+      res = await fetch(
+        'https://www.nseindia.com/api/live-analysis-oi-spurts-underlyings?type=allFut',
+        {
+          headers: {
+            ...NSE_HEADERS,
+            'Accept': 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(cookies ? { Cookie: cookies } : {}),
+          },
+          cache: 'no-store',
+          signal: ctrl.signal,
+        },
+      );
+    } finally { clearTimeout(t); }
+    if (!res.ok) return new Map();
+    const json = await res.json() as { data?: Record<string, unknown>[] };
+    const map = new Map<string, NseFutOIEntry>();
+    for (const row of json.data ?? []) {
+      const symbol = String(row.symbol ?? '').trim().toUpperCase();
+      if (!symbol) continue;
+      map.set(symbol, {
+        symbol,
+        latestOI:        Number(row.latestOI        ?? 0),
+        prevOI:          Number(row.prevOI          ?? 0),
+        changeInOI:      Number(row.changeInOI      ?? 0),
+        avgInOI:         Number(row.avgInOI         ?? 0),
+        underlyingValue: Number(row.underlyingValue ?? 0),
+      });
+    }
+    return map;
+  } catch { return new Map(); }
+}
+
+const NSE_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
+
+export async function fetchFuturesQuotesFromNSE(): Promise<{
+  quotes:            Map<string, FuturesQuote>;
+  availableExpiries: string[];
+  scripMasterSize:   number;
+  rawQuotesSize:     number;
+  loadError:         string;
+}> {
+  const [oiMap, stockChangePct, indices] = await Promise.all([
+    fetchNseFuturesOI(),
+    fetchNseFnoChangePct(),
+    fetchNseIndices(),
+  ]);
+
+  if (oiMap.size === 0) {
+    return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE futures OI API returned no data' };
+  }
+
+  const indexChangePct = new Map<string, number>();
+  for (const idx of indices) indexChangePct.set(idx.symbol.toUpperCase(), idx.changePct);
+
+  const quotes = new Map<string, FuturesQuote>();
+  for (const [symbol, oi] of oiMap) {
+    const isIndex   = NSE_INDEX_SYMS.has(symbol);
+    const changePct = isIndex
+      ? (indexChangePct.get(symbol) ?? 0)
+      : (stockChangePct.get(symbol) ?? 0);
+    const oiChangePct = oi.prevOI > 0
+      ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100
+      : oi.avgInOI;
+    quotes.set(symbol, { symbol, secId: 0, expiry: '', price: oi.underlyingValue, changePct, oi: oi.latestOI, oiChangePct });
+  }
+
+  return { quotes, availableExpiries: [], scripMasterSize: oiMap.size, rawQuotesSize: quotes.size, loadError: '' };
+}
+
 // ── NSE F&O top movers (TradingView scanner fallback) ────────────────────────
 
 export async function fetchFnoMovers(): Promise<FnOStock[]> {

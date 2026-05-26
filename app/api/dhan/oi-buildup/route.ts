@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { fetchFuturesQuotes, ALL_FNO_SYMBOLS } from '@/lib/dhan-api';
+import { NextResponse } from 'next/server';
+import { fetchFuturesQuotesFromNSE } from '@/lib/dhan-api';
 
 export const maxDuration = 55;
 
@@ -25,32 +25,15 @@ export interface OIBuildupData {
   error?:           string;
 }
 
-const ALL_SCREEN_SYMBOLS = [
-  ...ALL_FNO_SYMBOLS.indices,
-  ...ALL_FNO_SYMBOLS.stocks,
-];
-
-export async function GET(req: NextRequest) {
-  const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
-  const accessToken = req.headers.get('x-dhan-access-token') ?? '';
-
-  if (!clientId || !accessToken) {
-    return NextResponse.json(
-      { error: 'Missing Dhan credentials. Configure them in Settings.' },
-      { status: 401 },
-    );
-  }
-
-  const expiry = req.nextUrl.searchParams.get('expiry') ?? undefined;
+export async function GET() {
   const { quotes, availableExpiries, scripMasterSize, rawQuotesSize, loadError } =
-    await fetchFuturesQuotes(ALL_SCREEN_SYMBOLS, clientId, accessToken, expiry);
+    await fetchFuturesQuotesFromNSE();
 
-  // Surface actionable errors
   let error: string | undefined;
   if (scripMasterSize === 0) {
-    error = `Futures contract data unavailable: ${loadError || 'scrip master download failed'}`;
+    error = `Futures OI data unavailable: ${loadError || 'NSE API did not respond'}`;
   } else if (rawQuotesSize === 0) {
-    error = 'No futures price data returned from Dhan. Credentials may have expired or market is closed.';
+    error = 'No futures data returned from NSE. Market may be closed or NSE API is unavailable.';
   }
 
   const lb: OIBuildupRow[] = [];
