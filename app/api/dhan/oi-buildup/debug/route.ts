@@ -41,35 +41,29 @@ export async function GET(req: NextRequest) {
       out.colIndices = { iSeg, iInstr, iSecId, iExpiry, iTrade };
 
       const today = new Date().toISOString().split('T')[0];
-      const segCounts: Record<string, number> = {};
-      const instrCountsInNSE_FO: Record<string, number> = {};
+      // CSV columns: SEM_EXM_EXCH_ID, SEM_SEGMENT, SEM_SMST_SECURITY_ID, SEM_INSTRUMENT_NAME,
+      //              SEM_EXPIRY_CODE, SEM_TRADING_SYMBOL, ..., SEM_EXPIRY_DATE
+      // NSE futures: exchange=NSE, segment=D, instrument=FUTSTK/FUTIDX, symbol=RELIANCE-Jun2026-FUT
+      const iExch = hdrs.indexOf('SEM_EXM_EXCH_ID');
+      let nseFutCount = 0;
       const futRows: Record<string, string>[] = [];
 
       for (let i = 1; i < lines.length; i++) {
         const cols  = lines[i].split(',');
-        const seg   = cols[iSeg]?.trim().replace(/['"]/g, '') ?? '';
+        const exch  = cols[iExch]?.trim() ?? '';
         const instr = cols[iInstr]?.trim().replace(/['"]/g, '') ?? '';
-        const trading = (cols[iTrade]?.trim().replace(/['"]/g, '') ?? '').toUpperCase();
-
-        // Count all segments for the FUT rows
-        if (trading.endsWith('FUT')) {
-          segCounts[seg] = (segCounts[seg] ?? 0) + 1;
-          if (futRows.length < 15) {
-            const exp = (cols[iExpiry]?.trim().replace(/['"]/g, '') ?? '').split(' ')[0];
-            if (exp >= today) {
-              futRows.push({ secId: cols[iSecId]?.trim().replace(/['"]/g, '') ?? '', seg, instr, expiry: exp, trading });
-            }
+        if (exch !== 'NSE' || (instr !== 'FUTSTK' && instr !== 'FUTIDX')) continue;
+        nseFutCount++;
+        if (futRows.length < 15) {
+          const trading = cols[iTrade]?.trim().replace(/['"]/g, '') ?? '';
+          const exp = (cols[iExpiry]?.trim().replace(/['"]/g, '') ?? '').split(' ')[0];
+          if (exp >= today) {
+            futRows.push({ secId: cols[iSecId]?.trim().replace(/['"]/g, '') ?? '', exch, instr, expiry: exp, trading });
           }
         }
-
-        // Also count instrument types within NSE_FO for reference
-        if (seg === 'NSE_FO') {
-          instrCountsInNSE_FO[instr] = (instrCountsInNSE_FO[instr] ?? 0) + 1;
-        }
       }
-      out.futSegmentCounts    = segCounts;
-      out.instrCountsInNSE_FO = instrCountsInNSE_FO;
-      out.sampleFutRows       = futRows;
+      out.nseFuturesCount = nseFutCount;
+      out.sampleFutRows   = futRows;
 
       // Test symbol matching for a few known symbols
       const testSyms = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'HDFCBANK', 'BAJAJ-AUTO', 'LT', 'LTF'];

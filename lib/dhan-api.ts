@@ -712,13 +712,6 @@ let _futDataCache: Map<string, FuturesEntry[]> | null = null;
 let _futDataCacheTs = 0;
 export let futuresLoadError = ''; // last error from loadFuturesData
 
-const INDEX_SYMS_UPPER = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
-
-function futuresSymMatch(tradingSym: string, key: string): boolean {
-  if (!tradingSym.startsWith(key)) return false;
-  return /\d/.test(tradingSym[key.length] ?? '');
-}
-
 async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEntry[]>> {
   const now = Date.now();
   if (_futDataCache && now - _futDataCacheTs < 4 * 3600_000) return _futDataCache;
@@ -739,29 +732,23 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
 
     const text  = await res.text();
     const lines = text.split('\n');
-    // Strip BOM + quotes from every header
     const hdrs  = lines[0].replace(/^﻿/, '').split(',').map(h => h.trim().replace(/['"]/g, ''));
 
+    // CSV columns: SEM_EXM_EXCH_ID, SEM_SEGMENT, SEM_SMST_SECURITY_ID, SEM_INSTRUMENT_NAME,
+    //              SEM_EXPIRY_CODE, SEM_TRADING_SYMBOL, ..., SEM_EXPIRY_DATE, ...
+    const iExch    = hdrs.indexOf('SEM_EXM_EXCH_ID');
     const iSecId   = hdrs.indexOf('SEM_SMST_SECURITY_ID');
-    const iSeg     = hdrs.indexOf('SEM_SEGMENT');
     const iInstr   = hdrs.indexOf('SEM_INSTRUMENT_NAME');
     const iExpiry  = hdrs.indexOf('SEM_EXPIRY_DATE');
     const iTrading = hdrs.indexOf('SEM_TRADING_SYMBOL');
 
-    // iInstr is optional — we identify futures by trading symbol suffix instead
-    if (iSecId < 0 || iSeg < 0 || iExpiry < 0 || iTrading < 0) {
+    if (iExch < 0 || iSecId < 0 || iInstr < 0 || iExpiry < 0 || iTrading < 0) {
       futuresLoadError = `CSV columns missing. Found: ${hdrs.slice(0, 8).join(' | ')}`;
       return _futDataCache ?? new Map();
     }
 
-    const today = new Date().toISOString().split('T')[0];
-
-    const keyVariants = new Map<string, string[]>();
-    for (const sym of symbols) {
-      const upper    = sym.toUpperCase();
-      const stripped = sym.replace(/[-&]/g, '').toUpperCase();
-      keyVariants.set(upper, stripped !== upper ? [upper, stripped] : [upper]);
-    }
+    const today  = new Date().toISOString().split('T')[0];
+    const symSet = new Set(symbols.map(s => s.toUpperCase()));
 
     const accum = new Map<string, Map<string, FuturesEntry>>();
     let nfoFutCount = 0;
@@ -772,44 +759,36 @@ async function loadFuturesData(symbols: string[]): Promise<Map<string, FuturesEn
 
       const cols = line.split(',');
 
-      // Identify futures by trading symbol suffix — works regardless of segment/instrument name
-      const tradingSym = (cols[iTrading]?.trim().replace(/['"]/g, '') ?? '').toUpperCase();
-      if (!tradingSym.endsWith('FUT')) continue;
+      if ((cols[iExch]?.trim() ?? '') !== 'NSE') continue;
 
-      // Only NSE futures (segment starts with NSE or IDX)
-      const seg = cols[iSeg]?.trim().replace(/['"]/g, '') ?? '';
-      if (!seg.startsWith('NSE') && !seg.startsWith('IDX')) continue;
-
+      // Futures identified by instrument name (FUTSTK / FUTIDX)
+      const instr = cols[iInstr]?.trim().replace(/['"]/g, '') ?? '';
+      if (instr !== 'FUTSTK' && instr !== 'FUTIDX') continue;
       nfoFutCount++;
+
+      // Trading symbol format: "SYMBOL-MonYYYY-FUT"  (e.g. "RELIANCE-Jun2026-FUT", "M&M-Jul2026-FUT")
+      // Symbol = everything before the last two dash-separated parts (MonYYYY and FUT)
+      const tradingSym = cols[iTrading]?.trim().replace(/['"]/g, '') ?? '';
+      const parts = tradingSym.split('-');
+      if (parts.length < 3) continue;
+      const csvSym = parts.slice(0, -2).join('-').toUpperCase();
+      if (!symSet.has(csvSym)) continue;
 
       const rawExp = cols[iExpiry]?.trim().replace(/['"]/g, '').split(' ')[0].split('T')[0] ?? '';
       if (!rawExp || rawExp < today) continue;
 
-      const secIdStr = cols[iSecId]?.trim().replace(/['"]/g, '') ?? '';
-      const secId    = parseInt(secIdStr, 10);
+      const secId = parseInt(cols[iSecId]?.trim().replace(/['"]/g, '') ?? '', 10);
       if (!secId || isNaN(secId)) continue;
 
-      for (const [sym, keys] of keyVariants) {
-        let matched = false;
-        for (const key of keys) {
-          if (futuresSymMatch(tradingSym, key)) { matched = true; break; }
-        }
-        if (!matched) continue;
-
-        // Determine instrument type from known index list rather than CSV field
-        const instrument: 'FUTSTK' | 'FUTIDX' = INDEX_SYMS_UPPER.has(sym) ? 'FUTIDX' : 'FUTSTK';
-
-        if (!accum.has(sym)) accum.set(sym, new Map());
-        const symMap = accum.get(sym)!;
-        if (!symMap.has(rawExp)) {
-          symMap.set(rawExp, { secId, expiry: rawExp, instrument });
-        }
-        break;
+      if (!accum.has(csvSym)) accum.set(csvSym, new Map());
+      const symMap = accum.get(csvSym)!;
+      if (!symMap.has(rawExp)) {
+        symMap.set(rawExp, { secId, expiry: rawExp, instrument: instr as 'FUTSTK' | 'FUTIDX' });
       }
     }
 
     if (accum.size === 0) {
-      futuresLoadError = `No symbols matched (${nfoFutCount} FUT-suffix rows found, ${lines.length} total CSV lines)`;
+      futuresLoadError = `No symbols matched (${nfoFutCount} NSE futures in CSV, ${lines.length} total lines)`;
       return _futDataCache ?? new Map();
     }
 
