@@ -461,11 +461,10 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   rawQuotesSize:     number;
   loadError:         string;
 }> {
-  // All four calls run in parallel. Scrip master is cached for 4 h.
   const [stockData, indexOI, indices, futData] = await Promise.all([
-    fetchNseFnoFullData(),       // price + OI for all ~200 F&O stocks
-    fetchNseIndexFutOI(),        // OI for indices from allFut API
-    fetchNseIndices(),           // price change for indices
+    fetchNseFnoFullData(),
+    fetchNseIndexFutOI(),
+    fetchNseIndices(),
     loadFuturesData(ALL_SCREEN_SYMS),
   ]);
 
@@ -487,16 +486,14 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
         .map(([sym]) => sym.toUpperCase()))
     : null;
 
-  const indexChangePct = new Map<string, number>();
-  for (const idx of indices) indexChangePct.set(idx.symbol.toUpperCase(), idx.changePct);
+  const indexBySymbol = new Map(indices.map(i => [i.symbol.toUpperCase(), i]));
 
   const quotes = new Map<string, FuturesQuote>();
 
-  // ── F&O stocks ──
   for (const [symbol, d] of stockData) {
-    if (NSE_INDEX_SYMS.has(symbol)) continue; // indices handled separately
+    if (NSE_INDEX_SYMS.has(symbol)) continue;
     if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
-    if (d.pChange === 0 && d.oi === 0) continue; // skip empty rows (header row etc.)
+    if (d.pChange === 0 && d.oi === 0) continue;
     quotes.set(symbol, {
       symbol, secId: 0, expiry: expiry ?? '',
       price: d.price, changePct: d.pChange,
@@ -504,11 +501,10 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
     });
   }
 
-  // ── Indices ──
   for (const symbol of NSE_INDEX_SYMS) {
     if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
     const oi  = indexOI.get(symbol);
-    const idx = indices.find(i => i.symbol === symbol);
+    const idx = indexBySymbol.get(symbol);
     if (!oi && !idx) continue;
     const oiChangePct = oi
       ? (oi.prevOI > 0 ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100 : oi.avgInOI)
@@ -583,7 +579,12 @@ const NSE_INDEX_SYMBOL: Record<string, string> = {
   FINNIFTY: 'FINNIFTY', MIDCPNIFTY: 'MIDCPNIFTY',
 };
 
+let _nseCookies = '';
+let _nseCookiesTs = 0;
+
 async function fetchNseCookies(): Promise<string> {
+  const now = Date.now();
+  if (_nseCookies && now - _nseCookiesTs < 30_000) return _nseCookies;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
@@ -600,42 +601,17 @@ async function fetchNseCookies(): Promise<string> {
     const arr: string[] = typeof hdrs.getSetCookie === 'function'
       ? hdrs.getSetCookie()
       : (r.headers.get('set-cookie') ?? '').split(/,(?=[^ ])/).map(s => s.trim());
-    return arr.map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
+    _nseCookies = arr.map(c => c.split(';')[0].trim()).filter(Boolean).join('; ');
+    _nseCookiesTs = Date.now();
+    return _nseCookies;
   } catch { return ''; }
 }
 
-// Fetch % price change for all NSE F&O stocks in one call (no per-symbol rate limit)
 export async function fetchNseFnoChangePct(): Promise<Map<string, number>> {
-  try {
-    const cookies = await fetchNseCookies();
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12_000);
-    let res: Response;
-    try {
-      res = await fetch(
-        'https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O',
-        {
-          headers: {
-            ...NSE_HEADERS,
-            'Accept': 'application/json, text/plain, */*',
-            'X-Requested-With': 'XMLHttpRequest',
-            ...(cookies ? { Cookie: cookies } : {}),
-          },
-          cache: 'no-store',
-          signal: ctrl.signal,
-        },
-      );
-    } finally { clearTimeout(t); }
-    if (!res.ok) return new Map();
-    const json = await res.json() as { data?: Record<string, unknown>[] };
-    const map = new Map<string, number>();
-    for (const stock of json.data ?? []) {
-      const symbol  = String(stock.symbol  ?? '').trim().toUpperCase();
-      const pChange = Number(stock.pChange  ?? stock.percentChange ?? 0);
-      if (symbol) map.set(symbol, pChange);
-    }
-    return map;
-  } catch { return new Map(); }
+  const data = await fetchNseFnoFullData();
+  const map = new Map<string, number>();
+  for (const [sym, d] of data) map.set(sym, d.pChange);
+  return map;
 }
 
 interface NseRecord {
