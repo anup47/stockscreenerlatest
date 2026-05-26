@@ -352,18 +352,18 @@ export async function fetchNseIndices(): Promise<IndexQuote[]> {
   } catch { return []; }
 }
 
-// ── NSE futures OI (all underlyings, live — no credentials needed) ───────────
+// ── NSE futures OI for indices (allFut — returns OI spurts, covers indices) ──
 
 interface NseFutOIEntry {
   symbol:          string;
   latestOI:        number;
   prevOI:          number;
   changeInOI:      number;
-  avgInOI:         number; // OI % change vs prev session
+  avgInOI:         number;
   underlyingValue: number;
 }
 
-async function fetchNseFuturesOI(): Promise<Map<string, NseFutOIEntry>> {
+async function fetchNseIndexFutOI(): Promise<Map<string, NseFutOIEntry>> {
   try {
     const cookies = await fetchNseCookies();
     const ctrl = new AbortController();
@@ -403,6 +403,53 @@ async function fetchNseFuturesOI(): Promise<Map<string, NseFutOIEntry>> {
   } catch { return new Map(); }
 }
 
+// ── NSE F&O stocks: price + OI for ALL ~200 F&O stocks in one call ───────────
+
+interface NseFnoFullEntry {
+  price:       number;
+  pChange:     number;
+  oi:          number;
+  oiChangePct: number;
+}
+
+async function fetchNseFnoFullData(): Promise<Map<string, NseFnoFullEntry>> {
+  try {
+    const cookies = await fetchNseCookies();
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12_000);
+    let res: Response;
+    try {
+      res = await fetch(
+        'https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O',
+        {
+          headers: {
+            ...NSE_HEADERS,
+            'Accept': 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(cookies ? { Cookie: cookies } : {}),
+          },
+          cache: 'no-store',
+          signal: ctrl.signal,
+        },
+      );
+    } finally { clearTimeout(t); }
+    if (!res.ok) return new Map();
+    const json = await res.json() as { data?: Record<string, unknown>[] };
+    const map = new Map<string, NseFnoFullEntry>();
+    for (const stock of json.data ?? []) {
+      const symbol = String(stock.symbol ?? '').trim().toUpperCase();
+      if (!symbol) continue;
+      map.set(symbol, {
+        price:       Number(stock.lastPrice ?? stock.ltp ?? 0),
+        pChange:     Number(stock.pChange   ?? stock.percentChange ?? 0),
+        oi:          Number(stock.openInterest ?? 0),
+        oiChangePct: Number(stock.pchangeinOpenInterest ?? 0),
+      });
+    }
+    return map;
+  } catch { return new Map(); }
+}
+
 const NSE_INDEX_SYMS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
 
 const ALL_SCREEN_SYMS = [...ALL_FNO_SYMBOLS.indices, ...ALL_FNO_SYMBOLS.stocks];
@@ -414,27 +461,26 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   rawQuotesSize:     number;
   loadError:         string;
 }> {
-  // Run NSE data calls and Dhan scrip master in parallel — scrip master is
-  // cached for 4 h so repeat calls are instant.
-  const [oiMap, stockChangePct, indices, futData] = await Promise.all([
-    fetchNseFuturesOI(),
-    fetchNseFnoChangePct(),
-    fetchNseIndices(),
+  // All four calls run in parallel. Scrip master is cached for 4 h.
+  const [stockData, indexOI, indices, futData] = await Promise.all([
+    fetchNseFnoFullData(),       // price + OI for all ~200 F&O stocks
+    fetchNseIndexFutOI(),        // OI for indices from allFut API
+    fetchNseIndices(),           // price change for indices
     loadFuturesData(ALL_SCREEN_SYMS),
   ]);
 
-  if (oiMap.size === 0) {
-    return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE futures OI API returned no data' };
+  if (stockData.size === 0 && indexOI.size === 0) {
+    return { quotes: new Map(), availableExpiries: [], scripMasterSize: 0, rawQuotesSize: 0, loadError: 'NSE API returned no data' };
   }
 
-  // Collect distinct expiry dates from scrip master for the dropdown
+  // Expiry dates from scrip master for the dropdown
   const expirySet = new Set<string>();
   for (const entries of futData.values()) {
     for (const e of entries) expirySet.add(e.expiry);
   }
   const availableExpiries = [...expirySet].sort();
 
-  // When an expiry is selected, only include symbols that have a contract for it
+  // When an expiry is selected, filter to symbols that have a contract for it
   const symbolsForExpiry: Set<string> | null = expiry
     ? new Set([...futData.entries()]
         .filter(([, entries]) => entries.some(e => e.expiry === expiry))
@@ -445,19 +491,39 @@ export async function fetchFuturesQuotesFromNSE(expiry?: string): Promise<{
   for (const idx of indices) indexChangePct.set(idx.symbol.toUpperCase(), idx.changePct);
 
   const quotes = new Map<string, FuturesQuote>();
-  for (const [symbol, oi] of oiMap) {
+
+  // ── F&O stocks ──
+  for (const [symbol, d] of stockData) {
+    if (NSE_INDEX_SYMS.has(symbol)) continue; // indices handled separately
     if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
-    const isIndex   = NSE_INDEX_SYMS.has(symbol);
-    const changePct = isIndex
-      ? (indexChangePct.get(symbol) ?? 0)
-      : (stockChangePct.get(symbol) ?? 0);
-    const oiChangePct = oi.prevOI > 0
-      ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100
-      : oi.avgInOI;
-    quotes.set(symbol, { symbol, secId: 0, expiry: expiry ?? '', price: oi.underlyingValue, changePct, oi: oi.latestOI, oiChangePct });
+    if (d.pChange === 0 && d.oi === 0) continue; // skip empty rows (header row etc.)
+    quotes.set(symbol, {
+      symbol, secId: 0, expiry: expiry ?? '',
+      price: d.price, changePct: d.pChange,
+      oi: d.oi, oiChangePct: d.oiChangePct,
+    });
   }
 
-  return { quotes, availableExpiries, scripMasterSize: oiMap.size, rawQuotesSize: quotes.size, loadError: '' };
+  // ── Indices ──
+  for (const symbol of NSE_INDEX_SYMS) {
+    if (symbolsForExpiry && !symbolsForExpiry.has(symbol)) continue;
+    const oi  = indexOI.get(symbol);
+    const idx = indices.find(i => i.symbol === symbol);
+    if (!oi && !idx) continue;
+    const oiChangePct = oi
+      ? (oi.prevOI > 0 ? ((oi.latestOI - oi.prevOI) / oi.prevOI) * 100 : oi.avgInOI)
+      : 0;
+    quotes.set(symbol, {
+      symbol, secId: 0, expiry: expiry ?? '',
+      price:       idx?.ltp       ?? (oi?.underlyingValue ?? 0),
+      changePct:   idx?.changePct ?? 0,
+      oi:          oi?.latestOI   ?? 0,
+      oiChangePct,
+    });
+  }
+
+  const totalSymbols = stockData.size + NSE_INDEX_SYMS.size;
+  return { quotes, availableExpiries, scripMasterSize: totalSymbols, rawQuotesSize: quotes.size, loadError: '' };
 }
 
 // ── NSE F&O top movers (TradingView scanner fallback) ────────────────────────
