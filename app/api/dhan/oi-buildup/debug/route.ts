@@ -52,14 +52,15 @@ export async function GET(req: NextRequest) {
         const instr = cols[iInstr]?.trim().replace(/['"]/g, '') ?? '';
         instrCounts[instr] = (instrCounts[instr] ?? 0) + 1;
 
-        if ((instr === 'FUTSTK' || instr === 'FUTIDX') && futRows.length < 15) {
+        const trading = cols[iTrade]?.trim().replace(/['"]/g, '') ?? '';
+        if (trading.toUpperCase().endsWith('FUT') && futRows.length < 15) {
           const exp = (cols[iExpiry]?.trim().replace(/['"]/g, '') ?? '').split(' ')[0];
           if (exp >= today) {
             futRows.push({
               secId:   cols[iSecId]?.trim().replace(/['"]/g, '') ?? '',
               instr,
               expiry:  exp,
-              trading: cols[iTrade]?.trim().replace(/['"]/g, '') ?? '',
+              trading,
             });
           }
         }
