@@ -9,6 +9,7 @@ import {
   calcPCR, calcMaxPain, calcATMZonePCR,
   topCallStrikes, topPutStrikes, findAtmIndex, classifyOIChange,
 } from '@/lib/oi-calculations';
+import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
 const TIMEFRAMES = [
   { value: '1min',   label: '1 min' },  { value: '2min',   label: '2 min' },
@@ -399,6 +400,7 @@ function IndicatorsSection({ data }: { data: FullAnalysis }) {
 // ── Section 6: F&O ────────────────────────────────────────────────────────────
 
 function FnOSection({ data }: { data: FullAnalysis }) {
+  const creds = useDhanCredentials();
   const [expiries, setExpiries]         = useState<string[]>([]);
   const [selectedExpiry, setExpiry]     = useState('');
   const [strikes, setStrikes]           = useState<OptionStrike[] | null>(null);
@@ -412,26 +414,35 @@ function FnOSection({ data }: { data: FullAnalysis }) {
     if (!data.nseSymbol) return;
     setLoadingE(true);
     setExpiryError('');
-    fetch(`/api/nse/expiry?symbol=${encodeURIComponent(data.nseSymbol)}`)
+    // Prefer Dhan API (reliable); fall back to NSE public API
+    const [url, opts] = creds.isConfigured
+      ? [`/api/dhan/expiry?symbol=${encodeURIComponent(data.nseSymbol)}`, { headers: creds.headers }]
+      : [`/api/nse/expiry?symbol=${encodeURIComponent(data.nseSymbol)}`, {}];
+    fetch(url, opts as RequestInit)
       .then(r => r.json())
       .then((j: { expiries?: string[]; error?: string }) => {
         if (j.error) { setExpiryError(j.error); return; }
         const list = j.expiries ?? [];
-        if (list.length === 0) { setExpiryError('No expiries returned — NSE may be unavailable'); return; }
+        if (list.length === 0) { setExpiryError('No expiries returned — configure Dhan credentials in Settings for reliable data'); return; }
         setExpiries(list);
         setExpiry(list[0]);
       })
-      .catch((e) => setExpiryError(`Network error: ${e instanceof Error ? e.message : 'unknown'}`))
+      .catch((e) => setExpiryError(`Fetch error: ${e instanceof Error ? e.message : 'unknown'}`))
       .finally(() => setLoadingE(false));
-  }, [data.nseSymbol]);
+  }, [data.nseSymbol, creds]);
 
-  useEffect(() => { if (data.isFnO && data.nseSymbol) loadExpiries(); }, [data.isFnO, data.nseSymbol, loadExpiries]);
+  useEffect(() => {
+    if (data.isFnO && data.nseSymbol && creds.isHydrated) loadExpiries();
+  }, [data.isFnO, data.nseSymbol, creds.isHydrated, loadExpiries]);
 
   const fetchChain = useCallback((expiry: string) => {
     if (!expiry) return;
     setLoadingC(true);
     setChainError('');
-    fetch(`/api/nse/option-chain?symbol=${encodeURIComponent(data.nseSymbol)}&expiry=${encodeURIComponent(expiry)}`)
+    const [url, opts] = creds.isConfigured
+      ? [`/api/dhan/option-chain?symbol=${encodeURIComponent(data.nseSymbol)}&expiry=${encodeURIComponent(expiry)}`, { headers: creds.headers }]
+      : [`/api/nse/option-chain?symbol=${encodeURIComponent(data.nseSymbol)}&expiry=${encodeURIComponent(expiry)}`, {}];
+    fetch(url, opts as RequestInit)
       .then(r => r.json())
       .then((j: { strikes?: OptionStrike[]; underlyingPrice?: number; error?: string }) => {
         if (j.error) { setChainError(j.error); return; }
@@ -440,7 +451,7 @@ function FnOSection({ data }: { data: FullAnalysis }) {
       })
       .catch(() => setChainError('Option chain fetch failed'))
       .finally(() => setLoadingC(false));
-  }, [data.nseSymbol, data.price]);
+  }, [data.nseSymbol, data.price, creds]);
 
   useEffect(() => { if (selectedExpiry) fetchChain(selectedExpiry); }, [selectedExpiry, fetchChain]);
 
@@ -469,6 +480,7 @@ function FnOSection({ data }: { data: FullAnalysis }) {
         {data.isFnO && (
           <span className="text-slate-400 text-xs">
             {data.nseSymbol} — NSE F&O segment
+            {creds.isConfigured ? ' · via Dhan' : ' · via NSE (configure Dhan in Settings for reliability)'}
           </span>
         )}
         {!data.isFnO && (
