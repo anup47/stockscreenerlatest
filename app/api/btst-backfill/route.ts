@@ -6,71 +6,50 @@ import type { BtstScreenData } from '@/app/api/btst-screen/route';
 export const maxDuration = 60;
 
 const YF_BASE    = 'https://query1.finance.yahoo.com/v8/finance/chart';
-const BATCH_SIZE = 15;
-const LOOKBACK   = 90; // trading days
+const LOOKBACK = 90; // trading days
 
-// Focused liquid F&O universe for backfill (~60 stocks — keeps total fetch time < 30s)
+// 40 most liquid F&O names — all fetched in ONE parallel batch (~5-8s total)
 const BTST_UNIVERSE: Array<{ nse_symbol: string; company: string }> = [
   { nse_symbol: 'RELIANCE',   company: 'Reliance Industries' },
-  { nse_symbol: 'TCS',        company: 'Tata Consultancy Services' },
+  { nse_symbol: 'TCS',        company: 'TCS' },
   { nse_symbol: 'INFY',       company: 'Infosys' },
   { nse_symbol: 'HDFCBANK',   company: 'HDFC Bank' },
   { nse_symbol: 'ICICIBANK',  company: 'ICICI Bank' },
-  { nse_symbol: 'SBIN',       company: 'State Bank of India' },
+  { nse_symbol: 'SBIN',       company: 'SBI' },
   { nse_symbol: 'AXISBANK',   company: 'Axis Bank' },
-  { nse_symbol: 'KOTAKBANK',  company: 'Kotak Mahindra Bank' },
   { nse_symbol: 'BHARTIARTL', company: 'Bharti Airtel' },
   { nse_symbol: 'ITC',        company: 'ITC' },
+  { nse_symbol: 'LT',         company: 'L&T' },
   { nse_symbol: 'BAJFINANCE', company: 'Bajaj Finance' },
-  { nse_symbol: 'LT',         company: 'Larsen & Toubro' },
+  { nse_symbol: 'HCLTECH',    company: 'HCL Tech' },
   { nse_symbol: 'WIPRO',      company: 'Wipro' },
-  { nse_symbol: 'HCLTECH',    company: 'HCL Technologies' },
-  { nse_symbol: 'TECHM',      company: 'Tech Mahindra' },
-  { nse_symbol: 'MARUTI',     company: 'Maruti Suzuki' },
+  { nse_symbol: 'MARUTI',     company: 'Maruti' },
   { nse_symbol: 'TATAMOTORS', company: 'Tata Motors' },
   { nse_symbol: 'SUNPHARMA',  company: 'Sun Pharma' },
   { nse_symbol: 'TATASTEEL',  company: 'Tata Steel' },
-  { nse_symbol: 'JSWSTEEL',   company: 'JSW Steel' },
   { nse_symbol: 'HINDALCO',   company: 'Hindalco' },
   { nse_symbol: 'ONGC',       company: 'ONGC' },
   { nse_symbol: 'COALINDIA',  company: 'Coal India' },
   { nse_symbol: 'NTPC',       company: 'NTPC' },
   { nse_symbol: 'POWERGRID',  company: 'Power Grid' },
   { nse_symbol: 'ADANIPORTS', company: 'Adani Ports' },
-  { nse_symbol: 'ADANIENT',   company: 'Adani Enterprises' },
   { nse_symbol: 'TITAN',      company: 'Titan' },
-  { nse_symbol: 'ASIANPAINT', company: 'Asian Paints' },
-  { nse_symbol: 'ULTRACEMCO', company: 'UltraTech Cement' },
-  { nse_symbol: 'GRASIM',     company: 'Grasim' },
-  { nse_symbol: 'BAJAJFINSV', company: 'Bajaj Finserv' },
-  { nse_symbol: 'DRREDDY',    company: "Dr Reddy's" },
-  { nse_symbol: 'CIPLA',      company: 'Cipla' },
-  { nse_symbol: 'DIVISLAB',   company: "Divi's Labs" },
   { nse_symbol: 'HAL',        company: 'HAL' },
   { nse_symbol: 'BEL',        company: 'BEL' },
   { nse_symbol: 'TATAPOWER',  company: 'Tata Power' },
-  { nse_symbol: 'SUZLON',     company: 'Suzlon' },
   { nse_symbol: 'IRCTC',      company: 'IRCTC' },
   { nse_symbol: 'RVNL',       company: 'RVNL' },
   { nse_symbol: 'PFC',        company: 'PFC' },
   { nse_symbol: 'RECLTD',     company: 'REC' },
-  { nse_symbol: 'IRFC',       company: 'IRFC' },
-  { nse_symbol: 'NHPC',       company: 'NHPC' },
-  { nse_symbol: 'SJVN',       company: 'SJVN' },
   { nse_symbol: 'BHEL',       company: 'BHEL' },
-  { nse_symbol: 'SAIL',       company: 'SAIL' },
-  { nse_symbol: 'NMDC',       company: 'NMDC' },
   { nse_symbol: 'VEDL',       company: 'Vedanta' },
-  { nse_symbol: 'ASHOKLEY',   company: 'Ashok Leyland' },
   { nse_symbol: 'HEROMOTOCO', company: 'Hero MotoCorp' },
-  { nse_symbol: 'EICHERMOT',  company: 'Eicher Motors' },
-  { nse_symbol: 'TVSMOTOR',   company: 'TVS Motor' },
   { nse_symbol: 'INDIGO',     company: 'IndiGo' },
   { nse_symbol: 'ZOMATO',     company: 'Zomato' },
-  { nse_symbol: 'NAUKRI',     company: 'Info Edge' },
   { nse_symbol: 'PERSISTENT', company: 'Persistent Systems' },
   { nse_symbol: 'LTIM',       company: 'LTIMindtree' },
   { nse_symbol: 'COFORGE',    company: 'Coforge' },
+  { nse_symbol: 'DRREDDY',    company: "Dr Reddy's" },
 ];
 
 export interface BtstBackfillData {
@@ -146,25 +125,17 @@ export async function GET() {
   // Last 90 trading dates from Nifty bars (newest first)
   const tradingDates = niftyRows.slice(-LOOKBACK).map(r => isoDate(r.date)).reverse();
 
-  // 2. Fetch all stock histories in batches
-  const stockData: Array<{ symbol: string; company: string; rows: OHLCVRow[]; dateIndex: Map<string, number> }> = [];
-
-  for (let i = 0; i < BTST_UNIVERSE.length; i += BATCH_SIZE) {
-    const batch = BTST_UNIVERSE.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.all(
-      batch.map(async (stock) => {
-        const rows = await fetchHistory(`${stock.nse_symbol}.NS`);
-        if (!rows || rows.length < BTST_THRESHOLDS.minBarsRequired + 5) return null;
-        // Pre-build date→index map for fast O(1) lookups
-        const dateIndex = new Map<string, number>();
-        rows.forEach((r, idx) => dateIndex.set(isoDate(r.date), idx));
-        return { symbol: stock.nse_symbol, company: stock.company, rows, dateIndex };
-      }),
-    );
-    for (const r of batchResults) {
-      if (r !== null) stockData.push(r);
-    }
-  }
+  // 2. Fetch all 40 stocks in one parallel batch — no sequential loops
+  const rawResults = await Promise.all(
+    BTST_UNIVERSE.map(async (stock) => {
+      const rows = await fetchHistory(`${stock.nse_symbol}.NS`);
+      if (!rows || rows.length < BTST_THRESHOLDS.minBarsRequired + 5) return null;
+      const dateIndex = new Map<string, number>();
+      rows.forEach((r, idx) => dateIndex.set(isoDate(r.date), idx));
+      return { symbol: stock.nse_symbol, company: stock.company, rows, dateIndex };
+    }),
+  );
+  const stockData = rawResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
   // 3. For each trading date, compute BTST scores using bars up to that date
   const history: Record<string, BtstScreenData> = {};
