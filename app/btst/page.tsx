@@ -1,10 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { BTST_WEIGHTS, calcBtstScore, type BtstResult } from '@/lib/btst-engine';
+import { BTST_WEIGHTS, type BtstResult } from '@/lib/btst-engine';
 import type { BtstScreenData } from '@/app/api/btst-screen/route';
-import type { BtstRawData } from '@/app/api/btst-raw-data/route';
-import type { OHLCVRow } from '@/lib/indicators';
 
 // ── localStorage persistence ──────────────────────────────────────────────────
 const STORAGE_PREFIX  = 'btst-scan-';
@@ -235,8 +233,6 @@ function fmtDateLabel(iso: string): string {
 
 export default function BtstPage() {
   const [loading,     setLoading]   = useState(false);
-  const [backfilling, setBackfill]  = useState(false);
-  const [backfillPct, setBackfillPct] = useState(0);
   const [data,        setData]      = useState<BtstScreenData | null>(null);
   const [error,       setError]     = useState<string | null>(null);
   const [conviction,  setConviction]= useState<ConvictionFilter>('Any');
@@ -265,7 +261,33 @@ export default function BtstPage() {
       const res = await fetch('/api/btst-screen', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: BtstScreenData = await res.json();
+      // Save today's scan
       saveResult(json);
+      // Save embedded 90-day history entries
+      if (json.history && json.historyDates) {
+        for (const date of json.historyDates) {
+          const scan = json.history[date];
+          if (!scan) continue;
+          const full: BtstScreenData = {
+            results: scan.results,
+            total: scan.total,
+            scanned: json.scanned,
+            niftyChange: scan.niftyChange,
+            fetchedAt: date + 'T15:25:00.000Z',
+            elapsedMs: 0,
+          };
+          try { localStorage.setItem(STORAGE_PREFIX + date, JSON.stringify(full)); } catch { /* full */ }
+        }
+        // Rebuild index from all stored keys
+        const allKeys: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k?.startsWith(STORAGE_PREFIX)) allKeys.push(k.slice(STORAGE_PREFIX.length));
+        }
+        allKeys.sort().reverse();
+        const trimmed = allKeys.slice(0, MAX_STORED_DAYS);
+        localStorage.setItem(STORAGE_INDEX, JSON.stringify(trimmed));
+      }
       setData(json);
       setSelected(todayKey());
       setDateIndex(loadIndex());
@@ -283,91 +305,6 @@ export default function BtstPage() {
     setError(null);
   }
 
-  async function loadHistory() {
-    setBackfill(true);
-    setBackfillPct(0);
-    setError(null);
-    try {
-      // Step 1: fetch raw OHLCV from server (~5-8s, no scoring, no timeout risk)
-      setBackfillPct(10);
-      const res = await fetch('/api/btst-raw-data', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw: BtstRawData = await res.json();
-      setBackfillPct(40);
-
-      // Step 2: build per-stock OHLCVRow arrays and date→index maps (client-side)
-      const stockCache = raw.stocks.map(stock => {
-        const rows: OHLCVRow[] = stock.dates.map((d, i) => ({
-          date:  new Date(d + 'T00:00:00'),
-          open:  stock.o[i],
-          high:  stock.h[i],
-          low:   stock.l[i],
-          close: stock.c[i],
-          volume: stock.v[i],
-        }));
-        const dateIdx = new Map(stock.dates.map((d, i) => [d, i]));
-        return { symbol: stock.symbol, company: stock.company, rows, dateIdx };
-      });
-
-      // Build Nifty change per date
-      const niftyChg = new Map<string, number>();
-      for (let i = 1; i < raw.niftyDates.length; i++) {
-        const chg = (raw.niftyCloses[i] - raw.niftyCloses[i - 1]) / raw.niftyCloses[i - 1] * 100;
-        niftyChg.set(raw.niftyDates[i], chg);
-      }
-
-      // Step 3: score all 90 dates in the browser — pure JS, ~1-2s
-      const total = raw.tradingDates.length;
-      for (let di = 0; di < total; di++) {
-        const date        = raw.tradingDates[di];
-        const niftyChange = niftyChg.get(date) ?? 0;
-        const results: BtstResult[] = [];
-
-        for (const { symbol, company, rows, dateIdx } of stockCache) {
-          const idx = dateIdx.get(date);
-          if (idx === undefined || idx < 64) continue;
-          const slice = rows.slice(0, idx + 1);
-          const r = calcBtstScore(symbol, company, slice, niftyChange, undefined, false);
-          if (r && r.score >= 30) results.push(r);
-        }
-        results.sort((a, b) => b.score - a.score);
-
-        const scan: BtstScreenData = {
-          results:     results.slice(0, 10),
-          total:       results.length,
-          scanned:     stockCache.length,
-          niftyChange,
-          fetchedAt:   date + 'T15:25:00.000Z',
-          elapsedMs:   0,
-        };
-        try { localStorage.setItem(STORAGE_PREFIX + date, JSON.stringify(scan)); } catch { /* full */ }
-
-        // Update progress bar
-        setBackfillPct(40 + Math.round((di + 1) / total * 55));
-      }
-
-      // Rebuild localStorage index
-      const allKeys: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k?.startsWith(STORAGE_PREFIX)) allKeys.push(k.slice(STORAGE_PREFIX.length));
-      }
-      allKeys.sort().reverse();
-      const trimmed = allKeys.slice(0, MAX_STORED_DAYS);
-      localStorage.setItem(STORAGE_INDEX, JSON.stringify(trimmed));
-      setDateIndex(trimmed);
-      setBackfillPct(100);
-      if (trimmed.length > 0) {
-        setSelected(trimmed[0]);
-        setData(loadByDate(trimmed[0]));
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'History load failed');
-    } finally {
-      setBackfill(false);
-      setBackfillPct(0);
-    }
-  }
 
   const filtered: BtstResult[] = (data?.results ?? [])
     .filter(r => {
@@ -407,24 +344,6 @@ export default function BtstPage() {
                 Scanning…
               </>
             ) : 'Run Scan'}
-          </button>
-
-          {/* Load 90-day history */}
-          <button
-            onClick={loadHistory}
-            disabled={backfilling || loading}
-            title="Fetch and store BTST scores for the last 90 trading days (~30s)"
-            className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-slate-200 text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
-          >
-            {backfilling ? (
-              <>
-                <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Loading history… {backfillPct}%
-              </>
-            ) : 'Load 90-day History'}
           </button>
 
           {/* Historical date picker */}
