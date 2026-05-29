@@ -116,11 +116,18 @@ export async function GET() {
   const history: Record<string, HistoryScan> = {};
   const historyDates: string[] = [];
 
-  if (niftyRows && niftyRows.length >= HISTORY_DAYS + 2) {
+  // Use Nifty rows for trading calendar + RS; fall back to first stock's rows when Nifty fetch fails
+  const calendarRows = (niftyRows && niftyRows.length >= HISTORY_DAYS + 2)
+    ? niftyRows
+    : (stockData[0]?.rows.length ?? 0) >= HISTORY_DAYS + 2 ? stockData[0].rows : null;
+
+  if (calendarRows) {
     const niftyChgMap = new Map<string, number>();
-    for (let i = 1; i < niftyRows.length; i++) {
-      const chg = (niftyRows[i].close - niftyRows[i - 1].close) / niftyRows[i - 1].close * 100;
-      niftyChgMap.set(isoDate(niftyRows[i].date), chg);
+    if (niftyRows && niftyRows.length >= 2) {
+      for (let i = 1; i < niftyRows.length; i++) {
+        const chg = (niftyRows[i].close - niftyRows[i - 1].close) / niftyRows[i - 1].close * 100;
+        niftyChgMap.set(isoDate(niftyRows[i].date), chg);
+      }
     }
 
     const stockMaps = stockData.map(s => ({
@@ -128,7 +135,7 @@ export async function GET() {
       dateIdx: new Map(s.rows.map((r, i) => [isoDate(r.date), i])),
     }));
 
-    const tradingDates = niftyRows.slice(-HISTORY_DAYS - 1, -1).map(r => isoDate(r.date)).reverse();
+    const tradingDates = calendarRows.slice(-HISTORY_DAYS - 1, -1).map(r => isoDate(r.date)).reverse();
 
     for (const date of tradingDates) {
       const niftyChange = niftyChgMap.get(date) ?? 0;
