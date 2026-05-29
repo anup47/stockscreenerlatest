@@ -405,24 +405,28 @@ function FnOSection({ data }: { data: FullAnalysis }) {
   const [underlyingPrice, setUnderlying]= useState(0);
   const [loadingExpiries, setLoadingE]  = useState(false);
   const [loadingChain, setLoadingC]     = useState(false);
+  const [expiryError, setExpiryError]   = useState('');
   const [chainError, setChainError]     = useState('');
 
-  // Fetch expiry list once when section mounts for an F&O symbol
-  useEffect(() => {
-    if (!data.isFnO || !data.nseSymbol) return;
+  const loadExpiries = useCallback(() => {
+    if (!data.nseSymbol) return;
     setLoadingE(true);
+    setExpiryError('');
     fetch(`/api/nse/expiry?symbol=${encodeURIComponent(data.nseSymbol)}`)
       .then(r => r.json())
-      .then((j: { expiries?: string[] }) => {
+      .then((j: { expiries?: string[]; error?: string }) => {
+        if (j.error) { setExpiryError(j.error); return; }
         const list = j.expiries ?? [];
+        if (list.length === 0) { setExpiryError('No expiries returned — NSE may be unavailable'); return; }
         setExpiries(list);
-        if (list.length > 0) setExpiry(list[0]);
+        setExpiry(list[0]);
       })
-      .catch(() => setChainError('Could not load expiry list'))
+      .catch((e) => setExpiryError(`Network error: ${e instanceof Error ? e.message : 'unknown'}`))
       .finally(() => setLoadingE(false));
-  }, [data.isFnO, data.nseSymbol]);
+  }, [data.nseSymbol]);
 
-  // Fetch option chain when expiry changes
+  useEffect(() => { if (data.isFnO && data.nseSymbol) loadExpiries(); }, [data.isFnO, data.nseSymbol, loadExpiries]);
+
   const fetchChain = useCallback((expiry: string) => {
     if (!expiry) return;
     setLoadingC(true);
@@ -475,11 +479,10 @@ function FnOSection({ data }: { data: FullAnalysis }) {
       {data.isFnO && (
         <>
           {/* Expiry selector */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <label className="text-xs text-slate-400">Expiry:</label>
-            {loadingExpiries ? (
-              <span className="text-xs text-slate-500 animate-pulse">loading expiries…</span>
-            ) : (
+            {loadingExpiries && <span className="text-xs text-slate-500 animate-pulse">loading expiries…</span>}
+            {!loadingExpiries && expiries.length > 0 && (
               <select
                 value={selectedExpiry}
                 onChange={e => setExpiry(e.target.value)}
@@ -488,8 +491,19 @@ function FnOSection({ data }: { data: FullAnalysis }) {
                 {expiries.map(e => <option key={e} value={e}>{e}</option>)}
               </select>
             )}
+            {!loadingExpiries && expiryError && (
+              <>
+                <span className="text-xs text-red-400">{expiryError}</span>
+                <button onClick={loadExpiries} className="text-xs text-orange-400 underline">Retry</button>
+              </>
+            )}
             {loadingChain && <span className="text-xs text-slate-500 animate-pulse">fetching chain…</span>}
-            {chainError && <span className="text-xs text-red-400">{chainError}</span>}
+            {chainError && (
+              <>
+                <span className="text-xs text-red-400">{chainError}</span>
+                <button onClick={() => fetchChain(selectedExpiry)} className="text-xs text-orange-400 underline">Retry</button>
+              </>
+            )}
           </div>
 
           {/* Key metrics */}
