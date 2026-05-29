@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { BtstResult } from '@/lib/btst-engine';
-import { BTST_WEIGHTS } from '@/lib/btst-engine';
+import { BTST_WEIGHTS, calcBtstScore, type BtstResult } from '@/lib/btst-engine';
 import type { BtstScreenData } from '@/app/api/btst-screen/route';
-import type { BtstBackfillData } from '@/app/api/btst-backfill/route';
+import type { BtstRawData } from '@/app/api/btst-raw-data/route';
+import type { OHLCVRow } from '@/lib/indicators';
 
 // ── localStorage persistence ──────────────────────────────────────────────────
 const STORAGE_PREFIX  = 'btst-scan-';
@@ -288,18 +288,65 @@ export default function BtstPage() {
     setBackfillPct(0);
     setError(null);
     try {
-      // Fake progress while waiting (server takes ~30s)
-      const ticker = setInterval(() => setBackfillPct(p => Math.min(p + 2, 92)), 600);
-      const res = await fetch('/api/btst-backfill', { cache: 'no-store' });
-      clearInterval(ticker);
-      setBackfillPct(100);
+      // Step 1: fetch raw OHLCV from server (~5-8s, no scoring, no timeout risk)
+      setBackfillPct(10);
+      const res = await fetch('/api/btst-raw-data', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: BtstBackfillData = await res.json();
-      // Save every date to localStorage
-      for (const [date, scan] of Object.entries(json.history)) {
-        try { localStorage.setItem(STORAGE_PREFIX + date, JSON.stringify(scan)); } catch { /* storage full */ }
+      const raw: BtstRawData = await res.json();
+      setBackfillPct(40);
+
+      // Step 2: build per-stock OHLCVRow arrays and date→index maps (client-side)
+      const stockCache = raw.stocks.map(stock => {
+        const rows: OHLCVRow[] = stock.dates.map((d, i) => ({
+          date:  new Date(d + 'T00:00:00'),
+          open:  stock.o[i],
+          high:  stock.h[i],
+          low:   stock.l[i],
+          close: stock.c[i],
+          volume: stock.v[i],
+        }));
+        const dateIdx = new Map(stock.dates.map((d, i) => [d, i]));
+        return { symbol: stock.symbol, company: stock.company, rows, dateIdx };
+      });
+
+      // Build Nifty change per date
+      const niftyChg = new Map<string, number>();
+      for (let i = 1; i < raw.niftyDates.length; i++) {
+        const chg = (raw.niftyCloses[i] - raw.niftyCloses[i - 1]) / raw.niftyCloses[i - 1] * 100;
+        niftyChg.set(raw.niftyDates[i], chg);
       }
-      // Rebuild index from all stored btst- keys
+
+      // Step 3: score all 90 dates in the browser — pure JS, ~1-2s
+      const total = raw.tradingDates.length;
+      for (let di = 0; di < total; di++) {
+        const date        = raw.tradingDates[di];
+        const niftyChange = niftyChg.get(date) ?? 0;
+        const results: BtstResult[] = [];
+
+        for (const { symbol, company, rows, dateIdx } of stockCache) {
+          const idx = dateIdx.get(date);
+          if (idx === undefined || idx < 64) continue;
+          const slice = rows.slice(0, idx + 1);
+          const r = calcBtstScore(symbol, company, slice, niftyChange, undefined, false);
+          if (r && r.score >= 30) results.push(r);
+        }
+        results.sort((a, b) => b.score - a.score);
+
+        const scan: BtstScreenData = {
+          results:     results.slice(0, 10),
+          total:       results.length,
+          scanned:     stockCache.length,
+          niftyChange,
+          fetchedAt:   date + 'T15:25:00.000Z',
+          elapsedMs:   0,
+        };
+        try { localStorage.setItem(STORAGE_PREFIX + date, JSON.stringify(scan)); } catch { /* full */ }
+
+        // Update progress bar
+        setBackfillPct(40 + Math.round((di + 1) / total * 55));
+      }
+
+      // Rebuild localStorage index
       const allKeys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
@@ -309,13 +356,13 @@ export default function BtstPage() {
       const trimmed = allKeys.slice(0, MAX_STORED_DAYS);
       localStorage.setItem(STORAGE_INDEX, JSON.stringify(trimmed));
       setDateIndex(trimmed);
-      // Show the most recent date
+      setBackfillPct(100);
       if (trimmed.length > 0) {
         setSelected(trimmed[0]);
         setData(loadByDate(trimmed[0]));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Backfill failed');
+      setError(e instanceof Error ? e.message : 'History load failed');
     } finally {
       setBackfill(false);
       setBackfillPct(0);
