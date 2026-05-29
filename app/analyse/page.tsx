@@ -585,7 +585,7 @@ function FnOSection({ data }: { data: FullAnalysis }) {
 
               {/* ATM row detail */}
               {atmRow && (
-                <div className="border border-orange-900 rounded p-2 bg-orange-950/30 text-xs">
+                <div className="border border-orange-900 rounded p-2 bg-orange-950/30 text-xs mb-3">
                   <p className="text-orange-300 font-semibold mb-1">ATM {atmStrike} — CE vs PE</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-0.5 text-slate-300">
@@ -601,6 +601,58 @@ function FnOSection({ data }: { data: FullAnalysis }) {
                   </div>
                 </div>
               )}
+
+              {/* Derivatives interpretation */}
+              {pcr !== null && maxPain !== null && (() => {
+                const bullishPoints: string[] = [];
+                const bearishPoints: string[] = [];
+
+                // PCR
+                if (pcr >= 1.3) bullishPoints.push(`PCR ${pcr.toFixed(2)} — high put writing signals bullish sentiment`);
+                else if (pcr <= 0.7) bearishPoints.push(`PCR ${pcr.toFixed(2)} — high call writing signals bearish pressure`);
+                else if (pcr > 1.0) bullishPoints.push(`PCR ${pcr.toFixed(2)} — slightly bullish bias`);
+                else bearishPoints.push(`PCR ${pcr.toFixed(2)} — slightly bearish bias`);
+
+                // Max pain vs spot
+                const mpDiff = ((maxPain - spot) / spot * 100);
+                if (mpDiff > 1) bullishPoints.push(`Max pain ${maxPain.toLocaleString('en-IN')} is ${Math.abs(mpDiff).toFixed(1)}% above spot — price may drift up by expiry`);
+                else if (mpDiff < -1) bearishPoints.push(`Max pain ${maxPain.toLocaleString('en-IN')} is ${Math.abs(mpDiff).toFixed(1)}% below spot — price may drift down by expiry`);
+                else bullishPoints.push(`Spot near max pain ${maxPain.toLocaleString('en-IN')} — low directional pull from options writers`);
+
+                // OI signal
+                if (oiSignal === 'Long Build-up') bullishPoints.push('ATM OI: Long Build-up — fresh longs entering');
+                else if (oiSignal === 'Short Covering') bullishPoints.push('ATM OI: Short Covering — shorts exiting, supports upside');
+                else if (oiSignal === 'Short Build-up') bearishPoints.push('ATM OI: Short Build-up — fresh short positions being added');
+                else if (oiSignal === 'Long Unwinding') bearishPoints.push('ATM OI: Long Unwinding — longs exiting, weakening price');
+
+                // Nearest CE resistance and PE support
+                const ceResistance = topCE.filter(s => s.strikePrice >= (atmStrike ?? spot)).sort((a, b) => a.strikePrice - b.strikePrice)[0];
+                const peSupport    = topPE.filter(s => s.strikePrice <= (atmStrike ?? spot)).sort((a, b) => b.strikePrice - a.strikePrice)[0];
+                if (ceResistance) bearishPoints.push(`Key CE resistance at ${ceResistance.strikePrice.toLocaleString('en-IN')} (${(ceResistance.oi / 1000).toFixed(0)}K OI) — call writers defending this level`);
+                if (peSupport)    bullishPoints.push(`Key PE support at ${peSupport.strikePrice.toLocaleString('en-IN')} (${(peSupport.oi / 1000).toFixed(0)}K OI) — put writers supporting this floor`);
+
+                const bullScore = bullishPoints.length;
+                const bearScore = bearishPoints.length;
+                const verdict = bullScore > bearScore + 1 ? 'BULLISH' : bearScore > bullScore + 1 ? 'BEARISH' : 'NEUTRAL';
+                const verdictColor = verdict === 'BULLISH' ? 'text-emerald-400 border-emerald-700 bg-emerald-950/30'
+                  : verdict === 'BEARISH' ? 'text-red-400 border-red-800 bg-red-950/30'
+                  : 'text-amber-400 border-amber-700 bg-amber-950/30';
+
+                return (
+                  <div className={`border rounded p-3 text-xs ${verdictColor}`}>
+                    <p className="font-bold text-sm mb-2">
+                      Derivatives View: <span className="uppercase">{verdict}</span>
+                      <span className="text-slate-400 font-normal ml-2">({bullScore} bullish signal{bullScore !== 1 ? 's' : ''}, {bearScore} bearish signal{bearScore !== 1 ? 's' : ''})</span>
+                    </p>
+                    {bullishPoints.map((p, i) => (
+                      <p key={i} className="text-emerald-300 mb-0.5">▲ {p}</p>
+                    ))}
+                    {bearishPoints.map((p, i) => (
+                      <p key={i} className="text-red-300 mb-0.5">▼ {p}</p>
+                    ))}
+                  </div>
+                );
+              })()}
             </>
           )}
         </>
