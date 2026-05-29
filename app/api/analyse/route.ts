@@ -215,10 +215,11 @@ export async function GET(req: NextRequest) {
   const yearLow  = Math.min(...statBars.map(b => b.low));
   const prevClose = tfBars.length >= 2 ? tfBars[tfBars.length - 2].close : tfBars[0].close;
 
-  // F&O: status flag only, no live data fetch
+  // F&O: status flag — nseSymbol is the canonical NSE ticker used for option chain API calls
   const baseSymbol = rawInput.toUpperCase().trim().replace(/\.(NS|BO)$/i, '');
-  const isFnO = FNO_STOCKS.has(baseSymbol) || FNO_STOCKS.has(SYMBOL_MAP[baseSymbol] ?? '');
+  const nseSymbol  = SYMBOL_MAP[baseSymbol] ?? baseSymbol;
+  const isFnO = FNO_STOCKS.has(baseSymbol) || FNO_STOCKS.has(nseSymbol);
 
-  const analysis = buildAnalysis(rawInput.toUpperCase().trim(), tfBars, timeframe, duration, yearHigh, yearLow, prevClose, isFnO);
+  const analysis = buildAnalysis(rawInput.toUpperCase().trim(), tfBars, timeframe, duration, yearHigh, yearLow, prevClose, isFnO, nseSymbol);
   return NextResponse.json(analysis);
 }

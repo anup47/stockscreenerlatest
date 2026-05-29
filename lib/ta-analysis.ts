@@ -523,6 +523,7 @@ export interface FullAnalysis {
   yearHigh: number;
   yearLow: number;
   isFnO: boolean;
+  nseSymbol: string;
   fnoStatus: string;
   recentBars: OHLCVBar[];
   // Section 1
@@ -570,6 +571,7 @@ export function buildAnalysis(
   yearLow: number,
   prevClose: number,
   isFnO: boolean,
+  nseSymbol = '',
 ): FullAnalysis {
   const price = bars[bars.length - 1].close;
   const dayChangePct = +((price - prevClose) / prevClose * 100).toFixed(2);
@@ -601,6 +603,7 @@ export function buildAnalysis(
     yearHigh: +yearHigh.toFixed(2),
     yearLow: +yearLow.toFixed(2),
     isFnO,
+    nseSymbol,
     fnoStatus,
     recentBars: bars.slice(-10),
     elliott: detectElliottWave(bars),

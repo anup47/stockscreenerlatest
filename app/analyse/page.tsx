@@ -1,9 +1,14 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type {
   FullAnalysis, FibLevel, GannLevel, SRLevel,
   CandlePattern, VolumeAnalysis, TradePlan, OHLCVBar,
 } from '@/lib/ta-analysis';
+import type { OptionStrike } from '@/lib/dhan-api';
+import {
+  calcPCR, calcMaxPain, calcATMZonePCR,
+  topCallStrikes, topPutStrikes, findAtmIndex, classifyOIChange,
+} from '@/lib/oi-calculations';
 
 const TIMEFRAMES = [
   { value: '1min',   label: '1 min' },  { value: '2min',   label: '2 min' },
@@ -394,25 +399,185 @@ function IndicatorsSection({ data }: { data: FullAnalysis }) {
 // ── Section 6: F&O ────────────────────────────────────────────────────────────
 
 function FnOSection({ data }: { data: FullAnalysis }) {
+  const [expiries, setExpiries]         = useState<string[]>([]);
+  const [selectedExpiry, setExpiry]     = useState('');
+  const [strikes, setStrikes]           = useState<OptionStrike[] | null>(null);
+  const [underlyingPrice, setUnderlying]= useState(0);
+  const [loadingExpiries, setLoadingE]  = useState(false);
+  const [loadingChain, setLoadingC]     = useState(false);
+  const [chainError, setChainError]     = useState('');
+
+  // Fetch expiry list once when section mounts for an F&O symbol
+  useEffect(() => {
+    if (!data.isFnO || !data.nseSymbol) return;
+    setLoadingE(true);
+    fetch(`/api/nse/expiry?symbol=${encodeURIComponent(data.nseSymbol)}`)
+      .then(r => r.json())
+      .then((j: { expiries?: string[] }) => {
+        const list = j.expiries ?? [];
+        setExpiries(list);
+        if (list.length > 0) setExpiry(list[0]);
+      })
+      .catch(() => setChainError('Could not load expiry list'))
+      .finally(() => setLoadingE(false));
+  }, [data.isFnO, data.nseSymbol]);
+
+  // Fetch option chain when expiry changes
+  const fetchChain = useCallback((expiry: string) => {
+    if (!expiry) return;
+    setLoadingC(true);
+    setChainError('');
+    fetch(`/api/nse/option-chain?symbol=${encodeURIComponent(data.nseSymbol)}&expiry=${encodeURIComponent(expiry)}`)
+      .then(r => r.json())
+      .then((j: { strikes?: OptionStrike[]; underlyingPrice?: number; error?: string }) => {
+        if (j.error) { setChainError(j.error); return; }
+        setStrikes(j.strikes ?? []);
+        setUnderlying(j.underlyingPrice ?? data.price);
+      })
+      .catch(() => setChainError('Option chain fetch failed'))
+      .finally(() => setLoadingC(false));
+  }, [data.nseSymbol, data.price]);
+
+  useEffect(() => { if (selectedExpiry) fetchChain(selectedExpiry); }, [selectedExpiry, fetchChain]);
+
+  // Derived analytics
+  const spot = underlyingPrice || data.price;
+  const pcr         = strikes ? calcPCR(strikes) : null;
+  const maxPain     = strikes ? calcMaxPain(strikes) : null;
+  const atmIdx      = strikes ? findAtmIndex(strikes, spot) : -1;
+  const atmStrike   = strikes && atmIdx >= 0 ? strikes[atmIdx].strikePrice : null;
+  const atmZonePCR  = strikes && atmStrike ? calcATMZonePCR(strikes, atmStrike, 5) : null;
+  const topCE       = strikes ? topCallStrikes(strikes, 5) : [];
+  const topPE       = strikes ? topPutStrikes(strikes, 5) : [];
+  const atmRow      = strikes && atmIdx >= 0 ? strikes[atmIdx] : null;
+  const oiSignal    = atmRow ? classifyOIChange(atmRow.ce.oiChange - atmRow.pe.oiChange, data.dayChangePct) : null;
+
+  const pcrColor = pcr === null ? '' : pcr >= 1.3 ? 'text-emerald-400' : pcr <= 0.7 ? 'text-red-400' : 'text-amber-400';
+  const pcrLabel = pcr === null ? '' : pcr >= 1.3 ? 'Bullish' : pcr <= 0.7 ? 'Bearish' : 'Neutral';
+
   return (
     <Section title="6. Derivatives & F&O Analysis" color="bg-orange-950 text-orange-200">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 mb-3">
         <Badge
           label={data.isFnO ? 'F&O: YES' : 'F&O: NO'}
           color={data.isFnO ? 'bg-orange-700 text-white' : 'bg-slate-600 text-slate-200'}
         />
-        <p className="text-slate-300 text-xs leading-relaxed">{data.fnoStatus}</p>
+        {data.isFnO && (
+          <span className="text-slate-400 text-xs">
+            {data.nseSymbol} — NSE F&O segment
+          </span>
+        )}
+        {!data.isFnO && (
+          <p className="text-slate-300 text-xs leading-relaxed">{data.fnoStatus}</p>
+        )}
       </div>
+
       {data.isFnO && (
-        <div className="mt-3 border border-orange-900 rounded p-3 bg-orange-950/50 text-xs text-slate-400 space-y-1">
-          <p className="font-semibold text-orange-300 mb-1">Check in your broker terminal:</p>
-          <p>• PCR (Put-Call Ratio) — above 1.3 is bullish, below 0.7 is bearish</p>
-          <p>• Max Pain Strike — price tends to gravitate here on expiry</p>
-          <p>• Highest OI Call Strike — acts as resistance ceiling</p>
-          <p>• Highest OI Put Strike — acts as support floor</p>
-          <p>• IV (Implied Volatility) — rising IV on up-move = strong trend</p>
-          <p>• OI Change — long build-up vs short covering distinction</p>
-        </div>
+        <>
+          {/* Expiry selector */}
+          <div className="flex items-center gap-2 mb-3">
+            <label className="text-xs text-slate-400">Expiry:</label>
+            {loadingExpiries ? (
+              <span className="text-xs text-slate-500 animate-pulse">loading expiries…</span>
+            ) : (
+              <select
+                value={selectedExpiry}
+                onChange={e => setExpiry(e.target.value)}
+                className="bg-slate-800 border border-orange-900 text-slate-200 text-xs rounded px-2 py-1"
+              >
+                {expiries.map(e => <option key={e} value={e}>{e}</option>)}
+              </select>
+            )}
+            {loadingChain && <span className="text-xs text-slate-500 animate-pulse">fetching chain…</span>}
+            {chainError && <span className="text-xs text-red-400">{chainError}</span>}
+          </div>
+
+          {/* Key metrics */}
+          {strikes && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                <div className="border border-orange-900 rounded p-2 text-center">
+                  <div className="text-xs text-slate-500">PCR</div>
+                  <div className={`font-mono font-semibold text-sm ${pcrColor}`}>{pcr?.toFixed(2)}</div>
+                  <div className={`text-xs ${pcrColor}`}>{pcrLabel}</div>
+                </div>
+                <div className="border border-orange-900 rounded p-2 text-center">
+                  <div className="text-xs text-slate-500">Max Pain</div>
+                  <div className="font-mono font-semibold text-sm text-orange-300">{maxPain?.toLocaleString('en-IN')}</div>
+                  <div className="text-xs text-slate-500">vs spot {fmt(spot)}</div>
+                </div>
+                <div className="border border-orange-900 rounded p-2 text-center">
+                  <div className="text-xs text-slate-500">ATM Strike</div>
+                  <div className="font-mono font-semibold text-sm text-white">{atmStrike?.toLocaleString('en-IN') ?? '—'}</div>
+                  <div className="text-xs text-slate-500">ATM PCR {atmZonePCR?.toFixed(2) ?? '—'}</div>
+                </div>
+                <div className="border border-orange-900 rounded p-2 text-center">
+                  <div className="text-xs text-slate-500">OI Signal</div>
+                  <div className={`font-semibold text-sm ${
+                    oiSignal === 'Long Build-up' ? 'text-emerald-400' :
+                    oiSignal === 'Short Covering' ? 'text-sky-400' :
+                    oiSignal === 'Short Build-up' ? 'text-red-400' :
+                    oiSignal === 'Long Unwinding' ? 'text-amber-400' : 'text-slate-400'
+                  }`}>{oiSignal ?? '—'}</div>
+                  <div className="text-xs text-slate-500">(ATM net OI chg)</div>
+                </div>
+              </div>
+
+              {/* Top CE/PE OI strikes */}
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <p className="text-xs font-semibold text-red-400 mb-1">Top CE OI (Resistance)</p>
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-slate-500"><th className="text-left pb-1">Strike</th><th className="text-right pb-1">OI</th><th className="text-right pb-1">OI Chg</th></tr></thead>
+                    <tbody>
+                      {topCE.map(s => (
+                        <tr key={s.strikePrice} className={s.strikePrice === atmStrike ? 'text-amber-300' : 'text-slate-300'}>
+                          <td>{s.strikePrice.toLocaleString('en-IN')}</td>
+                          <td className="text-right">{(s.oi / 1000).toFixed(0)}K</td>
+                          <td className={`text-right ${s.oiChange > 0 ? 'text-emerald-400' : s.oiChange < 0 ? 'text-red-400' : 'text-slate-400'}`}>{s.oiChange > 0 ? '+' : ''}{(s.oiChange / 1000).toFixed(0)}K</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-emerald-400 mb-1">Top PE OI (Support)</p>
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-slate-500"><th className="text-left pb-1">Strike</th><th className="text-right pb-1">OI</th><th className="text-right pb-1">Chg%</th></tr></thead>
+                    <tbody>
+                      {topPE.map(s => (
+                        <tr key={s.strikePrice} className={s.strikePrice === atmStrike ? 'text-amber-300' : 'text-slate-300'}>
+                          <td>{s.strikePrice.toLocaleString('en-IN')}</td>
+                          <td className="text-right">{(s.oi / 1000).toFixed(0)}K</td>
+                          <td className={`text-right ${s.oiChange > 0 ? 'text-emerald-400' : s.oiChange < 0 ? 'text-red-400' : 'text-slate-400'}`}>{s.oiChange > 0 ? '+' : ''}{(s.oiChange / 1000).toFixed(0)}K</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* ATM row detail */}
+              {atmRow && (
+                <div className="border border-orange-900 rounded p-2 bg-orange-950/30 text-xs">
+                  <p className="text-orange-300 font-semibold mb-1">ATM {atmStrike} — CE vs PE</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-0.5 text-slate-300">
+                      <p className="text-red-400 font-semibold">CALL</p>
+                      <p>OI: {(atmRow.ce.oi / 1000).toFixed(0)}K &nbsp; Chg: {atmRow.ce.oiChange > 0 ? '+' : ''}{(atmRow.ce.oiChange / 1000).toFixed(0)}K</p>
+                      <p>LTP: {fmt(atmRow.ce.ltp)} &nbsp; IV: {atmRow.ce.iv.toFixed(1)}%</p>
+                    </div>
+                    <div className="space-y-0.5 text-slate-300">
+                      <p className="text-emerald-400 font-semibold">PUT</p>
+                      <p>OI: {(atmRow.pe.oi / 1000).toFixed(0)}K &nbsp; Chg: {atmRow.pe.oiChange > 0 ? '+' : ''}{(atmRow.pe.oiChange / 1000).toFixed(0)}K</p>
+                      <p>LTP: {fmt(atmRow.pe.ltp)} &nbsp; IV: {atmRow.pe.iv.toFixed(1)}%</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </Section>
   );
