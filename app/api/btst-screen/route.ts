@@ -24,8 +24,7 @@ export interface BtstScreenData {
   historyDates?: string[]; // newest-first
 }
 
-const YF_BASE    = 'https://query1.finance.yahoo.com/v8/finance/chart';
-const BATCH_SIZE = 12;
+const YF_BASE      = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const HISTORY_DAYS = 90;
 
 interface YFResponse {
@@ -42,9 +41,11 @@ interface YFResponse {
 }
 
 async function fetchHistory(symbol: string): Promise<OHLCVRow[] | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
   try {
     const url = `${YF_BASE}/${encodeURIComponent(symbol)}?interval=1d&range=1y&includeAdjustedClose=true`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, cache: 'no-store' });
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, cache: 'no-store', signal: ctrl.signal });
     if (!res.ok) return null;
     const json: YFResponse = await res.json();
     const result = json.chart?.result?.[0];
@@ -68,6 +69,7 @@ async function fetchHistory(symbol: string): Promise<OHLCVRow[] | null> {
     }
     return rows;
   } catch { return null; }
+  finally { clearTimeout(timer); }
 }
 
 interface OIBuildupRow  { symbol: string }
@@ -116,19 +118,15 @@ export async function GET() {
       / niftyRows[niftyRows.length - 2].close * 100
     : 0;
 
-  // 2. Fetch all stock histories in batches
-  const stockData: Array<{ symbol: string; company: string; rows: OHLCVRow[] }> = [];
-  for (let i = 0; i < UNIVERSE.length; i += BATCH_SIZE) {
-    const batch = UNIVERSE.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.all(
-      batch.map(async (stock) => {
-        const rows = await fetchHistory(`${stock.nse_symbol}.NS`);
-        if (!rows || rows.length < 65) return null;
-        return { symbol: stock.nse_symbol, company: stock.company, rows };
-      }),
-    );
-    for (const r of batchResults) { if (r !== null) stockData.push(r); }
-  }
+  // 2. Fetch all stock histories in parallel (each capped at 8s)
+  const rawStocks = await Promise.all(
+    UNIVERSE.map(async (stock) => {
+      const rows = await fetchHistory(`${stock.nse_symbol}.NS`);
+      if (!rows || rows.length < 65) return null;
+      return { symbol: stock.nse_symbol, company: stock.company, rows };
+    }),
+  );
+  const stockData = rawStocks.filter((r): r is NonNullable<typeof r> => r !== null);
 
   // 3. Today's BTST scan
   const allResults = buildBtstScan(stockData, niftyChangePct, oiBuildupMap, fnoSet);
