@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import type { BtstResult } from '@/lib/btst-engine';
 import { BTST_WEIGHTS } from '@/lib/btst-engine';
 import type { BtstScreenData } from '@/app/api/btst-screen/route';
+import type { BtstBackfillData } from '@/app/api/btst-backfill/route';
 
 // ── localStorage persistence ──────────────────────────────────────────────────
 const STORAGE_PREFIX  = 'btst-scan-';
@@ -234,6 +235,8 @@ function fmtDateLabel(iso: string): string {
 
 export default function BtstPage() {
   const [loading,     setLoading]   = useState(false);
+  const [backfilling, setBackfill]  = useState(false);
+  const [backfillPct, setBackfillPct] = useState(0);
   const [data,        setData]      = useState<BtstScreenData | null>(null);
   const [error,       setError]     = useState<string | null>(null);
   const [conviction,  setConviction]= useState<ConvictionFilter>('Any');
@@ -280,6 +283,45 @@ export default function BtstPage() {
     setError(null);
   }
 
+  async function loadHistory() {
+    setBackfill(true);
+    setBackfillPct(0);
+    setError(null);
+    try {
+      // Fake progress while waiting (server takes ~30s)
+      const ticker = setInterval(() => setBackfillPct(p => Math.min(p + 2, 92)), 600);
+      const res = await fetch('/api/btst-backfill', { cache: 'no-store' });
+      clearInterval(ticker);
+      setBackfillPct(100);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json: BtstBackfillData = await res.json();
+      // Save every date to localStorage
+      for (const [date, scan] of Object.entries(json.history)) {
+        try { localStorage.setItem(STORAGE_PREFIX + date, JSON.stringify(scan)); } catch { /* storage full */ }
+      }
+      // Rebuild index from all stored btst- keys
+      const allKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(STORAGE_PREFIX)) allKeys.push(k.slice(STORAGE_PREFIX.length));
+      }
+      allKeys.sort().reverse();
+      const trimmed = allKeys.slice(0, MAX_STORED_DAYS);
+      localStorage.setItem(STORAGE_INDEX, JSON.stringify(trimmed));
+      setDateIndex(trimmed);
+      // Show the most recent date
+      if (trimmed.length > 0) {
+        setSelected(trimmed[0]);
+        setData(loadByDate(trimmed[0]));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Backfill failed');
+    } finally {
+      setBackfill(false);
+      setBackfillPct(0);
+    }
+  }
+
   const filtered: BtstResult[] = (data?.results ?? [])
     .filter(r => {
       if (fnoOnly && !r.isFnO) return false;
@@ -318,6 +360,24 @@ export default function BtstPage() {
                 Scanning…
               </>
             ) : 'Run Scan'}
+          </button>
+
+          {/* Load 90-day history */}
+          <button
+            onClick={loadHistory}
+            disabled={backfilling || loading}
+            title="Fetch and store BTST scores for the last 90 trading days (~30s)"
+            className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-slate-200 text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+          >
+            {backfilling ? (
+              <>
+                <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Loading history… {backfillPct}%
+              </>
+            ) : 'Load 90-day History'}
           </button>
 
           {/* Historical date picker */}
