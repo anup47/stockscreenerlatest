@@ -1,9 +1,43 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { BtstResult } from '@/lib/btst-engine';
 import { BTST_WEIGHTS } from '@/lib/btst-engine';
 import type { BtstScreenData } from '@/app/api/btst-screen/route';
+
+// ── localStorage persistence ──────────────────────────────────────────────────
+const STORAGE_PREFIX  = 'btst-scan-';
+const STORAGE_INDEX   = 'btst-scan-index';
+const MAX_STORED_DAYS = 90;
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+function saveResult(data: BtstScreenData): void {
+  const key   = STORAGE_PREFIX + todayKey();
+  const index: string[] = loadIndex();
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+    if (!index.includes(todayKey())) {
+      const updated = [todayKey(), ...index].slice(0, MAX_STORED_DAYS);
+      localStorage.setItem(STORAGE_INDEX, JSON.stringify(updated));
+    }
+  } catch { /* storage full — silent */ }
+}
+
+function loadIndex(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_INDEX) ?? '[]') as string[];
+  } catch { return []; }
+}
+
+function loadByDate(date: string): BtstScreenData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_PREFIX + date);
+    return raw ? (JSON.parse(raw) as BtstScreenData) : null;
+  } catch { return null; }
+}
 
 type ConvictionFilter = 'Any' | 'Medium' | 'High' | 'Very High';
 type SortKey         = 'score' | 'volumeRatio' | 'changePct';
@@ -192,13 +226,34 @@ function ResultCard({ result, rank }: { result: BtstResult; rank: number }) {
   );
 }
 
+function fmtDateLabel(iso: string): string {
+  // "2026-05-29" → "Thu 29 May 2026"
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export default function BtstPage() {
-  const [loading,   setLoading]   = useState(false);
-  const [data,      setData]      = useState<BtstScreenData | null>(null);
-  const [error,     setError]     = useState<string | null>(null);
-  const [conviction, setConviction] = useState<ConvictionFilter>('Any');
-  const [fnoOnly,   setFnoOnly]   = useState(false);
-  const [sortKey,   setSortKey]   = useState<SortKey>('score');
+  const [loading,     setLoading]   = useState(false);
+  const [data,        setData]      = useState<BtstScreenData | null>(null);
+  const [error,       setError]     = useState<string | null>(null);
+  const [conviction,  setConviction]= useState<ConvictionFilter>('Any');
+  const [fnoOnly,     setFnoOnly]   = useState(false);
+  const [sortKey,     setSortKey]   = useState<SortKey>('score');
+  const [dateIndex,   setDateIndex] = useState<string[]>([]);
+  const [selectedDate,setSelected]  = useState<string>('');
+
+  // Load stored date index on mount
+  useEffect(() => {
+    const idx = loadIndex();
+    setDateIndex(idx);
+    // Auto-load today's scan if it exists
+    if (idx.length > 0) {
+      const latest = idx[0];
+      setSelected(latest);
+      const saved = loadByDate(latest);
+      if (saved) setData(saved);
+    }
+  }, []);
 
   async function runScan() {
     setLoading(true);
@@ -207,12 +262,22 @@ export default function BtstPage() {
       const res = await fetch('/api/btst-screen', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: BtstScreenData = await res.json();
+      saveResult(json);
       setData(json);
+      setSelected(todayKey());
+      setDateIndex(loadIndex());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleDateChange(date: string) {
+    setSelected(date);
+    const saved = loadByDate(date);
+    setData(saved);
+    setError(null);
   }
 
   const filtered: BtstResult[] = (data?.results ?? [])
@@ -237,7 +302,7 @@ export default function BtstPage() {
           <p className="text-amber-400 text-sm mt-1">Best run at 3:20–3:25 PM when market is about to close</p>
         </div>
 
-        {/* Run button + meta */}
+        {/* Run button + date picker + meta */}
         <div className="flex items-center gap-4 mb-6 flex-wrap">
           <button
             onClick={runScan}
@@ -254,12 +319,31 @@ export default function BtstPage() {
               </>
             ) : 'Run Scan'}
           </button>
+
+          {/* Historical date picker */}
+          {dateIndex.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-slate-400 text-sm">History:</label>
+              <select
+                value={selectedDate}
+                onChange={e => handleDateChange(e.target.value)}
+                className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 min-w-[180px]"
+              >
+                {dateIndex.map(d => (
+                  <option key={d} value={d}>
+                    {fmtDateLabel(d)}{d === todayKey() ? ' (today)' : ''}
+                  </option>
+                ))}
+              </select>
+              <span className="text-slate-500 text-xs">{dateIndex.length} day{dateIndex.length !== 1 ? 's' : ''} stored</span>
+            </div>
+          )}
+
           {data && (
             <div className="text-slate-400 text-sm">
-              Last run: <span className="text-slate-300">{new Date(data.fetchedAt).toLocaleTimeString()}</span>
-              {' · '}Scanned <span className="text-slate-300">{data.scanned}</span> symbols
+              Scanned <span className="text-slate-300">{data.scanned}</span> symbols
               {' · '}Nifty <span className={data.niftyChange >= 0 ? 'text-emerald-400' : 'text-red-400'}>{data.niftyChange >= 0 ? '+' : ''}{data.niftyChange.toFixed(2)}%</span>
-              {' · '}{data.elapsedMs}ms
+              {' · '}<span className="text-slate-500">{new Date(data.fetchedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
             </div>
           )}
         </div>
