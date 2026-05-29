@@ -62,8 +62,8 @@ const SCORE_BAR_COLOUR = (score: number) => {
   return 'bg-slate-400';
 };
 
-function fmt(n: number, dec = 2): string {
-  return n.toFixed(dec);
+function fmt(n: number | undefined | null, dec = 2): string {
+  return (n ?? 0).toFixed(dec);
 }
 
 function fmtCr(v: number): string {
@@ -243,14 +243,21 @@ export default function BtstPage() {
 
   // Load stored date index on mount
   useEffect(() => {
-    const idx = loadIndex();
-    setDateIndex(idx);
-    // Auto-load today's scan if it exists
-    if (idx.length > 0) {
-      const latest = idx[0];
-      setSelected(latest);
-      const saved = loadByDate(latest);
-      if (saved) setData(saved);
+    try {
+      const idx = loadIndex();
+      setDateIndex(idx);
+      if (idx.length > 0) {
+        const latest = idx[0];
+        setSelected(latest);
+        const saved = loadByDate(latest);
+        if (saved) setData(saved);
+      }
+    } catch {
+      // Corrupted localStorage — wipe BTST keys and start fresh
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(STORAGE_PREFIX) || k === STORAGE_INDEX) localStorage.removeItem(k);
+      }
     }
   }, []);
 
@@ -362,6 +369,21 @@ export default function BtstPage() {
                 ))}
               </select>
               <span className="text-slate-500 text-xs">{dateIndex.length} day{dateIndex.length !== 1 ? 's' : ''} stored</span>
+              <button
+                onClick={() => {
+                  for (let i = localStorage.length - 1; i >= 0; i--) {
+                    const k = localStorage.key(i);
+                    if (k?.startsWith(STORAGE_PREFIX) || k === STORAGE_INDEX) localStorage.removeItem(k);
+                  }
+                  setDateIndex([]);
+                  setSelected('');
+                  setData(null);
+                }}
+                className="text-xs text-slate-600 hover:text-red-400 transition-colors"
+                title="Clear all stored history"
+              >
+                ✕ Clear
+              </button>
             </div>
           )}
 
