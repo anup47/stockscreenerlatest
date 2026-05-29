@@ -66,8 +66,8 @@ function fmt(n: number | undefined | null, dec = 2): string {
   return (n ?? 0).toFixed(dec);
 }
 
-function fmtCr(v: number): string {
-  return `₹${(v / 1e7).toFixed(1)} Cr`;
+function fmtCr(v: number | undefined | null): string {
+  return `₹${((v ?? 0) / 1e7).toFixed(1)} Cr`;
 }
 
 function ScoreBreakdown({ pts }: { pts: BtstResult['pts'] }) {
@@ -390,7 +390,7 @@ export default function BtstPage() {
           {data && (
             <div className="text-slate-400 text-sm">
               Scanned <span className="text-slate-300">{data.scanned}</span> symbols
-              {' · '}Nifty <span className={data.niftyChange >= 0 ? 'text-emerald-400' : 'text-red-400'}>{data.niftyChange >= 0 ? '+' : ''}{data.niftyChange.toFixed(2)}%</span>
+              {' · '}Nifty <span className={data.niftyChange >= 0 ? 'text-emerald-400' : 'text-red-400'}>{(data.niftyChange ?? 0) >= 0 ? '+' : ''}{(data.niftyChange ?? 0).toFixed(2)}%</span>
               {' · '}<span className="text-slate-500">{new Date(data.fetchedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
             </div>
           )}
