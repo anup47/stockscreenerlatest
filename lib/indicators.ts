@@ -86,7 +86,7 @@ function calcBBWidth(closes: number[], period = 20, multiplier = 2): number {
   return ((multiplier * 2 * std) / mean) * 100;
 }
 
-function calcATRSeries(highs: number[], lows: number[], closes: number[], period = 14): number[] {
+export function calcATRSeries(highs: number[], lows: number[], closes: number[], period = 14): number[] {
   const tr: number[] = [];
   for (let i = 1; i < highs.length; i++) {
     tr.push(Math.max(
