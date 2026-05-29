@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { BTST_WEIGHTS, type BtstResult } from '@/lib/btst-engine';
-import type { BtstScreenData } from '@/app/api/btst-screen/route';
+import type { BtstScreenData } from '@/lib/btst-types';
 
 // ── localStorage persistence ──────────────────────────────────────────────────
 const STORAGE_PREFIX  = 'btst-scan-';

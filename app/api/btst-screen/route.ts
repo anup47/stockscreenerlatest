@@ -2,27 +2,12 @@ import { NextResponse } from 'next/server';
 import { UNIVERSE } from '@/lib/universe';
 import { buildBtstScan, calcBtstScore, type BtstResult } from '@/lib/btst-engine';
 import type { OHLCVRow } from '@/lib/indicators';
+import type { HistoryScan, BtstScreenData } from '@/lib/btst-types';
+
+// Re-export for any server-side consumers that previously imported from this route
+export type { HistoryScan, BtstScreenData };
 
 export const maxDuration = 60;
-
-export interface HistoryScan {
-  results:     BtstResult[];
-  total:       number;
-  niftyChange: number;
-}
-
-export interface BtstScreenData {
-  results:      BtstResult[];
-  total:        number;
-  scanned:      number;
-  niftyChange:  number;
-  fetchedAt:    string;
-  elapsedMs:    number;
-  error?:       string;
-  // 90-day history keyed by "YYYY-MM-DD", computed from same fetched data
-  history?:     Record<string, HistoryScan>;
-  historyDates?: string[]; // newest-first
-}
 
 const YF_BASE      = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const HISTORY_DAYS = 90;
@@ -87,7 +72,6 @@ function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
 export async function GET() {
   const start = Date.now();
 
-  // 1. Fetch Nifty + OI buildup in parallel (OI capped at 8s)
   const oiBuildupMap = new Map<string, 'lb' | 'sb' | 'sc' | 'lu'>();
   const fnoSet       = new Set<string>();
 
@@ -118,7 +102,6 @@ export async function GET() {
       / niftyRows[niftyRows.length - 2].close * 100
     : 0;
 
-  // 2. Fetch all stock histories in parallel (each capped at 8s)
   const rawStocks = await Promise.all(
     UNIVERSE.map(async (stock) => {
       const rows = await fetchHistory(`${stock.nse_symbol}.NS`);
@@ -128,28 +111,23 @@ export async function GET() {
   );
   const stockData = rawStocks.filter((r): r is NonNullable<typeof r> => r !== null);
 
-  // 3. Today's BTST scan
   const allResults = buildBtstScan(stockData, niftyChangePct, oiBuildupMap, fnoSet);
 
-  // 4. 90-day history — pure computation on already-fetched data (~30ms total)
   const history: Record<string, HistoryScan> = {};
   const historyDates: string[] = [];
 
   if (niftyRows && niftyRows.length >= HISTORY_DAYS + 2) {
-    // Build nifty change per date
     const niftyChgMap = new Map<string, number>();
     for (let i = 1; i < niftyRows.length; i++) {
       const chg = (niftyRows[i].close - niftyRows[i - 1].close) / niftyRows[i - 1].close * 100;
       niftyChgMap.set(isoDate(niftyRows[i].date), chg);
     }
 
-    // Pre-build date→index maps per stock
     const stockMaps = stockData.map(s => ({
       ...s,
       dateIdx: new Map(s.rows.map((r, i) => [isoDate(r.date), i])),
     }));
 
-    // Last 90 trading dates from Nifty (skip today — already in main results)
     const tradingDates = niftyRows.slice(-HISTORY_DAYS - 1, -1).map(r => isoDate(r.date)).reverse();
 
     for (const date of tradingDates) {
