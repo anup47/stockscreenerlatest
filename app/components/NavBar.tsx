@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const tabs = [
+  { label: 'Summary',      href: '/summary' },
   { label: 'Screener',     href: '/' },
   { label: 'Analysis',     href: '/analyse' },
   { label: 'Very Short Term', href: '/options' },
