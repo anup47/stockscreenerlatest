@@ -78,47 +78,49 @@ interface OIBuildupResponse {
   lu?: OIBuildupRow[];
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>(res => setTimeout(() => res(null), ms))]);
+}
+
 export async function GET() {
   const start = Date.now();
 
-  // 1. Fetch Nifty daily change
-  let niftyChangePct = 0;
-  try {
-    const niftyRows = await fetchHistory('%5ENSEI');
-    if (niftyRows && niftyRows.length >= 2) {
-      const last  = niftyRows[niftyRows.length - 1].close;
-      const prev  = niftyRows[niftyRows.length - 2].close;
-      niftyChangePct = ((last - prev) / prev) * 100;
-    }
-  } catch {/* non-fatal */}
-
-  // 2. Fetch OI buildup map
+  // 1 + 2: fetch Nifty and OI buildup in parallel with stock data
   const oiBuildupMap = new Map<string, 'lb' | 'sb' | 'sc' | 'lu'>();
-  try {
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
-    const oiRes = await fetch(`${baseUrl}/api/dhan/oi-buildup`, { cache: 'no-store' });
-    if (oiRes.ok) {
-      const oiData: OIBuildupResponse = await oiRes.json();
-      const categories = [
-        { key: 'lb' as const, rows: oiData.lb ?? [] },
-        { key: 'sb' as const, rows: oiData.sb ?? [] },
-        { key: 'sc' as const, rows: oiData.sc ?? [] },
-        { key: 'lu' as const, rows: oiData.lu ?? [] },
-      ];
-      for (const { key, rows } of categories) {
-        for (const row of rows) {
-          oiBuildupMap.set(row.symbol, key);
+  const fnoSet       = new Set<string>();
+
+  const [niftyRows] = await Promise.all([
+    // Nifty
+    fetchHistory('%5ENSEI'),
+    // OI buildup — cap at 8s so it never delays the scan
+    withTimeout(
+      (async () => {
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : 'http://localhost:3000';
+        const oiRes = await fetch(`${baseUrl}/api/dhan/oi-buildup`, { cache: 'no-store' });
+        if (!oiRes.ok) return;
+        const oiData: OIBuildupResponse = await oiRes.json();
+        for (const [key, rows] of [
+          ['lb', oiData.lb ?? []], ['sb', oiData.sb ?? []],
+          ['sc', oiData.sc ?? []], ['lu', oiData.lu ?? []],
+        ] as Array<[string, OIBuildupRow[]]>) {
+          for (const row of rows) {
+            oiBuildupMap.set(row.symbol, key as 'lb' | 'sb' | 'sc' | 'lu');
+            fnoSet.add(row.symbol);
+          }
         }
-      }
-    }
-  } catch {/* non-fatal — proceed with empty map */}
+      })(),
+      8_000,
+    ),
+  ]);
 
-  // 3. fnoSet = anything in OI buildup data
-  const fnoSet = new Set<string>(oiBuildupMap.keys());
+  const niftyChangePct = niftyRows && niftyRows.length >= 2
+    ? (niftyRows[niftyRows.length - 1].close - niftyRows[niftyRows.length - 2].close)
+      / niftyRows[niftyRows.length - 2].close * 100
+    : 0;
 
-  // 4. Fetch stock histories in batches
+  // 3. Fetch stock histories in batches of 20 (larger = fewer round trips)
   const stockData: Array<{ symbol: string; company: string; rows: OHLCVRow[] }> = [];
 
   for (let i = 0; i < UNIVERSE.length; i += BATCH_SIZE) {
@@ -135,18 +137,16 @@ export async function GET() {
     }
   }
 
-  // 5. Run BTST scan
+  // 4. Run BTST scan
   const allResults = buildBtstScan(stockData, niftyChangePct, oiBuildupMap, fnoSet);
   const top10      = allResults.slice(0, 10);
 
-  const response: BtstScreenData = {
+  return NextResponse.json({
     results:     top10,
     total:       allResults.length,
     scanned:     stockData.length,
     niftyChange: niftyChangePct,
     fetchedAt:   new Date().toISOString(),
     elapsedMs:   Date.now() - start,
-  };
-
-  return NextResponse.json(response);
+  } satisfies BtstScreenData);
 }
