@@ -1,180 +1,316 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import {
   TrendingUp,
   TrendingDown,
-  AlertTriangle,
-  Clock,
+  Minus,
   RefreshCw,
-  BarChart2,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  Clock,
+  AlertCircle,
   Zap,
   Shield,
-  Info,
 } from 'lucide-react';
-import type { SupplyDemandSnapshot, SupplyDemandTheme, Category } from '@/lib/supply-demand-types';
+import { cn } from '@/lib/utils';
+import type {
+  SupplyDemandSnapshot,
+  SupplyDemandTheme,
+  Category,
+  PricingPower,
+} from '@/lib/supply-demand-types';
 
 const SNAPSHOT_KEY = 'sd-snapshot';
 const DATE_KEY = 'sd-date';
 
-function todayISO(): string {
+function todayIST(): string {
   const now = new Date();
-  const istMs = now.getTime() + 330 * 60 * 1000;
-  return new Date(istMs).toISOString().slice(0, 10);
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(now.getTime() + istOffset);
+  return ist.toISOString().slice(0, 10);
 }
 
 function canRefreshNow(): boolean {
-  const nowUtcMinutes = Math.floor(Date.now() / 60_000) % 1440;
-  const istMinutes = (nowUtcMinutes + 330) % 1440;
+  const utcMinutes = Math.floor(Date.now() / 60000) % 1440;
+  const istMinutes = (utcMinutes + 330) % 1440;
   return istMinutes >= 780;
 }
 
-function formatISTTime(iso: string): string {
-  const d = new Date(iso);
-  const istMs = d.getTime() + 330 * 60 * 1000;
-  const ist = new Date(istMs);
-  return ist.toISOString().replace('T', ' ').slice(0, 16) + ' IST';
+function getISTTimeString(isoString: string): string {
+  try {
+    const d = new Date(isoString);
+    return d.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: 'short',
+    });
+  } catch {
+    return isoString;
+  }
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  all: 'All',
-  shortage: 'Shortage',
-  oversupply: 'Oversupply',
-  emerging: 'Emerging',
-  balanced: 'Balanced',
-};
-
-const CATEGORY_BADGE_CLASS: Record<string, string> = {
-  shortage: 'bg-red-500/15 text-red-700 border-red-500/30',
-  oversupply: 'bg-blue-500/15 text-blue-700 border-blue-500/30',
-  emerging: 'bg-violet-500/15 text-violet-700 border-violet-500/30',
-  balanced: 'bg-slate-500/15 text-slate-600 border-slate-400/30',
-};
-
-function PricingPowerIcon({ value }: { value: string }) {
-  if (value === 'rising') return <Zap className="w-3 h-3 text-emerald-600" />;
-  if (value === 'falling') return <TrendingDown className="w-3 h-3 text-red-500" />;
-  return <Shield className="w-3 h-3 text-slate-400" />;
+function minutesUntil1PM(): number {
+  const utcMinutes = Math.floor(Date.now() / 60000) % 1440;
+  const istMinutes = (utcMinutes + 330) % 1440;
+  if (istMinutes >= 780) return 0;
+  return 780 - istMinutes;
 }
 
-function ConfidenceBadge({ confidence }: { confidence: number }) {
-  const cls =
-    confidence >= 70
-      ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
-      : confidence >= 50
-      ? 'bg-amber-500/15 text-amber-700 border-amber-500/30'
-      : 'bg-red-500/15 text-red-700 border-red-500/30';
-  return (
-    <Badge variant="outline" className={cn('text-xs font-semibold tabular-nums', cls)}>
-      {confidence}%
-    </Badge>
-  );
+function formatCountdown(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
+
+// ─── Category helpers ────────────────────────────────────────────────────────
+
+function categoryLabel(cat: Category): string {
+  switch (cat) {
+    case 'shortage': return 'Shortage';
+    case 'oversupply': return 'Oversupply';
+    case 'emerging': return 'Emerging';
+    case 'balanced': return 'Balanced';
+    default: return String(cat);
+  }
+}
+
+function categoryColor(cat: Category): string {
+  switch (cat) {
+    case 'shortage': return 'bg-red-500/10 text-red-600 border-red-500/20';
+    case 'oversupply': return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+    case 'emerging': return 'bg-violet-500/10 text-violet-600 border-violet-500/20';
+    case 'balanced': return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
+    default: return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
+  }
+}
+
+function pricingPowerIcon(pp: PricingPower): React.ReactElement {
+  switch (pp) {
+    case 'rising': return <Zap className="h-3 w-3 text-emerald-500" />;
+    case 'collapsing': return <TrendingDown className="h-3 w-3 text-red-500" />;
+    case 'stable':
+    default: return <Shield className="h-3 w-3 text-slate-400" />;
+  }
+}
+
+function pricingPowerColor(pp: PricingPower): string {
+  switch (pp) {
+    case 'rising': return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20';
+    case 'collapsing': return 'bg-red-500/10 text-red-600 border-red-500/20';
+    case 'stable':
+    default: return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
+  }
+}
+
+function confidenceColor(n: number): string {
+  if (n >= 70) return 'bg-emerald-500';
+  if (n >= 50) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+function impactDot(level: string): string {
+  switch (level) {
+    case 'high': return 'bg-red-500';
+    case 'medium': return 'bg-amber-400';
+    default: return 'bg-slate-400';
+  }
+}
+
+// ─── ThemeCard ───────────────────────────────────────────────────────────────
 
 function ThemeCard({ theme }: { theme: SupplyDemandTheme }) {
   const [expanded, setExpanded] = useState(false);
+  const [showSources, setShowSources] = useState(false);
 
   return (
-    <Card className="ring-1 ring-foreground/8 hover:ring-foreground/15 transition-shadow gap-0 py-0">
-      <CardHeader className="px-4 pt-4 pb-3">
+    <Card className="border border-border bg-card shadow-sm hover:shadow-md transition-shadow duration-200">
+      <CardHeader className="pb-3 pt-4 px-4">
+        {/* Top row */}
         <div className="flex items-start justify-between gap-2">
-          <span className="font-bold text-base leading-tight">{theme.commodity}</span>
-          <ConfidenceBadge confidence={theme.confidence} />
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-          <Badge
-            variant="outline"
-            className={cn('text-xs', CATEGORY_BADGE_CLASS[theme.category] ?? CATEGORY_BADGE_CLASS.balanced)}
-          >
-            {CATEGORY_LABELS[theme.category] ?? theme.category}
-          </Badge>
-          {theme.pricingPower && (
-            <Badge variant="outline" className="text-xs flex items-center gap-0.5 border-muted text-muted-foreground">
-              <PricingPowerIcon value={theme.pricingPower} />
-              <span className="capitalize">{theme.pricingPower}</span>
-            </Badge>
-          )}
-          {theme.timeHorizon && (
-            <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground/70">
-              <Clock className="w-3 h-3" />
-              {theme.timeHorizon}
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-base text-foreground leading-tight truncate">
+              {theme.commodity}
+            </h3>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border',
+                categoryColor(theme.category)
+              )}
+            >
+              {categoryLabel(theme.category)}
             </span>
-          )}
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border',
+                pricingPowerColor(theme.pricingPower)
+              )}
+            >
+              {pricingPowerIcon(theme.pricingPower)}
+              {theme.pricingPower === 'rising'
+                ? 'Rising'
+                : theme.pricingPower === 'collapsing'
+                ? 'Collapsing'
+                : 'Stable'}
+            </span>
+          </div>
+        </div>
+
+        {/* Confidence + time horizon */}
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
+                Confidence
+              </span>
+              <span className="text-[11px] font-semibold text-foreground">{theme.confidence}%</span>
+            </div>
+            <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn('h-full rounded-full transition-all', confidenceColor(theme.confidence))}
+                style={{ width: `${theme.confidence}%` }}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border/60">
+            <Clock className="h-3 w-3" />
+            <span className="font-medium capitalize">{theme.timeHorizon}</span>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="px-4 pb-4 space-y-2.5">
-        <p className="text-sm text-muted-foreground leading-relaxed">{theme.description}</p>
 
-        {theme.historicalAnalog && (
-          <p className="text-xs italic text-muted-foreground/70 border-l-2 border-muted pl-2">
-            {theme.historicalAnalog}
-          </p>
+      <CardContent className="px-4 pb-4 space-y-3">
+        {/* Description */}
+        <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">
+          {theme.description}
+        </p>
+
+        {/* Expand / collapse */}
+        {expanded && (
+          <div className="space-y-3">
+            {/* Historical analog */}
+            <blockquote className="border-l-2 border-amber-400/60 pl-3 text-xs italic text-muted-foreground leading-relaxed">
+              {theme.historicalAnalog}
+            </blockquote>
+          </div>
         )}
 
-        {theme.beneficiaries && theme.beneficiaries.length > 0 && (
+        <button
+          onClick={() => setExpanded((p) => !p)}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="h-3 w-3" /> Less detail
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3 w-3" /> More detail
+            </>
+          )}
+        </button>
+
+        {/* Beneficiaries + Adversely Affected */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          {/* Beneficiaries */}
           <div>
-            <p className="text-xs font-semibold text-emerald-700 mb-1">Beneficiaries</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex items-center gap-1 mb-1.5">
+              <TrendingUp className="h-3 w-3 text-emerald-500" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                Beneficiaries
+              </span>
+            </div>
+            <div className="space-y-1.5">
               {theme.beneficiaries.map((s) => (
-                <span
+                <div
                   key={s.symbol}
-                  className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 rounded-md px-2 py-0.5 text-xs inline-flex items-center gap-1"
-                  title={s.rationale}
+                  className="rounded-md border border-emerald-500/15 bg-emerald-500/5 px-2 py-1.5"
                 >
-                  <TrendingUp className="w-2.5 h-2.5" />
-                  <span className="font-semibold">{s.symbol}</span>
-                  <span className="text-emerald-700/70">· {s.company}</span>
-                </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full flex-shrink-0',
+                        impactDot(s.impact)
+                      )}
+                    />
+                    <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                      {s.symbol}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight line-clamp-2">
+                    {s.rationale}
+                  </p>
+                </div>
               ))}
             </div>
           </div>
-        )}
 
-        {theme.adverselyAffected && theme.adverselyAffected.length > 0 && (
+          {/* Adversely Affected */}
           <div>
-            <p className="text-xs font-semibold text-red-600 mb-1">Risks</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex items-center gap-1 mb-1.5">
+              <TrendingDown className="h-3 w-3 text-red-500" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-red-600">
+                Risks
+              </span>
+            </div>
+            <div className="space-y-1.5">
               {theme.adverselyAffected.map((s) => (
-                <span
+                <div
                   key={s.symbol}
-                  className="bg-red-500/10 border border-red-500/20 text-red-700 rounded-md px-2 py-0.5 text-xs inline-flex items-center gap-1"
-                  title={s.rationale}
+                  className="rounded-md border border-red-500/15 bg-red-500/5 px-2 py-1.5"
                 >
-                  <TrendingDown className="w-2.5 h-2.5" />
-                  <span className="font-semibold">{s.symbol}</span>
-                  <span className="text-red-600/70">· {s.company}</span>
-                </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full flex-shrink-0',
+                        impactDot(s.impact)
+                      )}
+                    />
+                    <span className="text-[11px] font-bold text-red-700 dark:text-red-400">
+                      {s.symbol}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight line-clamp-2">
+                    {s.rationale}
+                  </p>
+                </div>
               ))}
             </div>
           </div>
-        )}
+        </div>
 
+        {/* Sources */}
         {theme.sources && theme.sources.length > 0 && (
           <div>
-            {expanded ? (
-              <div className="space-y-0.5">
+            <button
+              onClick={() => setShowSources((p) => !p)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showSources ? (
+                <ChevronUp className="h-3 w-3" />
+              ) : (
+                <ChevronDown className="h-3 w-3" />
+              )}
+              Sources ({theme.sources.length})
+            </button>
+            {showSources && (
+              <ul className="mt-1.5 space-y-0.5 pl-3">
                 {theme.sources.map((src, i) => (
-                  <p key={i} className="text-xs text-muted-foreground/50 truncate">
+                  <li key={i} className="text-[10px] text-muted-foreground before:content-['•'] before:mr-1.5">
                     {src}
-                  </p>
+                  </li>
                 ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground/50 truncate">
-                {theme.sources.join(', ')}
-              </p>
-            )}
-            {theme.sources.length > 1 && (
-              <button
-                onClick={() => setExpanded((v) => !v)}
-                className="text-xs text-muted-foreground/40 hover:text-muted-foreground mt-0.5 underline underline-offset-2"
-              >
-                {expanded ? 'Hide sources' : 'View details'}
-              </button>
+              </ul>
             )}
           </div>
         )}
@@ -183,155 +319,263 @@ function ThemeCard({ theme }: { theme: SupplyDemandTheme }) {
   );
 }
 
-type FilterTab = 'all' | Category;
+// ─── Skeleton ────────────────────────────────────────────────────────────────
+
+function CardSkeleton() {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3 animate-pulse">
+      <div className="flex justify-between items-start gap-2">
+        <div className="h-4 bg-muted rounded w-2/5" />
+        <div className="flex gap-1.5">
+          <div className="h-4 bg-muted rounded-full w-16" />
+          <div className="h-4 bg-muted rounded-full w-14" />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <div className="h-1 bg-muted rounded-full w-full" />
+      </div>
+      <div className="space-y-1.5">
+        <div className="h-3 bg-muted rounded w-full" />
+        <div className="h-3 bg-muted rounded w-5/6" />
+        <div className="h-3 bg-muted rounded w-4/6" />
+      </div>
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <div className="space-y-1.5">
+          <div className="h-3 bg-muted rounded w-3/4" />
+          <div className="h-10 bg-muted rounded" />
+          <div className="h-10 bg-muted rounded" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 bg-muted rounded w-3/4" />
+          <div className="h-10 bg-muted rounded" />
+          <div className="h-10 bg-muted rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
+type FilterCategory = 'all' | Category | 'rising' | 'collapsing';
 
 export default function SupplyDemandPage() {
   const [snapshot, setSnapshot] = useState<SupplyDemandSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterTab>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterCategory>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [forceMode, setForceMode] = useState(false);
+  const [countdown, setCountdown] = useState(minutesUntil1PM());
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Countdown ticker
+  useEffect(() => {
+    if (canRefreshNow()) return;
+    timerRef.current = setInterval(() => {
+      const m = minutesUntil1PM();
+      setCountdown(m);
+      if (m === 0 && timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    }, 30000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  // Hydrate from localStorage on mount
   useEffect(() => {
     try {
       const storedDate = localStorage.getItem(DATE_KEY);
-      if (storedDate === todayISO()) {
+      const today = todayIST();
+      if (storedDate === today) {
         const raw = localStorage.getItem(SNAPSHOT_KEY);
         if (raw) {
           const parsed: SupplyDemandSnapshot = JSON.parse(raw);
-          if (parsed && Array.isArray(parsed.themes)) {
+          if (Array.isArray(parsed.themes)) {
             setSnapshot(parsed);
+            return;
           }
         }
       }
+      // stale or missing
+      localStorage.removeItem(SNAPSHOT_KEY);
+      localStorage.removeItem(DATE_KEY);
     } catch {
-      try {
-        localStorage.removeItem(SNAPSHOT_KEY);
-        localStorage.removeItem(DATE_KEY);
-      } catch {}
+      // ignore
     }
   }, []);
 
-  const hasTodayData = Boolean(
-    snapshot && (() => {
-      try {
-        return localStorage.getItem(DATE_KEY) === todayISO();
-      } catch {
-        return false;
-      }
-    })()
-  );
-
   const canRun = forceMode || canRefreshNow();
 
-  async function runAnalysis() {
+  const runAnalysis = useCallback(async () => {
     if (!canRun) return;
+
+    const hasTodayData =
+      snapshot !== null && localStorage.getItem(DATE_KEY) === todayIST();
+
     if (hasTodayData && !forceMode) {
-      const ok = window.confirm("Re-generate today's supply-demand analysis?");
+      const ok = window.confirm(
+        'Analysis for today already exists. Re-run and overwrite?'
+      );
       if (!ok) return;
     }
+
     setLoading(true);
     setError(null);
+
     try {
       const res = await fetch('/api/supply-demand', { cache: 'no-store' });
       if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || `HTTP ${res.status}`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          body.error || `API returned ${res.status}`
+        );
       }
-      const json: SupplyDemandSnapshot = await res.json();
-      try {
-        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(json));
-        localStorage.setItem(DATE_KEY, todayISO());
-      } catch {}
-      setSnapshot(json);
+      const data: SupplyDemandSnapshot = await res.json();
+      setSnapshot(data);
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(data));
+      localStorage.setItem(DATE_KEY, todayIST());
       setForceMode(false);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
-  }
+  }, [canRun, forceMode, snapshot]);
 
-  const filteredThemes =
-    snapshot?.themes.filter((t) => filter === 'all' || t.category === filter) ?? [];
+  // Derived: category counts
+  const counts = {
+    shortage: snapshot?.themes.filter((t) => t.category === 'shortage').length ?? 0,
+    oversupply: snapshot?.themes.filter((t) => t.category === 'oversupply').length ?? 0,
+    emerging: snapshot?.themes.filter((t) => t.category === 'emerging').length ?? 0,
+    balanced: snapshot?.themes.filter((t) => t.category === 'balanced').length ?? 0,
+    rising: snapshot?.themes.filter((t) => t.pricingPower === 'rising').length ?? 0,
+  };
 
-  const categoryCounts = snapshot
-    ? ((['shortage', 'oversupply', 'emerging', 'balanced'] as const).reduce(
-        (acc, cat) => {
-          acc[cat] = snapshot.themes.filter((t) => t.category === cat).length;
-          return acc;
-        },
-        {} as Record<string, number>
-      ))
-    : {};
+  // Filtered themes
+  const filteredThemes = (snapshot?.themes ?? []).filter((t) => {
+    if (activeFilter === 'all') {
+      // no category filter
+    } else if (activeFilter === 'rising' || activeFilter === 'collapsing') {
+      if (t.pricingPower !== activeFilter) return false;
+    } else {
+      if (t.category !== activeFilter) return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return (
+        t.commodity.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        t.beneficiaries.some(
+          (s) =>
+            s.symbol.toLowerCase().includes(q) ||
+            s.company.toLowerCase().includes(q)
+        ) ||
+        t.adverselyAffected.some(
+          (s) =>
+            s.symbol.toLowerCase().includes(q) ||
+            s.company.toLowerCase().includes(q)
+        )
+      );
+    }
+    return true;
+  });
 
-  const risingPricingPower = snapshot
-    ? snapshot.themes.filter((t) => t.pricingPower === 'rising').length
-    : 0;
-
-  const FILTER_TABS: { key: FilterTab; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'shortage', label: 'Shortage' },
-    { key: 'oversupply', label: 'Oversupply' },
-    { key: 'emerging', label: 'Emerging' },
+  const filterTabs: { label: string; value: FilterCategory; count?: number }[] = [
+    { label: 'All', value: 'all', count: snapshot?.themes.length },
+    { label: 'Shortage', value: 'shortage', count: counts.shortage },
+    { label: 'Oversupply', value: 'oversupply', count: counts.oversupply },
+    { label: 'Emerging', value: 'emerging', count: counts.emerging },
+    { label: 'Rising Pricing', value: 'rising', count: counts.rising },
   ];
 
+  const filterTabColor = (value: FilterCategory) => {
+    switch (value) {
+      case 'shortage': return 'text-red-600';
+      case 'oversupply': return 'text-blue-600';
+      case 'emerging': return 'text-violet-600';
+      case 'rising': return 'text-emerald-600';
+      default: return 'text-foreground';
+    }
+  };
+
   return (
-    <main className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <BarChart2 className="w-5 h-5 text-muted-foreground" />
-              <h1 className="text-xl font-bold tracking-tight">Supply-Demand Intelligence</h1>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              AI-generated commodity supply-demand themes with equity impact mapping
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
+
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              Supply-Demand Intelligence
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              AI-generated commodity & sector supply/demand themes for Indian equities
             </p>
             {snapshot && (
-              <p className="text-xs text-muted-foreground/60">
-                Last refreshed: {formatISTTime(snapshot.generatedAt)}
-              </p>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <span className="text-[11px] text-muted-foreground">
+                  Last refreshed:{' '}
+                  <span className="font-medium text-foreground">
+                    {getISTTimeString(snapshot.generatedAt)} IST
+                  </span>
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  ({Math.round(snapshot.elapsedMs / 1000)}s)
+                </span>
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border bg-muted/50 text-muted-foreground border-border/60">
+                  <Zap className="h-2.5 w-2.5" />
+                  qwen2.5:14b
+                </span>
+              </div>
             )}
           </div>
 
-          <div className="flex flex-col items-end gap-1.5">
-            <Button
-              onClick={runAnalysis}
-              disabled={loading || (!canRun)}
-              title={!canRun ? 'Analysis available after 1:00 PM IST. Enable force override below.' : undefined}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  Generating…
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Run Analysis
-                </>
-              )}
-            </Button>
+          {/* Controls */}
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={runAnalysis}
+                disabled={loading || !canRun}
+                size="sm"
+                className="h-8 text-xs font-medium gap-1.5"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+                {loading ? 'Analysing…' : 'Run Analysis'}
+              </Button>
+            </div>
 
+            {/* Time gate notice */}
+            {!canRefreshNow() && !forceMode && (
+              <div className="flex items-center gap-1.5 text-[11px] text-amber-600">
+                <Clock className="h-3 w-3" />
+                <span>Available after 1:00 PM IST ({formatCountdown(countdown)} remaining)</span>
+              </div>
+            )}
+
+            {/* Force override */}
             {!canRefreshNow() && (
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={forceMode}
                   onChange={(e) => setForceMode(e.target.checked)}
-                  className="accent-emerald-600 w-3.5 h-3.5"
+                  className="h-3 w-3 accent-emerald-600"
                 />
                 Override time gate
               </label>
             )}
 
-            {snapshot && !forceMode && (
+            {/* Force refresh link */}
+            {snapshot && canRefreshNow() && !forceMode && !loading && (
               <button
-                onClick={() => setForceMode(true)}
-                className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline underline-offset-2"
+                onClick={() => {
+                  setForceMode(true);
+                  setTimeout(() => runAnalysis(), 0);
+                }}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
               >
                 Force refresh
               </button>
@@ -339,152 +583,184 @@ export default function SupplyDemandPage() {
           </div>
         </div>
 
-        {/* Meta row */}
-        {snapshot && (
-          <div className="text-xs text-muted-foreground/60 flex gap-4 flex-wrap border-b border-border pb-3">
-            <span>Generated: {formatISTTime(snapshot.generatedAt)}</span>
-            <span>Themes: {snapshot.themes.length}</span>
-            <span>Model: claude-sonnet-4-6</span>
-            {risingPricingPower > 0 && (
-              <span className="text-emerald-600">Rising pricing power: {risingPricingPower}</span>
-            )}
-          </div>
-        )}
-
-        {/* Error */}
+        {/* ── Error banner ───────────────────────────────────────────────── */}
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{error}</span>
+          <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600">
+            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Error: </span>
+              {error}
+              {error.toLowerCase().includes('fetch') ||
+              error.toLowerCase().includes('refused') ||
+              error.toLowerCase().includes('ollama') ? (
+                <p className="mt-1 text-[11px] text-red-500/80">
+                  Make sure Ollama is running locally:{' '}
+                  <code className="font-mono bg-red-500/10 px-1 rounded">
+                    ollama serve
+                  </code>{' '}
+                  and model is pulled:{' '}
+                  <code className="font-mono bg-red-500/10 px-1 rounded">
+                    ollama pull qwen2.5:14b
+                  </code>
+                </p>
+              ) : null}
+            </div>
           </div>
         )}
 
-        {/* Loading skeleton */}
-        {loading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="animate-pulse rounded-lg border border-border bg-card p-4 space-y-3"
+        {/* ── Summary strip ──────────────────────────────────────────────── */}
+        {snapshot && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {(
+              [
+                { label: 'Shortage', value: counts.shortage, color: 'text-red-600', filter: 'shortage' as FilterCategory },
+                { label: 'Oversupply', value: counts.oversupply, color: 'text-blue-600', filter: 'oversupply' as FilterCategory },
+                { label: 'Emerging', value: counts.emerging, color: 'text-violet-600', filter: 'emerging' as FilterCategory },
+                { label: 'Balanced', value: counts.balanced, color: 'text-slate-500', filter: 'balanced' as FilterCategory },
+                { label: 'Rising Pricing', value: counts.rising, color: 'text-emerald-600', filter: 'rising' as FilterCategory },
+              ] as const
+            ).map((tile) => (
+              <button
+                key={tile.label}
+                onClick={() =>
+                  setActiveFilter((prev) =>
+                    prev === tile.filter ? 'all' : tile.filter
+                  )
+                }
+                className={cn(
+                  'rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-all hover:border-border/80 hover:bg-muted/40',
+                  activeFilter === tile.filter && 'ring-1 ring-emerald-500/50 border-emerald-500/30'
+                )}
               >
-                <div className="flex justify-between">
-                  <div className="h-4 w-32 rounded bg-muted" />
-                  <div className="h-4 w-10 rounded bg-muted" />
+                <div className={cn('text-xl font-bold tabular-nums', tile.color)}>
+                  {tile.value}
                 </div>
-                <div className="flex gap-2">
-                  <div className="h-3 w-16 rounded bg-muted" />
-                  <div className="h-3 w-20 rounded bg-muted" />
+                <div className="text-[11px] text-muted-foreground font-medium mt-0.5">
+                  {tile.label}
                 </div>
-                <div className="space-y-1.5">
-                  <div className="h-3 w-full rounded bg-muted" />
-                  <div className="h-3 w-4/5 rounded bg-muted" />
-                  <div className="h-3 w-3/5 rounded bg-muted" />
-                </div>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {Array.from({ length: 3 }).map((_, j) => (
-                    <div key={j} className="h-5 w-14 rounded-md bg-muted" />
-                  ))}
-                </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
 
-        {/* Empty state */}
-        {!snapshot && !loading && (
-          <div className="rounded-lg border border-border bg-card p-12 text-center space-y-3">
-            <Clock className="w-10 h-10 text-muted-foreground/40 mx-auto" />
-            <p className="font-semibold text-base">No analysis available</p>
-            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-              {!canRefreshNow() && !forceMode
-                ? 'Analysis available after 1:00 PM IST. Enable force override to generate now.'
-                : 'Click Run Analysis to generate today’s supply-demand intelligence.'}
-            </p>
-            {!canRefreshNow() && !forceMode && (
-              <div className="flex items-center justify-center gap-1.5 text-xs text-amber-600">
-                <Info className="w-3.5 h-3.5" />
-                Markets close at 3:30 PM IST; analysis is most meaningful post-session.
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Main content */}
-        {snapshot && !loading && (
-          <>
-            {/* Summary strip */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {(['shortage', 'oversupply', 'emerging', 'balanced'] as const).map((cat) => (
-                <div
-                  key={cat}
-                  className="rounded-lg border border-border bg-card px-4 py-3 text-center"
-                >
-                  <p className="text-xs text-muted-foreground capitalize mb-1">{cat}</p>
-                  <p
-                    className={cn(
-                      'text-2xl font-bold font-mono',
-                      cat === 'shortage'
-                        ? 'text-red-600'
-                        : cat === 'oversupply'
-                        ? 'text-blue-600'
-                        : cat === 'emerging'
-                        ? 'text-violet-600'
-                        : 'text-slate-500'
-                    )}
-                  >
-                    {categoryCounts[cat] ?? 0}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            {/* Filter tabs */}
-            <div className="flex gap-1 border-b border-border pb-0">
-              {FILTER_TABS.map((tab) => (
+        {/* ── Filter tabs + search ────────────────────────────────────────── */}
+        {snapshot && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+              {filterTabs.map((tab) => (
                 <button
-                  key={tab.key}
-                  onClick={() => setFilter(tab.key)}
+                  key={tab.value}
+                  onClick={() => setActiveFilter(tab.value)}
                   className={cn(
-                    'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
-                    filter === tab.key
-                      ? 'border-emerald-500 text-emerald-600 bg-emerald-500/5'
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all whitespace-nowrap border',
+                    activeFilter === tab.value
+                      ? cn(
+                          'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+                        )
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   )}
                 >
-                  {tab.label}
-                  {tab.key !== 'all' && (
-                    <span className="ml-1.5 text-xs opacity-60">
-                      {categoryCounts[tab.key] ?? 0}
+                  <span className={activeFilter === tab.value ? '' : filterTabColor(tab.value)}>
+                    {tab.label}
+                  </span>
+                  {tab.count !== undefined && tab.count > 0 && (
+                    <span
+                      className={cn(
+                        'text-[10px] rounded-full px-1.5 py-0.5 font-semibold tabular-nums',
+                        activeFilter === tab.value
+                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {tab.count}
                     </span>
-                  )}
-                  {tab.key === 'all' && (
-                    <span className="ml-1.5 text-xs opacity-60">{snapshot.themes.length}</span>
                   )}
                 </button>
               ))}
             </div>
 
-            {/* Theme cards */}
-            {filteredThemes.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {filteredThemes.map((theme) => (
-                  <ThemeCard key={theme.id ?? theme.commodity} theme={theme} />
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                No themes match the selected filter.
-              </div>
-            )}
-          </>
+            {/* Search */}
+            <div className="relative flex-1 sm:max-w-xs ml-auto">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search commodity, ticker…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 h-8 text-[12px] rounded-md border border-border bg-muted/30 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/30"
+              />
+            </div>
+          </div>
         )}
 
-        {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground/40 pt-4 border-t border-border">
-          AI-generated analysis for informational purposes only. Not investment advice. Always verify
-          with primary sources before making investment decisions.
+        {/* ── Loading skeletons ───────────────────────────────────────────── */}
+        {loading && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
+        )}
+
+        {/* ── Empty state ─────────────────────────────────────────────────── */}
+        {!loading && !snapshot && (
+          <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
+            <div className="h-14 w-14 rounded-full bg-muted/50 flex items-center justify-center border border-border">
+              <Clock className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">No analysis available</h2>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                {canRefreshNow()
+                  ? 'Click "Run Analysis" to generate today’s supply-demand intelligence.'
+                  : `Analysis is available after 1:00 PM IST. ${formatCountdown(countdown)} remaining.`}
+              </p>
+            </div>
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 max-w-md text-left">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Requires local Ollama</p>
+                <p className="mt-0.5 text-amber-600/80">
+                  Start Ollama with{' '}
+                  <code className="font-mono bg-amber-500/10 px-1 rounded">ollama serve</code>{' '}
+                  and pull the model:{' '}
+                  <code className="font-mono bg-amber-500/10 px-1 rounded">ollama pull qwen2.5:14b</code>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Empty search result ─────────────────────────────────────────── */}
+        {!loading && snapshot && filteredThemes.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 space-y-2 text-center">
+            <Search className="h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">No themes match your filter.</p>
+            <button
+              onClick={() => { setActiveFilter('all'); setSearchQuery(''); }}
+              className="text-xs text-emerald-600 hover:underline"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
+
+        {/* ── Theme grid ──────────────────────────────────────────────────── */}
+        {!loading && filteredThemes.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredThemes.map((theme) => (
+              <ThemeCard key={theme.id} theme={theme} />
+            ))}
+          </div>
+        )}
+
+        {/* ── Footer disclaimer ───────────────────────────────────────────── */}
+        <p className="text-center text-[10px] text-muted-foreground/60 pt-2 pb-4 leading-relaxed">
+          AI-generated analysis — not investment advice. All themes are model-inferred; verify
+          with primary sources before making any investment decisions.
         </p>
+
       </div>
-    </main>
+    </div>
   );
 }

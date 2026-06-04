@@ -1,20 +1,40 @@
-// lib/supply-demand-types.ts
+﻿// lib/supply-demand-types.ts
 
-export type Category = 'shortage' | 'oversupply' | 'emerging' | 'balanced';
+export type SupplyStatus = 'shortage' | 'balanced' | 'oversupply';
 
+// short-term  = weeks to 3 months
+// medium-term = 3 to 12 months
+// long-term   = 1 year+
+export type TimeHorizon = 'short-term' | 'medium-term' | 'long-term';
+
+export type PricingPowerTrend = 'rising' | 'falling' | 'stable';
+
+export type Category =
+  | 'shortage'
+  | 'oversupply'
+  | 'emerging'
+  | 'balanced'
+  | 'rising-pricing'
+  | 'falling-pricing';
+
+/** Pricing power as used by the new supply-demand themes model output */
 export type PricingPower = 'rising' | 'collapsing' | 'stable';
-
-export type TimeHorizon = 'near-term' | 'medium-term' | 'long-term';
-
-export type ImpactLevel = 'high' | 'medium' | 'low';
 
 export interface StockImpact {
   symbol: string;
   company: string;
-  rationale: string;
-  impact: ImpactLevel;
+  reason: string;
 }
 
+/** A single stock entry within a SupplyDemandTheme */
+export interface ThemeStock {
+  symbol: string;
+  company: string;
+  rationale: string;
+  impact: 'high' | 'medium' | 'low';
+}
+
+/** One supply-demand theme as returned by the AI model */
 export interface SupplyDemandTheme {
   id: string;
   commodity: string;
@@ -22,19 +42,43 @@ export interface SupplyDemandTheme {
   pricingPower: PricingPower;
   description: string;
   confidence: number;
-  timeHorizon: TimeHorizon;
-  beneficiaries: StockImpact[];
-  adverselyAffected: StockImpact[];
+  timeHorizon: 'near-term' | 'medium-term' | 'long-term';
+  beneficiaries: ThemeStock[];
+  adverselyAffected: ThemeStock[];
   historicalAnalog: string;
   sources: string[];
+}
+
+export interface SupplyDemandStory {
+  id: string;
+  commodity: string;
+  sector: string;
+  supplyStatus: SupplyStatus;
+  confidence: number;
+  timeHorizon: TimeHorizon;
+  summary: string;
+  explanation: string;
+  historicalAnalog?: string;
+  beneficiaries: StockImpact[];
+  adverselyAffected: StockImpact[];
+  pricingPowerTrend: PricingPowerTrend;
+  dataPoints: string[];
+  lastUpdated: string;
 }
 
 export interface SupplyDemandSnapshot {
   themes: SupplyDemandTheme[];
   generatedAt: string;
   elapsedMs: number;
+  error?: string;
+  // Legacy fields kept for backwards compatibility
+  stories?: SupplyDemandStory[];
+  modelUsed?: string;
+  totalShortages?: number;
+  totalOversupply?: number;
+  totalEmerging?: number;
 }
 
-// localStorage shape
-// key:   sd-snapshot-{YYYY-MM-DD}   (IST date of generation)
-// value: JSON.stringify(SupplyDemandSnapshot)
+// localStorage shape:
+// key 'sd-snapshot' -> JSON.stringify(SupplyDemandSnapshot)
+// key 'sd-date'     -> YYYY-MM-DD string in IST (e.g. "2026-06-04")
