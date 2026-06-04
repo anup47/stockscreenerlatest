@@ -3,6 +3,14 @@
 import { useState, useEffect } from 'react';
 import { BTST_WEIGHTS, type BtstResult } from '@/lib/btst-engine';
 import type { BtstScreenData } from '@/lib/btst-types';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import {
+  Play, BarChart2, Clock, Filter, X, TrendingUp, TrendingDown,
+  ChevronDown, AlertCircle, RotateCcw
+} from 'lucide-react';
 
 // ── localStorage persistence ──────────────────────────────────────────────────
 const STORAGE_PREFIX  = 'btst-scan-';
@@ -10,7 +18,7 @@ const STORAGE_INDEX   = 'btst-scan-index';
 const MAX_STORED_DAYS = 90;
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  return new Date().toISOString().slice(0, 10);
 }
 
 function saveResult(data: BtstScreenData): void {
@@ -22,7 +30,7 @@ function saveResult(data: BtstScreenData): void {
       const updated = [todayKey(), ...index].slice(0, MAX_STORED_DAYS);
       localStorage.setItem(STORAGE_INDEX, JSON.stringify(updated));
     }
-  } catch { /* storage full — silent */ }
+  } catch { /* storage full */ }
 }
 
 function loadIndex(): string[] {
@@ -38,30 +46,15 @@ function loadByDate(date: string): BtstScreenData | null {
   } catch { return null; }
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 type ConvictionFilter = 'Any' | 'Medium' | 'High' | 'Very High';
 type SortKey         = 'score' | 'volumeRatio' | 'changePct';
 
 const CONVICTION_ORDER: Record<BtstResult['conviction'], number> = {
-  'Very High': 4,
-  'High':      3,
-  'Medium':    2,
-  'Low':       1,
+  'Very High': 4, 'High': 3, 'Medium': 2, 'Low': 1,
 };
 
-const CONVICTION_COLOURS: Record<BtstResult['conviction'], string> = {
-  'Very High': 'bg-emerald-600 text-white',
-  'High':      'bg-sky-600 text-white',
-  'Medium':    'bg-amber-500 text-white',
-  'Low':       'bg-slate-500 text-white',
-};
-
-const SCORE_BAR_COLOUR = (score: number) => {
-  if (score >= 80) return 'bg-emerald-500';
-  if (score >= 65) return 'bg-sky-500';
-  if (score >= 50) return 'bg-amber-400';
-  return 'bg-slate-400';
-};
-
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number | undefined | null, dec = 2): string {
   return (n ?? 0).toFixed(dec);
 }
@@ -70,33 +63,72 @@ function fmtCr(v: number | undefined | null): string {
   return `₹${((v ?? 0) / 1e7).toFixed(1)} Cr`;
 }
 
+function fmtDateLabel(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+function ConvictionBadge({ conviction }: { conviction: BtstResult['conviction'] }) {
+  const styles: Record<BtstResult['conviction'], string> = {
+    'Very High': 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
+    'High':      'bg-sky-500/15 text-sky-700 border-sky-500/30',
+    'Medium':    'bg-amber-500/15 text-amber-700 border-amber-500/30',
+    'Low':       'bg-slate-500/15 text-slate-600 border-slate-400/30',
+  };
+  return (
+    <Badge variant="outline" className={cn('text-xs font-semibold', styles[conviction])}>
+      {conviction}
+    </Badge>
+  );
+}
+
+function ScoreBar({ score }: { score: number }) {
+  const colour =
+    score >= 80 ? 'bg-emerald-500' :
+    score >= 65 ? 'bg-sky-500' :
+    score >= 50 ? 'bg-amber-400' : 'bg-slate-400';
+  return (
+    <div className="w-full bg-slate-200/60 rounded-full h-1.5 overflow-hidden">
+      <div
+        className={cn('h-1.5 rounded-full transition-all', colour)}
+        style={{ width: `${score}%` }}
+      />
+    </div>
+  );
+}
+
 function ScoreBreakdown({ pts }: { pts: BtstResult['pts'] }) {
   const rows: Array<[string, number, number]> = [
-    ['Breakout Quality',    pts.breakout,   BTST_WEIGHTS.breakoutQuality],
-    ['Candle Close Str.',   pts.candle,     BTST_WEIGHTS.candleCloseStr],
-    ['Volume Confirm',      pts.volume,     BTST_WEIGHTS.volumeConfirm],
-    ['Trend Alignment',     pts.trend,      BTST_WEIGHTS.trendAlignment],
-    ['Volatility Exp.',     pts.volatility, BTST_WEIGHTS.volatilityExpansion],
-    ['Relative Strength',   pts.rs,         BTST_WEIGHTS.relativeStrength],
-    ['F&O Confirmation',    pts.fno,        BTST_WEIGHTS.fnoConfirmation],
-    ['Risk Quality',        pts.risk,       BTST_WEIGHTS.riskQuality],
-    ['Liquidity',           pts.liquidity,  BTST_WEIGHTS.liquidity],
+    ['Breakout Quality',  pts.breakout,   BTST_WEIGHTS.breakoutQuality],
+    ['Candle Close Str.', pts.candle,     BTST_WEIGHTS.candleCloseStr],
+    ['Volume Confirm',    pts.volume,     BTST_WEIGHTS.volumeConfirm],
+    ['Trend Alignment',   pts.trend,      BTST_WEIGHTS.trendAlignment],
+    ['Volatility Exp.',   pts.volatility, BTST_WEIGHTS.volatilityExpansion],
+    ['Relative Strength', pts.rs,         BTST_WEIGHTS.relativeStrength],
+    ['F&O Confirmation',  pts.fno,        BTST_WEIGHTS.fnoConfirmation],
+    ['Risk Quality',      pts.risk,       BTST_WEIGHTS.riskQuality],
+    ['Liquidity',         pts.liquidity,  BTST_WEIGHTS.liquidity],
   ];
   return (
     <table className="w-full text-xs mt-2 border-collapse">
       <thead>
-        <tr className="text-slate-400 border-b border-slate-700">
-          <th className="text-left py-1 pr-3 font-normal">Component</th>
-          <th className="text-right py-1 pr-2 font-normal">Score</th>
-          <th className="text-right py-1 font-normal">Max</th>
+        <tr className="text-muted-foreground border-b border-border">
+          <th className="text-left py-1.5 pr-3 font-medium">Component</th>
+          <th className="text-right py-1.5 pr-2 font-medium">Score</th>
+          <th className="text-right py-1.5 font-medium">Max</th>
         </tr>
       </thead>
       <tbody>
         {rows.map(([label, val, max]) => (
-          <tr key={label} className="border-b border-slate-800">
-            <td className="py-0.5 pr-3 text-slate-300">{label}</td>
-            <td className={`text-right py-0.5 pr-2 font-semibold ${val === max ? 'text-emerald-400' : val === 0 ? 'text-red-400' : 'text-amber-300'}`}>{val}</td>
-            <td className="text-right py-0.5 text-slate-500">{max}</td>
+          <tr key={label} className="border-b border-border/50">
+            <td className="py-1 pr-3 text-foreground">{label}</td>
+            <td className={cn('text-right py-1 pr-2 font-semibold',
+              val === max ? 'text-emerald-600' : val === 0 ? 'text-red-500' : 'text-amber-600'
+            )}>
+              {val}
+            </td>
+            <td className="text-right py-1 text-muted-foreground">{max}</td>
           </tr>
         ))}
       </tbody>
@@ -108,140 +140,152 @@ function ResultCard({ result, rank }: { result: BtstResult; rank: number }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <span className="text-slate-500 font-bold text-lg w-7">{rank}</span>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-white font-bold text-xl tracking-wide">{result.symbol}</span>
-              {result.isFnO && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-violet-700 text-violet-200 font-semibold">F&O</span>
+    <Card className="gap-0 py-0">
+      <CardHeader className="px-4 pt-4 pb-3">
+        {/* Rank + symbol + badges */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <span className="text-muted-foreground font-bold text-base w-6 text-center shrink-0">
+              {rank}
+            </span>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-foreground font-bold text-lg tracking-wide">{result.symbol}</span>
+                {result.isFnO && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-700 border border-violet-500/30 font-semibold">
+                    F&O
+                  </span>
+                )}
+                <ConvictionBadge conviction={result.conviction} />
+              </div>
+              <p className="text-muted-foreground text-xs mt-0.5">{result.company}</p>
+            </div>
+          </div>
+          {/* Score */}
+          <div className="text-right shrink-0">
+            <p className="text-muted-foreground text-xs mb-0.5">Score</p>
+            <p className="text-foreground font-bold text-2xl leading-none">{result.score}</p>
+          </div>
+        </div>
+        {/* Score bar */}
+        <ScoreBar score={result.score} />
+      </CardHeader>
+
+      <CardContent className="px-4 pb-4 flex flex-col gap-3">
+        {/* Key metrics grid */}
+        <div className="grid grid-cols-4 gap-1.5">
+          {([
+            ['Close',     `₹${fmt(result.close, 1)}`,             null],
+            ['Breakout',  `₹${fmt(result.breakoutLevel, 1)}`,      null],
+            ['Vol Ratio', `${fmt(result.volumeRatio, 1)}x`,         null],
+            ['Change',    `${result.changePct >= 0 ? '+' : ''}${fmt(result.changePct, 2)}%`,
+              result.changePct >= 0 ? 'text-emerald-600' : 'text-red-500'],
+          ] as [string, string, string | null][]).map(([label, value, colour]) => (
+            <div key={label} className="bg-muted/60 rounded-lg p-2 text-center">
+              <p className="text-muted-foreground text-xs">{label}</p>
+              <p className={cn('text-sm font-semibold mt-0.5', colour ?? 'text-foreground')}>
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* EMA chips + F&O signal */}
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { label: '20 EMA',  above: result.close > result.ema20 },
+            { label: '50 EMA',  above: result.close > result.ema50 },
+            { label: '200 DMA', above: result.close > result.sma200 },
+          ].map(({ label, above }) => (
+            <span
+              key={label}
+              className={cn(
+                'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium border',
+                above
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+                  : 'border-red-500/30 bg-red-500/10 text-red-600'
               )}
-              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${CONVICTION_COLOURS[result.conviction]}`}>
-                {result.conviction}
-              </span>
-            </div>
-            <div className="text-slate-400 text-xs mt-0.5">{result.company}</div>
+            >
+              {above
+                ? <TrendingUp className="size-3" />
+                : <TrendingDown className="size-3" />}
+              {label}
+            </span>
+          ))}
+          {result.isFnO && result.fnoSignal !== 'None' && (
+            <span className={cn(
+              'text-xs px-2 py-0.5 rounded-full font-medium border',
+              result.fnoSignal === 'Long Buildup' || result.fnoSignal === 'Short Covering'
+                ? 'border-violet-500/30 bg-violet-500/10 text-violet-700'
+                : 'border-orange-500/30 bg-orange-500/10 text-orange-700'
+            )}>
+              {result.fnoSignal}
+            </span>
+          )}
+        </div>
+
+        {/* Entry / Stop / Stop% */}
+        <div className="grid grid-cols-3 gap-1.5">
+          <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-lg p-2 text-center">
+            <p className="text-muted-foreground text-xs">Entry Zone</p>
+            <p className="text-emerald-700 text-sm font-semibold mt-0.5">{result.entryZone}</p>
+          </div>
+          <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-2 text-center">
+            <p className="text-muted-foreground text-xs">Stop Loss</p>
+            <p className="text-red-600 text-sm font-semibold mt-0.5">₹{fmt(result.stopLoss, 1)}</p>
+          </div>
+          <div className={cn(
+            'rounded-lg p-2 text-center border',
+            result.stopPct <= 2
+              ? 'bg-emerald-500/8 border-emerald-500/20'
+              : result.stopPct <= 3
+              ? 'bg-amber-500/8 border-amber-500/20'
+              : 'bg-red-500/8 border-red-500/20'
+          )}>
+            <p className="text-muted-foreground text-xs">Stop %</p>
+            <p className={cn(
+              'text-sm font-semibold mt-0.5',
+              result.stopPct <= 2 ? 'text-emerald-700' : result.stopPct <= 3 ? 'text-amber-700' : 'text-red-600'
+            )}>
+              {fmt(result.stopPct, 1)}%
+            </p>
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-slate-400 text-xs mb-1">Score</div>
-          <div className="text-white font-bold text-2xl">{result.score}</div>
+
+        {/* Traded value + ATR */}
+        <div className="flex gap-4 text-xs text-muted-foreground">
+          <span>Traded: <span className="text-foreground font-medium">{fmtCr(result.tradedValue)}</span></span>
+          <span>ATR: <span className="text-foreground font-medium">{fmt(result.atrPct, 2)}%</span></span>
         </div>
-      </div>
 
-      {/* Score bar */}
-      <div className="w-full bg-slate-700 rounded-full h-2">
-        <div
-          className={`h-2 rounded-full transition-all ${SCORE_BAR_COLOUR(result.score)}`}
-          style={{ width: `${result.score}%` }}
-        />
-      </div>
+        {/* Explanation */}
+        <p className="text-muted-foreground text-xs italic leading-relaxed">{result.explanation}</p>
 
-      {/* Key metrics grid */}
-      <div className="grid grid-cols-4 gap-2 text-center">
-        {[
-          ['Close',          `₹${fmt(result.close, 1)}`],
-          ['Breakout',       `₹${fmt(result.breakoutLevel, 1)}`],
-          ['Vol Ratio',      `${fmt(result.volumeRatio, 1)}x`],
-          ['Change',         `${result.changePct >= 0 ? '+' : ''}${fmt(result.changePct, 2)}%`],
-        ].map(([label, value]) => (
-          <div key={label} className="bg-slate-900 rounded-lg p-2">
-            <div className="text-slate-500 text-xs">{label}</div>
-            <div className={`text-sm font-semibold mt-0.5 ${label === 'Change' ? (result.changePct >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-white'}`}>
-              {value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* EMA chips */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          { label: '20 EMA', above: result.close > result.ema20 },
-          { label: '50 EMA', above: result.close > result.ema50 },
-          { label: '200 DMA', above: result.close > result.sma200 },
-        ].map(({ label, above }) => (
-          <span
-            key={label}
-            className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
-              above
-                ? 'border-emerald-700 bg-emerald-900/40 text-emerald-300'
-                : 'border-red-800 bg-red-900/20 text-red-400'
-            }`}
-          >
-            {label} {above ? '✓' : '✗'}
-          </span>
-        ))}
-        {result.isFnO && result.fnoSignal !== 'None' && (
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
-            result.fnoSignal === 'Long Buildup' || result.fnoSignal === 'Short Covering'
-              ? 'border-violet-600 bg-violet-900/40 text-violet-300'
-              : 'border-orange-700 bg-orange-900/20 text-orange-400'
-          }`}>
-            {result.fnoSignal}
-          </span>
-        )}
-      </div>
-
-      {/* Entry / Stop */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="bg-slate-900 rounded-lg p-2">
-          <div className="text-slate-500 text-xs">Entry Zone</div>
-          <div className="text-emerald-300 text-sm font-semibold mt-0.5">{result.entryZone}</div>
-        </div>
-        <div className="bg-slate-900 rounded-lg p-2">
-          <div className="text-slate-500 text-xs">Stop Loss</div>
-          <div className="text-red-400 text-sm font-semibold mt-0.5">₹{fmt(result.stopLoss, 1)}</div>
-        </div>
-        <div className="bg-slate-900 rounded-lg p-2">
-          <div className="text-slate-500 text-xs">Stop %</div>
-          <div className={`text-sm font-semibold mt-0.5 ${result.stopPct <= 2 ? 'text-emerald-400' : result.stopPct <= 3 ? 'text-amber-400' : 'text-red-400'}`}>
-            {fmt(result.stopPct, 1)}%
-          </div>
-        </div>
-      </div>
-
-      {/* Traded value + ATR */}
-      <div className="flex gap-4 text-xs text-slate-400">
-        <span>Traded: <span className="text-slate-300">{fmtCr(result.tradedValue)}</span></span>
-        <span>ATR: <span className="text-slate-300">{fmt(result.atrPct, 2)}%</span></span>
-      </div>
-
-      {/* Explanation */}
-      <p className="text-slate-400 text-xs italic leading-relaxed">{result.explanation}</p>
-
-      {/* Accordion: score breakdown */}
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="text-xs text-slate-500 hover:text-slate-300 text-left transition-colors"
-      >
-        {expanded ? '▲ Hide' : '▼ Show'} score breakdown
-      </button>
-      {expanded && <ScoreBreakdown pts={result.pts} />}
-    </div>
+        {/* Score breakdown toggle */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer w-fit"
+        >
+          <ChevronDown className={cn('size-3 transition-transform', expanded && 'rotate-180')} />
+          {expanded ? 'Hide' : 'Show'} score breakdown
+        </button>
+        {expanded && <ScoreBreakdown pts={result.pts} />}
+      </CardContent>
+    </Card>
   );
 }
 
-function fmtDateLabel(iso: string): string {
-  // "2026-05-29" → "Thu 29 May 2026"
-  const d = new Date(iso + 'T00:00:00');
-  return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-}
-
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function BtstPage() {
-  const [loading,     setLoading]   = useState(false);
-  const [data,        setData]      = useState<BtstScreenData | null>(null);
-  const [error,       setError]     = useState<string | null>(null);
-  const [conviction,  setConviction]= useState<ConvictionFilter>('Any');
-  const [fnoOnly,     setFnoOnly]   = useState(false);
-  const [sortKey,     setSortKey]   = useState<SortKey>('score');
-  const [dateIndex,   setDateIndex] = useState<string[]>([]);
-  const [selectedDate,setSelected]  = useState<string>('');
+  const [loading,      setLoading]   = useState(false);
+  const [data,         setData]      = useState<BtstScreenData | null>(null);
+  const [error,        setError]     = useState<string | null>(null);
+  const [conviction,   setConviction]= useState<ConvictionFilter>('Any');
+  const [fnoOnly,      setFnoOnly]   = useState(false);
+  const [sortKey,      setSortKey]   = useState<SortKey>('score');
+  const [dateIndex,    setDateIndex] = useState<string[]>([]);
+  const [selectedDate, setSelected]  = useState<string>('');
 
-  // Load stored date index on mount
   useEffect(() => {
     try {
       const idx = loadIndex();
@@ -253,7 +297,6 @@ export default function BtstPage() {
         if (saved) setData(saved);
       }
     } catch {
-      // Corrupted localStorage — wipe BTST keys and start fresh
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
         if (k?.startsWith(STORAGE_PREFIX) || k === STORAGE_INDEX) localStorage.removeItem(k);
@@ -268,32 +311,24 @@ export default function BtstPage() {
       const res = await fetch('/api/btst-screen', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: BtstScreenData = await res.json();
-      // Save today's scan
       saveResult(json);
-      // Save embedded 90-day history entries
       if (json.history && json.historyDates) {
         for (const date of json.historyDates) {
           const scan = json.history[date];
           if (!scan) continue;
           const full: BtstScreenData = {
-            results: scan.results,
-            total: scan.total,
-            scanned: json.scanned,
-            niftyChange: scan.niftyChange,
-            fetchedAt: date + 'T15:25:00.000Z',
-            elapsedMs: 0,
+            results: scan.results, total: scan.total, scanned: json.scanned,
+            niftyChange: scan.niftyChange, fetchedAt: date + 'T15:25:00.000Z', elapsedMs: 0,
           };
           try { localStorage.setItem(STORAGE_PREFIX + date, JSON.stringify(full)); } catch { /* full */ }
         }
-        // Rebuild index from all stored keys
         const allKeys: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
           if (k?.startsWith(STORAGE_PREFIX)) allKeys.push(k.slice(STORAGE_PREFIX.length));
         }
         allKeys.sort().reverse();
-        const trimmed = allKeys.slice(0, MAX_STORED_DAYS);
-        localStorage.setItem(STORAGE_INDEX, JSON.stringify(trimmed));
+        localStorage.setItem(STORAGE_INDEX, JSON.stringify(allKeys.slice(0, MAX_STORED_DAYS)));
       }
       setData(json);
       setSelected(todayKey());
@@ -307,11 +342,19 @@ export default function BtstPage() {
 
   function handleDateChange(date: string) {
     setSelected(date);
-    const saved = loadByDate(date);
-    setData(saved);
+    setData(loadByDate(date));
     setError(null);
   }
 
+  function clearHistory() {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(STORAGE_PREFIX) || k === STORAGE_INDEX) localStorage.removeItem(k);
+    }
+    setDateIndex([]);
+    setSelected('');
+    setData(null);
+  }
 
   const filtered: BtstResult[] = (data?.results ?? [])
     .filter(r => {
@@ -326,124 +369,143 @@ export default function BtstPage() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
+    <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-8">
-        {/* Header */}
+
+        {/* ── Header ── */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white">BTST Screener</h1>
-          <p className="text-slate-400 mt-1">Closing breakout + volume + trend + F&O confirmation</p>
-          <p className="text-amber-400 text-sm mt-1">Best run at 3:20–3:25 PM when market is about to close</p>
+          <div className="flex items-center gap-2 mb-1">
+            <BarChart2 className="size-6 text-emerald-600" strokeWidth={2} />
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">BTST Screener</h1>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            Closing breakout · volume · trend alignment · F&O confirmation
+          </p>
+          <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-amber-700 bg-amber-500/10 border border-amber-500/25 rounded-full px-3 py-1">
+            <Clock className="size-3" />
+            Best run at 3:20–3:25 PM before market close
+          </div>
         </div>
 
-        {/* Run button + date picker + meta */}
-        <div className="flex items-center gap-4 mb-6 flex-wrap">
-          <button
+        {/* ── Controls ── */}
+        <div className="flex flex-wrap items-center gap-3 mb-5">
+          <Button
             onClick={runScan}
             disabled={loading}
-            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold gap-2 cursor-pointer"
+            size="lg"
           >
-            {loading ? (
-              <>
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Scanning…
-              </>
-            ) : 'Run Scan'}
-          </button>
+            {loading
+              ? <><RotateCcw className="size-4 animate-spin" />Scanning…</>
+              : <><Play className="size-4" />Run Scan</>}
+          </Button>
 
-          {/* Historical date picker */}
           {dateIndex.length > 0 && (
             <div className="flex items-center gap-2">
-              <label className="text-slate-400 text-sm">History:</label>
-              <select
-                value={selectedDate}
-                onChange={e => handleDateChange(e.target.value)}
-                className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 min-w-[180px]"
-              >
-                {dateIndex.map(d => (
-                  <option key={d} value={d}>
-                    {fmtDateLabel(d)}{d === todayKey() ? ' (today)' : ''}
-                  </option>
-                ))}
-              </select>
-              <span className="text-slate-500 text-xs">{dateIndex.length} day{dateIndex.length !== 1 ? 's' : ''} stored</span>
+              <div className="relative flex items-center">
+                <Clock className="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" />
+                <select
+                  value={selectedDate}
+                  onChange={e => handleDateChange(e.target.value)}
+                  className="pl-8 pr-8 py-2 h-9 text-sm bg-background border border-input rounded-lg text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring cursor-pointer min-w-[190px]"
+                >
+                  {dateIndex.map(d => (
+                    <option key={d} value={d}>
+                      {fmtDateLabel(d)}{d === todayKey() ? ' (today)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 size-3.5 text-muted-foreground pointer-events-none" />
+              </div>
+              <span className="text-muted-foreground text-xs">{dateIndex.length} days</span>
               <button
-                onClick={() => {
-                  for (let i = localStorage.length - 1; i >= 0; i--) {
-                    const k = localStorage.key(i);
-                    if (k?.startsWith(STORAGE_PREFIX) || k === STORAGE_INDEX) localStorage.removeItem(k);
-                  }
-                  setDateIndex([]);
-                  setSelected('');
-                  setData(null);
-                }}
-                className="text-xs text-slate-600 hover:text-red-400 transition-colors"
+                onClick={clearHistory}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
                 title="Clear all stored history"
               >
-                ✕ Clear
+                <X className="size-3.5" />Clear
               </button>
             </div>
           )}
 
           {data && (
-            <div className="text-slate-400 text-sm">
-              Scanned <span className="text-slate-300">{data.scanned}</span> symbols
-              {' · '}Nifty <span className={data.niftyChange >= 0 ? 'text-emerald-400' : 'text-red-400'}>{(data.niftyChange ?? 0) >= 0 ? '+' : ''}{(data.niftyChange ?? 0).toFixed(2)}%</span>
-              {' · '}<span className="text-slate-500">{new Date(data.fetchedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground ml-auto flex-wrap justify-end">
+              <span>
+                Scanned <span className="text-foreground font-medium">{data.scanned}</span>
+              </span>
+              <span className="text-border">·</span>
+              <span>
+                Nifty{' '}
+                <span className={cn('font-medium', (data.niftyChange ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                  {(data.niftyChange ?? 0) >= 0 ? '+' : ''}{(data.niftyChange ?? 0).toFixed(2)}%
+                </span>
+              </span>
+              <span className="text-border">·</span>
+              <span className="text-xs">
+                {new Date(data.fetchedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+              </span>
             </div>
           )}
         </div>
 
-        {/* Error */}
+        {/* ── Error ── */}
         {error && (
-          <div className="mb-4 p-3 bg-red-900/40 border border-red-700 rounded-lg text-red-300 text-sm">
+          <div className="mb-4 flex items-start gap-2.5 p-3.5 bg-red-500/8 border border-red-500/25 rounded-xl text-red-600 text-sm">
+            <AlertCircle className="size-4 mt-0.5 shrink-0" />
             {error}
           </div>
         )}
 
-        {/* Filters */}
+        {/* ── Filters ── */}
         {data && (
-          <div className="flex flex-wrap items-center gap-4 mb-6 p-3 bg-slate-800 border border-slate-700 rounded-xl">
-            <div className="flex items-center gap-2 text-sm">
-              <label className="text-slate-400">Min conviction:</label>
+          <div className="flex flex-wrap items-center gap-3 mb-5 px-3.5 py-2.5 bg-muted/40 border border-border rounded-xl">
+            <Filter className="size-3.5 text-muted-foreground shrink-0" />
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Min conviction</label>
               <select
                 value={conviction}
                 onChange={e => setConviction(e.target.value as ConvictionFilter)}
-                className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
+                className="text-sm bg-background border border-input rounded-md px-2.5 py-1 h-7 text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 cursor-pointer"
               >
                 {(['Any', 'Medium', 'High', 'Very High'] as ConvictionFilter[]).map(v => (
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={fnoOnly}
-                onChange={e => setFnoOnly(e.target.checked)}
-                className="accent-violet-500"
-              />
-              F&O only
-            </label>
-            <div className="flex items-center gap-2 text-sm">
-              <label className="text-slate-400">Sort by:</label>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Sort by</label>
               <select
                 value={sortKey}
                 onChange={e => setSortKey(e.target.value as SortKey)}
-                className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm"
+                className="text-sm bg-background border border-input rounded-md px-2.5 py-1 h-7 text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 cursor-pointer"
               >
                 <option value="score">Score</option>
                 <option value="volumeRatio">Volume</option>
                 <option value="changePct">Change %</option>
               </select>
             </div>
-            <span className="text-slate-500 text-xs ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>
+
+            <button
+              onClick={() => setFnoOnly(f => !f)}
+              className={cn(
+                'flex items-center gap-1.5 text-xs px-2.5 py-1 h-7 rounded-md border font-medium transition-colors cursor-pointer',
+                fnoOnly
+                  ? 'bg-violet-500/15 border-violet-500/30 text-violet-700'
+                  : 'bg-background border-input text-muted-foreground hover:text-foreground'
+              )}
+            >
+              F&O only
+            </button>
+
+            <span className="ml-auto text-xs text-muted-foreground">
+              {filtered.length} result{filtered.length !== 1 ? 's' : ''}
+            </span>
           </div>
         )}
 
-        {/* Results */}
+        {/* ── Results ── */}
         {filtered.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filtered.map((r, i) => (
@@ -451,17 +513,26 @@ export default function BtstPage() {
             ))}
           </div>
         ) : data && !loading ? (
-          <div className="text-center text-slate-500 py-16">No results match the current filters.</div>
+          <div className="text-center text-muted-foreground py-20">
+            <Filter className="size-10 mx-auto mb-3 opacity-30" />
+            <p>No results match the current filters.</p>
+          </div>
         ) : !data && !loading ? (
-          <div className="text-center text-slate-600 py-16">
-            <div className="text-5xl mb-4">📊</div>
-            <div className="text-lg text-slate-500">Click <span className="text-emerald-400">Run Scan</span> to find today&apos;s BTST setups</div>
+          <div className="text-center py-24">
+            <BarChart2 className="size-14 mx-auto mb-4 text-muted-foreground/30" strokeWidth={1.5} />
+            <p className="text-muted-foreground">
+              Click{' '}
+              <button onClick={runScan} className="text-emerald-600 font-semibold hover:underline cursor-pointer">
+                Run Scan
+              </button>{' '}
+              to find today&apos;s BTST setups
+            </p>
           </div>
         ) : null}
 
-        {/* Footer weights */}
-        <div className="mt-10 p-3 bg-slate-800/50 border border-slate-700 rounded-xl text-xs text-slate-500 text-center">
-          Weights used: Breakout {BTST_WEIGHTS.breakoutQuality} | Candle {BTST_WEIGHTS.candleCloseStr} | Volume {BTST_WEIGHTS.volumeConfirm} | Trend {BTST_WEIGHTS.trendAlignment} | Vol.Exp {BTST_WEIGHTS.volatilityExpansion} | RS {BTST_WEIGHTS.relativeStrength} | F&O {BTST_WEIGHTS.fnoConfirmation} | Risk {BTST_WEIGHTS.riskQuality} | Liq {BTST_WEIGHTS.liquidity}
+        {/* ── Footer weights ── */}
+        <div className="mt-10 p-3 bg-muted/30 border border-border rounded-xl text-xs text-muted-foreground text-center leading-relaxed">
+          Weights — Breakout {BTST_WEIGHTS.breakoutQuality} · Candle {BTST_WEIGHTS.candleCloseStr} · Volume {BTST_WEIGHTS.volumeConfirm} · Trend {BTST_WEIGHTS.trendAlignment} · VolExp {BTST_WEIGHTS.volatilityExpansion} · RS {BTST_WEIGHTS.relativeStrength} · F&O {BTST_WEIGHTS.fnoConfirmation} · Risk {BTST_WEIGHTS.riskQuality} · Liq {BTST_WEIGHTS.liquidity}
         </div>
       </div>
     </div>

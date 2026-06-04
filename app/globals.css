@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
 /* Subtle pulse animation for loading skeleton */
 @keyframes shimmer {
   0%   { opacity: 0.4; }
@@ -128,3 +134,27 @@ html { font-size: clamp(18px, 15.5px + 0.42vw, 20px); }
 .text-\[9px\]  { font-size: clamp(11px, 9.5px + 0.22vw, 13px); }
 .text-\[10px\] { font-size: clamp(12px, 11px  + 0.24vw, 14px); }
 .text-\[11px\] { font-size: clamp(13px, 12px  + 0.24vw, 15px); }
+
+
+/* ── shadcn/ui CSS variables (HSL channel values — Tailwind v3 compatible) ── */
+:root {
+  --background:           0 0% 100%;
+  --foreground:           222 47% 11%;
+  --card:                 0 0% 100%;
+  --card-foreground:      222 47% 11%;
+  --popover:              0 0% 100%;
+  --popover-foreground:   222 47% 11%;
+  --primary:              222 47% 11%;
+  --primary-foreground:   210 40% 98%;
+  --secondary:            210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted:                210 40% 96%;
+  --muted-foreground:     215 16% 47%;
+  --accent:               210 40% 96%;
+  --accent-foreground:    222 47% 11%;
+  --destructive:          0 84% 60%;
+  --border:               214 32% 91%;
+  --input:                214 32% 91%;
+  --ring:                 215 20% 65%;
+  --radius:               0.625rem;
+}
