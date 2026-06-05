@@ -26,6 +26,8 @@ interface RawScreenerData {
   n?: number;
   _debug?: DebugInfo;
 }
+const TOTAL_SCAN_BATCHES = 6; // must match TOTAL_BATCHES in the API route
+
 interface BatchResponse {
   all: OIScreenerRow[];
   scanned: number;
@@ -453,7 +455,7 @@ export default function OIScreenerPage() {
     const batchErrors: string[]    = [];
     let refBatch: BatchResponse | null = null;
 
-    for (let batch = 1; batch <= 4; batch++) {
+    for (let batch = 1; batch <= TOTAL_SCAN_BATCHES; batch++) {
       const p = new URLSearchParams(baseParams);
       p.set('batch', String(batch));
       try {
@@ -484,13 +486,13 @@ export default function OIScreenerPage() {
       }
       setBatchesDone(batch);
       // Give Dhan's rate-limit window a moment to breathe between batches
-      if (batch < 4) await new Promise(r => setTimeout(r, 2000));
+      if (batch < TOTAL_SCAN_BATCHES) await new Promise(r => setTimeout(r, 2000));
     }
 
     if (allRows.length === 0) {
       setError(batchErrors.join(' | ') || 'No data returned');
     } else if (batchErrors.length) {
-      setError(`Partial results (${4 - batchErrors.length}/4 batches ok): ${batchErrors.join(' | ')}`);
+      setError(`Partial results (${TOTAL_SCAN_BATCHES - batchErrors.length}/${TOTAL_SCAN_BATCHES} batches ok): ${batchErrors.join(' | ')}`);
     }
     setLoading(false);
     setScanning(false);
@@ -523,9 +525,9 @@ export default function OIScreenerPage() {
     : null;
 
   const scanStatus = loading
-    ? (batchesDone === 0 ? 'Fetching expiry dates…' : `Scanning batch ${batchesDone}/4…`)
+    ? (batchesDone === 0 ? 'Fetching expiry dates…' : `Scanning batch ${batchesDone}/${TOTAL_SCAN_BATCHES}…`)
     : scanning
-    ? `${rawData?.scanned ?? 0} scanned · batch ${batchesDone + 1}/4 in progress…`
+    ? `${rawData?.scanned ?? 0} scanned · batch ${batchesDone + 1}/${TOTAL_SCAN_BATCHES} in progress…`
     : rawData
     ? `${rawData.scanned} symbols scanned · ${scannedAt}${buildupMap.size === 0 ? ' · loading futures…' : ''}`
     : '~200 F&O symbols · runs in 4 sequential batches';
@@ -586,9 +588,9 @@ export default function OIScreenerPage() {
                   : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
             >
               {loading
-                ? (batchesDone === 0 ? 'Fetching expiries…' : `Batch ${batchesDone}/4…`)
+                ? (batchesDone === 0 ? 'Fetching expiries…' : `Batch ${batchesDone}/${TOTAL_SCAN_BATCHES}…`)
                 : scanning
-                ? `Batch ${batchesDone + 1}/4…`
+                ? `Batch ${batchesDone + 1}/${TOTAL_SCAN_BATCHES}…`
                 : dirty ? '↻ Re-run with new settings' : '↻ Run Screen'}
             </button>
           </div>

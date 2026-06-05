@@ -13,7 +13,9 @@ const ALL_SCREEN_SYMBOLS = [
   ...ALL_FNO_SYMBOLS.stocks,
 ];
 
-const TOTAL_BATCHES = 4;
+// 6 batches → ~34 symbols / 17 pairs each.
+// 17 pairs × 2000ms sleep ≈ 42s per batch — safely under the 55s maxDuration.
+const TOTAL_BATCHES = 6;
 const BATCH_SIZE = Math.ceil(ALL_SCREEN_SYMBOLS.length / TOTAL_BATCHES);
 
 async function sleep(ms: number) {
@@ -149,7 +151,7 @@ export async function GET(req: NextRequest) {
     }));
 
     for (const r of pairResults) if (r !== null) rows.push(r);
-    if (i + 2 < withExpiry.length) await sleep(2500);
+    if (i + 2 < withExpiry.length) await sleep(2000);
   }
 
   rows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
