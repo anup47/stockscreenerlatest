@@ -20,6 +20,18 @@ async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Retry once on Dhan rate-limit (HTTP 429 / error code 805) after a longer backoff.
+async function fetchOptionChainSafe(
+  sym: string, expiry: string, clientId: string, accessToken: string,
+) {
+  const first = await fetchDhanOptionChain(sym, expiry, clientId, accessToken);
+  if (first.error && first.error.includes('429')) {
+    await sleep(6000);
+    return fetchDhanOptionChain(sym, expiry, clientId, accessToken);
+  }
+  return first;
+}
+
 export async function GET(req: NextRequest) {
   const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
   const accessToken = req.headers.get('x-dhan-access-token') ?? '';
@@ -96,7 +108,7 @@ export async function GET(req: NextRequest) {
         return null;
       }
 
-      const { data, error } = await fetchDhanOptionChain(sym, expiry, clientId, accessToken);
+      const { data, error } = await fetchOptionChainSafe(sym, expiry, clientId, accessToken);
 
       if (error || !data) {
         debugLog.push({ sym, expiry, status: 'api-error', error: error ?? 'null data' });
@@ -137,7 +149,7 @@ export async function GET(req: NextRequest) {
     }));
 
     for (const r of pairResults) if (r !== null) rows.push(r);
-    if (i + 2 < withExpiry.length) await sleep(1500);
+    if (i + 2 < withExpiry.length) await sleep(2500);
   }
 
   rows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);

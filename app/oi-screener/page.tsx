@@ -483,6 +483,8 @@ export default function OIScreenerPage() {
         batchErrors.push(`Batch ${batch}: ${String(e)}`);
       }
       setBatchesDone(batch);
+      // Give Dhan's rate-limit window a moment to breathe between batches
+      if (batch < 4) await new Promise(r => setTimeout(r, 2000));
     }
 
     if (allRows.length === 0) {
