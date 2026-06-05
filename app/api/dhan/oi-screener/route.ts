@@ -10,11 +10,11 @@ export const maxDuration = 30;
 // data source already used by the OI Buildup tab. Single call, ~5s, no auth.
 
 export async function GET() {
-  const { ceMap, peMap } = await fetchNseOptionOIBulk();
+  const { ceMap, peMap, rawSample } = await fetchNseOptionOIBulk();
 
   if (ceMap.size === 0 && peMap.size === 0) {
     return NextResponse.json(
-      { error: 'NSE option OI data unavailable — NSE may be blocking server-side requests. Try again in a few seconds.' },
+      { error: 'NSE option OI data unavailable — NSE may be blocking server-side requests. Try again in a few seconds.', _debug: { rawSample } },
       { status: 502 },
     );
   }
@@ -40,9 +40,20 @@ export async function GET() {
 
   rows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
 
+  // _debug: first 3 rows + raw sample so we can verify field parsing is correct
+  const _debug = {
+    rawSample,
+    ceMapSize: ceMap.size,
+    peMapSize: peMap.size,
+    topRows: rows.slice(0, 3),
+    bottomRows: rows.slice(-3),
+  };
+  console.log('[oi-screener] debug:', JSON.stringify(_debug).slice(0, 1000));
+
   return NextResponse.json({
-    all:        rows,
-    scanned:    rows.length,
-    scannedAt:  new Date().toISOString(),
+    all:       rows,
+    scanned:   rows.length,
+    scannedAt: new Date().toISOString(),
+    _debug,
   });
 }

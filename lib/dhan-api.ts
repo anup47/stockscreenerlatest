@@ -357,8 +357,11 @@ export async function fetchNseIndices(): Promise<IndexQuote[]> {
 export async function fetchNseOptionOIBulk(): Promise<{
   ceMap: Map<string, { latestOI: number; changeInOI: number }>;
   peMap: Map<string, { latestOI: number; changeInOI: number }>;
+  rawSample: Record<string, unknown> | null;
 }> {
   const cookies = await fetchNseCookies();
+  let rawSample: Record<string, unknown> | null = null;
+
   const fetchType = async (type: 'CE' | 'PE') => {
     const map = new Map<string, { latestOI: number; changeInOI: number }>();
     try {
@@ -382,21 +385,21 @@ export async function fetchNseOptionOIBulk(): Promise<{
       } finally { clearTimeout(t); }
       if (!res.ok) return map;
       const json = await res.json() as { data?: Record<string, unknown>[] };
-      for (const row of json.data ?? []) {
+      const rows = json.data ?? [];
+
+      // Capture first raw row so route can log field names for debugging
+      if (rows.length > 0 && !rawSample) rawSample = { _type: type, ...rows[0] };
+
+      for (const row of rows) {
         const symbol = String(row.symbol ?? row.underlying ?? '').trim().toUpperCase();
         if (!symbol) continue;
-        const latestOI = Number(row.latestOI ?? row.openInterest ?? 0);
-        const prevOI   = Number(row.prevOI   ?? row.prevOpenInterest ?? 0);
-        // changeInOI may be named differently or omitted — derive from latestOI - prevOI
-        const changeInOI = Number(row.changeInOI ?? row.changeinOpenInterest ?? row.chngInOI ?? 0)
+        const latestOI   = Number(row.latestOI   ?? row.openInterest          ?? 0);
+        const prevOI     = Number(row.prevOI      ?? row.prevOpenInterest      ?? 0);
+        const changeInOI = Number(row.changeInOI  ?? row.changeinOpenInterest  ?? row.chngInOI ?? 0)
           || (latestOI - prevOI);
         if (map.has(symbol)) {
-          // Aggregate across multiple strikes for the same underlying
-          const existing = map.get(symbol)!;
-          map.set(symbol, {
-            latestOI:   existing.latestOI   + latestOI,
-            changeInOI: existing.changeInOI + changeInOI,
-          });
+          const ex = map.get(symbol)!;
+          map.set(symbol, { latestOI: ex.latestOI + latestOI, changeInOI: ex.changeInOI + changeInOI });
         } else {
           map.set(symbol, { latestOI, changeInOI });
         }
@@ -406,7 +409,7 @@ export async function fetchNseOptionOIBulk(): Promise<{
   };
 
   const [ceMap, peMap] = await Promise.all([fetchType('CE'), fetchType('PE')]);
-  return { ceMap, peMap };
+  return { ceMap, peMap, rawSample };
 }
 
 // ── NSE futures OI for indices (allFut — returns OI spurts, covers indices) ──
