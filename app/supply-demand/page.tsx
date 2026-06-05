@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Zap,
   Shield,
+  Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -359,12 +360,14 @@ type FilterCategory = 'all' | Category | 'rising' | 'collapsing';
 export default function SupplyDemandPage() {
   const [snapshot, setSnapshot] = useState<SupplyDemandSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hydrating, setHydrating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [forceMode, setForceMode] = useState(false);
   const [countdown, setCountdown] = useState(minutesUntil1PM());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Countdown ticker
   useEffect(() => {
@@ -381,27 +384,46 @@ export default function SupplyDemandPage() {
     };
   }, []);
 
-  // Hydrate from localStorage on mount
+  // Hydrate on mount: localStorage → Vercel Blob → empty state
   useEffect(() => {
-    try {
-      const storedDate = localStorage.getItem(DATE_KEY);
-      const today = todayIST();
-      if (storedDate === today) {
-        const raw = localStorage.getItem(SNAPSHOT_KEY);
-        if (raw) {
-          const parsed: SupplyDemandSnapshot = JSON.parse(raw);
-          if (Array.isArray(parsed.themes)) {
-            setSnapshot(parsed);
-            return;
+    (async () => {
+      try {
+        const storedDate = localStorage.getItem(DATE_KEY);
+        const today = todayIST();
+        if (storedDate === today) {
+          const raw = localStorage.getItem(SNAPSHOT_KEY);
+          if (raw) {
+            const parsed: SupplyDemandSnapshot = JSON.parse(raw);
+            if (Array.isArray(parsed.themes) && parsed.themes.length > 0) {
+              setSnapshot(parsed);
+              return;
+            }
           }
         }
+        localStorage.removeItem(SNAPSHOT_KEY);
+        localStorage.removeItem(DATE_KEY);
+      } catch {
+        // corrupted localStorage — fall through to blob
       }
-      // stale or missing
-      localStorage.removeItem(SNAPSHOT_KEY);
-      localStorage.removeItem(DATE_KEY);
-    } catch {
-      // ignore
-    }
+
+      // Try Vercel Blob snapshot
+      setHydrating(true);
+      try {
+        const res = await fetch('/api/supply-demand/snapshot', { cache: 'no-store' });
+        if (res.ok) {
+          const data: SupplyDemandSnapshot = await res.json();
+          if (Array.isArray(data.themes) && data.themes.length > 0) {
+            setSnapshot(data);
+            // Cache to localStorage keyed to today so next visit is instant
+            try {
+              localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(data));
+              localStorage.setItem(DATE_KEY, todayIST());
+            } catch { /* storage full */ }
+          }
+        }
+      } catch { /* no blob available — show empty state */ }
+      finally { setHydrating(false); }
+    })();
   }, []);
 
   const canRun = forceMode || canRefreshNow();
@@ -441,6 +463,31 @@ export default function SupplyDemandPage() {
       setLoading(false);
     }
   }, [canRun, forceMode, snapshot]);
+
+  const handleFileLoad = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed: SupplyDemandSnapshot = JSON.parse(ev.target?.result as string);
+        if (!Array.isArray(parsed.themes) || parsed.themes.length === 0) {
+          setError('Invalid snapshot file: missing or empty themes array.');
+          return;
+        }
+        setSnapshot(parsed);
+        setError(null);
+        try {
+          localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(parsed));
+          localStorage.setItem(DATE_KEY, todayIST());
+        } catch { /* storage full */ }
+      } catch {
+        setError('Could not parse file. Make sure it is a valid supply-demand-snapshot.json.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
 
   // Derived: category counts
   const counts = {
@@ -524,7 +571,7 @@ export default function SupplyDemandPage() {
                 </span>
                 <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border bg-muted/50 text-muted-foreground border-border/60">
                   <Zap className="h-2.5 w-2.5" />
-                  qwen2.5:14b
+                  {(snapshot as SupplyDemandSnapshot & { modelUsed?: string }).modelUsed ?? 'AI'}
                 </span>
               </div>
             )}
@@ -541,6 +588,25 @@ export default function SupplyDemandPage() {
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
                 {loading ? 'Analysing…' : 'Run Analysis'}
+              </Button>
+
+              {/* Load from local JSON file */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={handleFileLoad}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-medium gap-1.5"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Load from file
               </Button>
             </div>
 
@@ -691,7 +757,7 @@ export default function SupplyDemandPage() {
         )}
 
         {/* ── Loading skeletons ───────────────────────────────────────────── */}
-        {loading && (
+        {(loading || hydrating) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <CardSkeleton key={i} />
@@ -700,7 +766,7 @@ export default function SupplyDemandPage() {
         )}
 
         {/* ── Empty state ─────────────────────────────────────────────────── */}
-        {!loading && !snapshot && (
+        {!loading && !hydrating && !snapshot && (
           <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
             <div className="h-14 w-14 rounded-full bg-muted/50 flex items-center justify-center border border-border">
               <Clock className="h-7 w-7 text-muted-foreground" />
@@ -709,23 +775,30 @@ export default function SupplyDemandPage() {
               <h2 className="text-base font-semibold text-foreground">No analysis available</h2>
               <p className="text-sm text-muted-foreground mt-1 max-w-sm">
                 {canRefreshNow()
-                  ? 'Click "Run Analysis" to generate today’s supply-demand intelligence.'
+                  ? 'Click Run Analysis to generate today\'s supply-demand intelligence.'
                   : `Analysis is available after 1:00 PM IST. ${formatCountdown(countdown)} remaining.`}
               </p>
             </div>
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 max-w-md text-left">
               <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold">Requires an LLM provider</p>
+                <p className="font-semibold">Three ways to get analysis</p>
                 <p className="mt-0.5 text-amber-600/80">
-                  <strong>Easiest (free):</strong> Get a key at{' '}
-                  <span className="font-mono bg-amber-500/10 px-1 rounded">console.groq.com</span>{' '}
-                  and add <span className="font-mono bg-amber-500/10 px-1 rounded">GROQ_API_KEY</span> to Vercel env vars.
+                  <strong>1. Cloud (free):</strong> Add{' '}
+                  <span className="font-mono bg-amber-500/10 px-1 rounded">GROQ_API_KEY</span>{' '}
+                  to Vercel env vars, then click Run Analysis.
                 </p>
                 <p className="mt-1 text-amber-600/80">
-                  <strong>Local dev:</strong> Run{' '}
-                  <code className="font-mono bg-amber-500/10 px-1 rounded">ollama serve</code>{' '}
-                  + <code className="font-mono bg-amber-500/10 px-1 rounded">ollama pull qwen2.5:14b</code>
+                  <strong>2. Local + upload:</strong> Run{' '}
+                  <code className="font-mono bg-amber-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>{' '}
+                  with Ollama running. Results appear on every device.
+                </p>
+                <p className="mt-1 text-amber-600/80">
+                  <strong>3. Load file:</strong> Run the script without{' '}
+                  <code className="font-mono bg-amber-500/10 px-1 rounded">--upload</code>{' '}
+                  then click Load from file above to load{' '}
+                  <code className="font-mono bg-amber-500/10 px-1 rounded">supply-demand-snapshot.json</code>{' '}
+                  into this browser only.
                 </p>
               </div>
             </div>
