@@ -428,6 +428,19 @@ export default function OIScreenNewPage() {
         </div>
       )}
 
+      {/* ── Pre-market warning ── */}
+      {(() => {
+        const h = new Date().getUTCHours() * 60 + new Date().getUTCMinutes(); // minutes since UTC midnight
+        const ist = (h + 330) % 1440; // IST = UTC+5:30
+        const isPreMarket = ist < 9 * 60 + 15 || ist >= 15 * 60 + 30;
+        return isPreMarket ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 text-amber-800 text-sm">
+            <span className="font-bold">Market is closed</span> — Dhan's option chain shows intraday OI change only, which is 0 before 9:15 AM IST.
+            Options OI Signal will show real values once trading begins. Futures OI % (from OI Buildup) is available at all times.
+          </div>
+        ) : null;
+      })()}
+
       {/* ── Credentials warning ── */}
       {!isConfigured && isHydrated && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 text-amber-700 text-sm font-medium">
