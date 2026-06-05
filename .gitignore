@@ -5,3 +5,5 @@ node_modules/
 .env*.local
 *.tsbuildinfo
 next-env.d.ts
+.vercel
+supply-demand-snapshot.json
