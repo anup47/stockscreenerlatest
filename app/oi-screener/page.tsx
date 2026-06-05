@@ -69,6 +69,8 @@ function buildBuildupMap(data: OIBuildupData): Map<string, BuildupInfo> {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
+const DEFAULT_N = 7;
+
 const N_OPTIONS = [
   { value: 5,  label: 'N=5 (11 strikes)' },
   { value: 7,  label: 'N=7 (15 strikes)' },
@@ -93,27 +95,26 @@ const BUILDUP_CONFIG: Record<BuildupType, {
   },
   'Short Buildup':  {
     short: 'Short Buildup',  desc: 'Price ↓  OI ↑',
-    chipBg: 'bg-red-50', chipText: 'text-red-700',
-    activeBg: 'bg-red-600', activeText: 'text-white',
-    dot: 'bg-red-500', border: 'border-red-200',
+    chipBg: 'bg-red-50',     chipText: 'text-red-700',
+    activeBg: 'bg-red-600',  activeText: 'text-white',
+    dot: 'bg-red-500',       border: 'border-red-200',
   },
   'Short Covering': {
     short: 'Short Cover',    desc: 'Price ↑  OI ↓',
-    chipBg: 'bg-sky-50', chipText: 'text-sky-700',
-    activeBg: 'bg-sky-600', activeText: 'text-white',
-    dot: 'bg-sky-500', border: 'border-sky-200',
+    chipBg: 'bg-sky-50',     chipText: 'text-sky-700',
+    activeBg: 'bg-sky-600',  activeText: 'text-white',
+    dot: 'bg-sky-500',       border: 'border-sky-200',
   },
   'Long Unwinding': {
     short: 'Long Unwind',    desc: 'Price ↓  OI ↓',
-    chipBg: 'bg-orange-50', chipText: 'text-orange-700',
+    chipBg: 'bg-orange-50',  chipText: 'text-orange-700',
     activeBg: 'bg-orange-600', activeText: 'text-white',
-    dot: 'bg-orange-500', border: 'border-orange-200',
+    dot: 'bg-orange-500',    border: 'border-orange-200',
   },
 };
 
-const BUILDUP_FILTER_LIST: BuildupFilter[] = [
-  'All', 'Long Buildup', 'Short Buildup', 'Short Covering', 'Long Unwinding',
-];
+// Derived from BUILDUP_CONFIG keys so it never drifts if a type is added.
+const BUILDUP_FILTER_LIST: BuildupFilter[] = ['All', ...Object.keys(BUILDUP_CONFIG) as BuildupType[]];
 
 // ── BuildupBadge ───────────────────────────────────────────────────────────────
 
@@ -156,29 +157,26 @@ function SkeletonCard({ isBull }: { isBull: boolean }) {
 // ── Stock card ─────────────────────────────────────────────────────────────────
 
 function StockCard({ row, rank, side }: { row: EnrichedRow; rank: number; side: 'bullish' | 'bearish' }) {
-  const isBull       = side === 'bullish';
-  const rankBg       = isBull ? 'bg-emerald-600' : 'bg-red-600';
-  const oiSignalClr  = isBull ? 'text-emerald-600' : 'text-red-600';
-  const pricePct     = row.buildup?.changePct;
-  const priceClr     = pricePct == null ? 'text-slate-400' : pricePct >= 0 ? 'text-emerald-600' : 'text-red-600';
+  const isBull      = side === 'bullish';
+  const rankBg      = isBull ? 'bg-emerald-600' : 'bg-red-600';
+  const oiSignalClr = isBull ? 'text-emerald-600' : 'text-red-600';
+  const pricePct    = row.buildup?.changePct;
+  const priceClr    = pricePct == null ? 'text-slate-400' : pricePct >= 0 ? 'text-emerald-600' : 'text-red-600';
 
   return (
     <div className="px-5 py-4 border-b border-slate-100 last:border-0 hover:bg-slate-50/80 transition-colors">
       <div className="flex items-start gap-3">
-        {/* Rank */}
         <span className={`mt-0.5 flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full ${rankBg} text-white text-xs font-black`}>
           {rank}
         </span>
 
         <div className="flex-1 min-w-0">
-          {/* Symbol row */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2.5">
             <span className="font-black text-gray-900 font-mono text-base leading-none tracking-tight">{row.symbol}</span>
             <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">{row.expiry}</span>
             <BuildupBadge type={row.buildup?.type} />
           </div>
 
-          {/* Metrics grid */}
           <div className="grid grid-cols-3 gap-2 mb-2">
             <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-center">
               <div className="text-[9px] text-slate-400 uppercase tracking-wide font-semibold mb-1">OI Signal</div>
@@ -200,7 +198,6 @@ function StockCard({ row, rank, side }: { row: EnrichedRow; rank: number; side: 
             </div>
           </div>
 
-          {/* OI detail line */}
           <div className="flex gap-4 text-[11px]">
             <span className="text-slate-400">CE OI Chg <span className="font-semibold font-mono text-rose-600">{fmtOI(row.ceOIChg)}</span></span>
             <span className="text-slate-400">PE OI Chg <span className="font-semibold font-mono text-emerald-600">{fmtOI(row.peOIChg)}</span></span>
@@ -221,8 +218,8 @@ function Panel({
   loading: boolean;
   topN: number;
 }) {
-  const isBull  = side === 'bullish';
-  const sliced  = rows.slice(0, topN);
+  const isBull = side === 'bullish';
+  const sliced = rows.slice(0, topN);
 
   return (
     <div className={`bg-white rounded-2xl overflow-hidden border-2 shadow-sm ${isBull ? 'border-emerald-500' : 'border-red-500'}`}>
@@ -349,20 +346,19 @@ export default function OIScreenerPage() {
   const { isConfigured, isHydrated, headers } = useDhanCredentials();
 
   // Screener state
-  const [rawData,        setRawData]        = useState<RawScreenerData | null>(null);
-  const [loading,        setLoading]        = useState(false);
-  const [scanning,       setScanning]       = useState(false);
-  const [batchesDone,    setBatchesDone]    = useState(0);
-  const [error,          setError]          = useState('');
+  const [rawData,     setRawData]     = useState<RawScreenerData | null>(null);
+  const [loading,     setLoading]     = useState(false);
+  const [scanning,    setScanning]    = useState(false);
+  const [batchesDone, setBatchesDone] = useState(0);
+  const [error,       setError]       = useState('');
 
   // Buildup state
-  const [buildupMap,     setBuildupMap]     = useState<Map<string, BuildupInfo>>(new Map());
-  const [buildupLoaded,  setBuildupLoaded]  = useState(false);
+  const [buildupMap, setBuildupMap] = useState<Map<string, BuildupInfo>>(new Map());
 
   // Screener settings
   const [selectedExpiry,    setSelectedExpiry]    = useState('');
   const [availableExpiries, setAvailableExpiries] = useState<string[]>([]);
-  const [n,                 setN]                 = useState(7);
+  const [n,                 setN]                 = useState(DEFAULT_N);
 
   // Filters & display
   const [buildupFilter, setBuildupFilter] = useState<BuildupFilter>('All');
@@ -370,55 +366,46 @@ export default function OIScreenerPage() {
   const [showAll,       setShowAll]       = useState(false);
   const [tableSearch,   setTableSearch]   = useState('');
 
-  const dirty = n !== (rawData?.n ?? 7) || selectedExpiry !== (rawData?.stockExpiry ?? '');
+  const dirty = n !== (rawData?.n ?? DEFAULT_N) || selectedExpiry !== (rawData?.stockExpiry ?? '');
 
-  // ── Fetch OI buildup data (NSE, no Dhan credentials needed) ──
-  const fetchBuildup = useCallback(async () => {
-    try {
-      const res  = await fetch('/api/dhan/oi-buildup');
-      const json = await res.json() as OIBuildupData;
-      if (res.ok && !json.error) setBuildupMap(buildBuildupMap(json));
-    } catch { /* non-fatal */ }
-    finally { setBuildupLoaded(true); }
-  }, []);
-
-  // ── Enrich screener rows with buildup info ──
-  const enrichedData = useMemo(() => {
+  // ── Sort + enrich (only re-runs when data or buildup map changes, not on filter) ──
+  const enrichedSorted = useMemo(() => {
     if (!rawData) return null;
-    const enrich = (rows: OIScreenerRow[]): EnrichedRow[] =>
-      rows.map(r => ({ ...r, buildup: buildupMap.get(r.symbol) }));
+    const rows: EnrichedRow[] = rawData.all.map(r => ({ ...r, buildup: buildupMap.get(r.symbol) }));
+    rows.sort((a, b) => b.netOIChgPct - a.netOIChgPct);
+    return { rows, meta: rawData };
+  }, [rawData, buildupMap]);
 
-    const sorted = [...enrich(rawData.all)].sort((a, b) => b.netOIChgPct - a.netOIChgPct);
+  // ── Filter + count (only re-runs when filter changes, not on every scan batch) ──
+  const enrichedData = useMemo(() => {
+    if (!enrichedSorted) return null;
+    const { rows: sorted, meta } = enrichedSorted;
+
+    const counts: Record<BuildupType, number> = {
+      'Long Buildup': 0, 'Short Buildup': 0, 'Short Covering': 0, 'Long Unwinding': 0,
+    };
+    sorted.forEach(r => { if (r.buildup) counts[r.buildup.type]++; });
 
     const applyFilter = (rows: EnrichedRow[]) =>
       buildupFilter === 'All' ? rows : rows.filter(r => r.buildup?.type === buildupFilter);
 
     return {
-      ...rawData,
+      ...meta,
       all:     sorted,
       bullish: applyFilter(sorted.filter(r => r.netOIChgPct > 0)),
-      bearish: applyFilter([...sorted].reverse().filter(r => r.netOIChgPct < 0)),
+      bearish: applyFilter(sorted.filter(r => r.netOIChgPct < 0).reverse()),
+      counts,
     };
-  }, [rawData, buildupMap, buildupFilter]);
+  }, [enrichedSorted, buildupFilter]);
 
-  // Buildup type counts for filter chips
-  const buildupCounts = useMemo(() => {
-    if (!enrichedData) return null;
-    const c: Record<BuildupType, number> = {
-      'Long Buildup': 0, 'Short Buildup': 0, 'Short Covering': 0, 'Long Unwinding': 0,
-    };
-    enrichedData.all.forEach(r => { if (r.buildup) c[r.buildup.type]++; });
-    return c;
-  }, [enrichedData]);
-
-  // Table rows (filtered + searched)
+  // ── Table rows (filtered + searched) ──
   const tableRows = useMemo(() => {
     if (!enrichedData) return [];
-    return enrichedData.all.filter(r => {
-      if (buildupFilter !== 'All' && r.buildup?.type !== buildupFilter) return false;
-      if (tableSearch && !r.symbol.toLowerCase().includes(tableSearch.toLowerCase())) return false;
-      return true;
-    });
+    const q = tableSearch.toLowerCase();
+    return enrichedData.all.filter(r =>
+      (buildupFilter === 'All' || r.buildup?.type === buildupFilter) &&
+      (!q || r.symbol.toLowerCase().includes(q))
+    );
   }, [enrichedData, buildupFilter, tableSearch]);
 
   // ── Run OI screener ──
@@ -508,10 +495,12 @@ export default function OIScreenerPage() {
   }, [isConfigured, headers, n, selectedExpiry]);
 
   useEffect(() => {
-    if (isHydrated && isConfigured) {
-      runScreen();
-      fetchBuildup();
-    }
+    if (!isHydrated || !isConfigured) return;
+    runScreen();
+    fetch('/api/dhan/oi-buildup')
+      .then(r => r.json() as Promise<OIBuildupData>)
+      .then(json => { if (!json.error) setBuildupMap(buildBuildupMap(json)); })
+      .catch(() => {});
   }, [isHydrated, isConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isHydrated) return null;
@@ -536,7 +525,7 @@ export default function OIScreenerPage() {
     : scanning
     ? `${rawData?.scanned ?? 0} scanned · batch ${batchesDone + 1}/4 in progress…`
     : rawData
-    ? `${rawData.scanned} symbols scanned · ${scannedAt}${!buildupLoaded ? ' · loading futures…' : ''}`
+    ? `${rawData.scanned} symbols scanned · ${scannedAt}${buildupMap.size === 0 ? ' · loading futures…' : ''}`
     : '~200 F&O symbols · runs in 4 sequential batches';
 
   return (
@@ -579,7 +568,6 @@ export default function OIScreenerPage() {
             label="Top N per panel"
             value={topN}
             onChange={v => setTopN(Number(v))}
-            disabled={false}
           >
             {TOP_N_OPTIONS.map(v => <option key={v} value={v}>Top {v}</option>)}
           </LabeledSelect>
@@ -610,8 +598,8 @@ export default function OIScreenerPage() {
           <div className="flex flex-wrap gap-2">
             {BUILDUP_FILTER_LIST.map(f => {
               const isActive = buildupFilter === f;
-              const cfg = f !== 'All' ? BUILDUP_CONFIG[f] : null;
-              const count = f !== 'All' && buildupCounts ? buildupCounts[f] : null;
+              const cfg      = f !== 'All' ? BUILDUP_CONFIG[f] : null;
+              const count    = f !== 'All' && enrichedData ? enrichedData.counts[f] : null;
               return (
                 <button
                   key={f}
@@ -627,9 +615,7 @@ export default function OIScreenerPage() {
                   {cfg && isActive && <span className="w-1.5 h-1.5 rounded-full bg-white/80 flex-shrink-0" />}
                   {f === 'All' ? 'All Signals' : cfg!.short}
                   {count != null && (
-                    <span className={`tabular-nums ${isActive ? 'opacity-80' : 'text-slate-400'}`}>
-                      {count}
-                    </span>
+                    <span className={`tabular-nums ${isActive ? 'opacity-80' : 'text-slate-400'}`}>{count}</span>
                   )}
                 </button>
               );
@@ -644,7 +630,7 @@ export default function OIScreenerPage() {
       </div>
 
       {/* ── Summary chips ───────────────────────────────────────────── */}
-      {(enrichedData || loading) && buildupCounts && (
+      {enrichedData && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {(Object.entries(BUILDUP_CONFIG) as [BuildupType, typeof BUILDUP_CONFIG[BuildupType]][]).map(([type, cfg]) => (
             <button
@@ -660,7 +646,7 @@ export default function OIScreenerPage() {
                 {cfg.short}
               </div>
               <div className={`text-2xl font-black tabular-nums ${buildupFilter === type ? cfg.chipText : 'text-gray-900'}`}>
-                {buildupCounts[type]}
+                {enrichedData.counts[type]}
               </div>
               <div className="text-[9px] text-slate-400 mt-0.5">{cfg.desc}</div>
             </button>
@@ -694,7 +680,6 @@ export default function OIScreenerPage() {
 
           {showAll && (
             <div className="border-t border-slate-100">
-              {/* Table controls */}
               <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
                 <input
                   value={tableSearch}
@@ -722,9 +707,9 @@ export default function OIScreenerPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {tableRows.map((row, i) => {
-                      const isBull  = row.netOIChgPct > 0;
-                      const isTop5  = i < 5 && buildupFilter === 'All';
-                      const isBot5  = i >= tableRows.length - 5 && buildupFilter === 'All';
+                      const isBull   = row.netOIChgPct > 0;
+                      const isTop5   = i < 5 && buildupFilter === 'All';
+                      const isBot5   = i >= tableRows.length - 5 && buildupFilter === 'All';
                       const pricePct = row.buildup?.changePct;
                       const priceClr = pricePct == null ? 'text-slate-400' : pricePct >= 0 ? 'text-emerald-600' : 'text-red-600';
                       return (
