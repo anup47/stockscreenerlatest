@@ -716,12 +716,16 @@ export default function SupplyDemandPage() {
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 max-w-md text-left">
               <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold">Requires local Ollama</p>
+                <p className="font-semibold">Requires an LLM provider</p>
                 <p className="mt-0.5 text-amber-600/80">
-                  Start Ollama with{' '}
+                  <strong>Easiest (free):</strong> Get a key at{' '}
+                  <span className="font-mono bg-amber-500/10 px-1 rounded">console.groq.com</span>{' '}
+                  and add <span className="font-mono bg-amber-500/10 px-1 rounded">GROQ_API_KEY</span> to Vercel env vars.
+                </p>
+                <p className="mt-1 text-amber-600/80">
+                  <strong>Local dev:</strong> Run{' '}
                   <code className="font-mono bg-amber-500/10 px-1 rounded">ollama serve</code>{' '}
-                  and pull the model:{' '}
-                  <code className="font-mono bg-amber-500/10 px-1 rounded">ollama pull qwen2.5:14b</code>
+                  + <code className="font-mono bg-amber-500/10 px-1 rounded">ollama pull qwen2.5:14b</code>
                 </p>
               </div>
             </div>

@@ -3,6 +3,31 @@ import type { SupplyDemandTheme, SupplyDemandSnapshot } from '@/lib/supply-deman
 
 export const maxDuration = 60;
 
+// ── Provider resolution ────────────────────────────────────────────────────
+// Priority: GROQ_API_KEY → OPENROUTER_API_KEY → OLLAMA_BASE_URL (local)
+function resolveProvider(): { baseUrl: string; model: string; apiKey: string | null } {
+  if (process.env.GROQ_API_KEY) {
+    return {
+      baseUrl: 'https://api.groq.com/openai/v1',
+      model: process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile',
+      apiKey: process.env.GROQ_API_KEY,
+    };
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: process.env.OPENROUTER_MODEL ?? 'qwen/qwen-2.5-72b-instruct',
+      apiKey: process.env.OPENROUTER_API_KEY,
+    };
+  }
+  // Local Ollama fallback
+  return {
+    baseUrl: `${(process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
+    model: process.env.OLLAMA_MODEL ?? 'qwen2.5:14b',
+    apiKey: null,
+  };
+}
+
 const SYSTEM_MESSAGE = `You are a senior institutional commodity research analyst specializing in global supply-demand dynamics and their impact on the Indian equity market (NSE/BSE listed companies). You have deep expertise in:
 - Global commodity markets: energy, metals, agricultural, chemicals
 - Indian manufacturing, refining, and consumption patterns
@@ -78,23 +103,36 @@ function stripMarkdownFences(raw: string): string {
 export async function GET() {
   const startMs = Date.now();
 
-  const ollamaBaseUrl = (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
-  const model = process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
+  const provider = resolveProvider();
+
+  if (!provider.apiKey && !process.env.OLLAMA_BASE_URL && typeof window === 'undefined') {
+    // Running on Vercel with no provider configured
+    const isVercel = !!process.env.VERCEL;
+    if (isVercel) {
+      return NextResponse.json(
+        { error: 'No LLM provider configured. Add GROQ_API_KEY to your Vercel environment variables (free at console.groq.com).' },
+        { status: 503 }
+      );
+    }
+  }
 
   // IST date for prompt context
   const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const todayISO = nowIST.toISOString().slice(0, 10);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 50_000);
+  const timeoutId = setTimeout(() => controller.abort(), 55_000);
 
-  let ollamaRes: Response;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+
+  let llmRes: Response;
   try {
-    ollamaRes = await fetch(`${ollamaBaseUrl}/v1/chat/completions`, {
+    llmRes = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
-        model,
+        model: provider.model,
         stream: false,
         response_format: { type: 'json_object' },
         messages: [
@@ -103,8 +141,7 @@ export async function GET() {
         ],
       }),
       signal: controller.signal,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore — Next.js fetch cache option not in standard RequestInit
+      // @ts-ignore — Next.js fetch cache option
       cache: 'no-store',
     });
   } catch (err: unknown) {
@@ -116,39 +153,45 @@ export async function GET() {
         err.name === 'AbortError');
     if (isConnRefused) {
       return NextResponse.json(
-        {
-          error: `Ollama not reachable. Start ollama and ensure ${model} is pulled. (ollama pull ${model})`,
-        },
+        { error: provider.apiKey
+            ? `Could not reach ${provider.baseUrl}. Check your API key and network.`
+            : `Ollama not reachable at ${provider.baseUrl}. Run: ollama serve && ollama pull ${provider.model}` },
         { status: 503 }
       );
     }
     return NextResponse.json(
-      { error: `Unexpected error contacting Ollama: ${err instanceof Error ? err.message : String(err)}` },
+      { error: `Unexpected error: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 }
     );
   } finally {
     clearTimeout(timeoutId);
   }
 
-  if (!ollamaRes.ok) {
-    const body = await ollamaRes.text().catch(() => '');
-    if (ollamaRes.status === 404 || ollamaRes.status === 400) {
+  if (!llmRes.ok) {
+    const body = await llmRes.text().catch(() => '');
+    if (llmRes.status === 401) {
       return NextResponse.json(
-        { error: `Model "${model}" not found in Ollama. Run: ollama pull ${model}` },
+        { error: `Invalid API key for provider. Check your environment variable.` },
+        { status: 401 }
+      );
+    }
+    if (llmRes.status === 404 || llmRes.status === 400) {
+      return NextResponse.json(
+        { error: `Model "${provider.model}" not found. Check GROQ_MODEL / OLLAMA_MODEL env var.` },
         { status: 503 }
       );
     }
     return NextResponse.json(
-      { error: `Ollama returned HTTP ${ollamaRes.status}: ${body.slice(0, 200)}` },
+      { error: `LLM provider returned HTTP ${llmRes.status}: ${body.slice(0, 200)}` },
       { status: 500 }
     );
   }
 
   let responseBody: unknown;
   try {
-    responseBody = await ollamaRes.json();
+    responseBody = await llmRes.json();
   } catch {
-    return NextResponse.json({ error: 'Failed to parse Ollama response as JSON.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to parse LLM response as JSON.' }, { status: 500 });
   }
 
   // Extract the text content from OpenAI-compatible response shape
