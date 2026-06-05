@@ -25,56 +25,43 @@ const UPLOAD   = args.includes('--upload');
 const modelArg = args.find(a => a.startsWith('--model='))?.split('=')[1];
 const outArg   = args.find(a => a.startsWith('--output='))?.split('=')[1];
 
-const OLLAMA_BASE = (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
+// Use 127.0.0.1 as default — Node.js on Windows resolves 'localhost' to ::1 (IPv6) which may fail
+const OLLAMA_BASE = (process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434').replace(/\/$/, '').replace('localhost', '127.0.0.1');
 const MODEL       = modelArg ?? process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
 const OUTPUT_PATH = outArg ? resolve(outArg) : resolve(ROOT, 'supply-demand-snapshot.json');
 
-// ── Prompts (kept in sync with app/api/supply-demand/route.ts) ───────────────
-const SYSTEM_MESSAGE = `You are a senior institutional commodity research analyst specializing in global supply-demand dynamics and their impact on the Indian equity market (NSE/BSE listed companies). You have deep expertise in:
-- Global commodity markets: energy, metals, agricultural, chemicals
-- Indian manufacturing, refining, and consumption patterns
-- Supply chain disruptions, geopolitical trade flows, and seasonal demand cycles
-- Identifying NSE/BSE listed beneficiaries and companies adversely affected by commodity shifts
-Your analysis is grounded in real macroeconomic data, government policy, seasonal patterns, and industry fundamentals. You communicate in precise, factual language suitable for institutional use. You always cite specific data points (prices, percentages, volumes, trade flows) in your descriptions.`;
+// ── Prompts ───────────────────────────────────────────────────────────────────
+const SYSTEM_MESSAGE = `You are a commodity research analyst. You output only valid JSON. No prose, no markdown, no explanation.`;
 
 function buildUserPrompt(today) {
-  return `Today's date is ${today}. Analyze current global and domestic supply-demand dynamics most relevant to Indian equity investors. Generate a JSON array of exactly 12 supply-demand themes covering a diverse mix of commodities.
+  return `Date: ${today}. Output a JSON object with key "themes" containing an array of 6 supply-demand themes for Indian equity investors.
 
-Coverage mandate — include themes from these sectors:
-- Energy: crude oil, natural gas, thermal coal
-- Battery/EV metals: lithium, cobalt, nickel
-- Industrial metals: copper, aluminium
-- Technology materials: semiconductors (DRAM, NAND flash, logic chips), silicon, rare earths, display panels
-- Agriculture: wheat, soybean, sugar, palm oil, cotton
-- Chemicals: urea, caustic soda, titanium dioxide, PVC, MDI/TDI isocyanates
-
-Distribution requirement: include at least 3 shortage themes, 3 oversupply themes, 3 emerging themes, and the remainder balanced.
-
-Each theme object must conform exactly to this schema (no extra fields, no missing fields):
+Each theme MUST have exactly these fields:
 {
-  "commodity": string,
-  "category": "shortage" | "oversupply" | "emerging" | "balanced",
-  "pricingPower": "rising" | "collapsing" | "stable",
-  "description": string,
-  "confidence": number,
-  "timeHorizon": "near-term" | "medium-term" | "long-term",
+  "commodity": "name of commodity or sector",
+  "category": "shortage" OR "oversupply" OR "emerging" OR "balanced",
+  "pricingPower": "rising" OR "collapsing" OR "stable",
+  "description": "2 sentences with a specific number (price/% /volume)",
+  "confidence": integer 40-90,
+  "timeHorizon": "near-term" OR "medium-term" OR "long-term",
   "beneficiaries": [
-    { "symbol": string, "company": string, "rationale": string, "impact": "high" | "medium" | "low" }
+    {"symbol": "NSE_TICKER", "company": "Company Name", "rationale": "one sentence", "impact": "high" OR "medium" OR "low"}
   ],
   "adverselyAffected": [
-    { "symbol": string, "company": string, "rationale": string, "impact": "high" | "medium" | "low" }
+    {"symbol": "NSE_TICKER", "company": "Company Name", "rationale": "one sentence", "impact": "high" OR "medium" OR "low"}
   ],
-  "historicalAnalog": string,
-  "sources": string[]
+  "historicalAnalog": "one sentence referencing a past episode",
+  "sources": ["source 1", "source 2"]
 }
 
-Hard rules:
-- All ticker symbols must be real, actively traded NSE symbols
-- description must cite at least one specific number
-- confidence must be an integer between 40 and 95
-- beneficiaries and adverselyAffected must each have 2 to 4 entries
-- Return ONLY a valid JSON array — no markdown, no code fences, no prose
-Respond with the JSON array only.`;
+Rules:
+- Include 2 shortage, 2 oversupply, 1 emerging, 1 balanced theme
+- beneficiaries: 2 entries. adverselyAffected: 2 entries. No more, no less.
+- Use real NSE tickers: COALINDIA, ONGC, RELIANCE, TATASTEEL, JSWSTEEL, HINDALCO, HINDUNILVR, UPL, COROMANDEL, ADANIPORTS, NTPC, POWERGRID, BPCL, IOC, GAIL, SAIL
+- Output ONLY the JSON object. No text before or after.
+
+Example of one theme inside the array:
+{"commodity":"Thermal Coal","category":"shortage","pricingPower":"rising","description":"Global thermal coal prices rose 18% YoY to $135/tonne. Indian imports up 12% in Q1.","confidence":72,"timeHorizon":"near-term","beneficiaries":[{"symbol":"COALINDIA","company":"Coal India Ltd","rationale":"Domestic coal shortage raises realisations.","impact":"high"},{"symbol":"NTPC","company":"NTPC Ltd","rationale":"Higher tariffs offset fuel cost rise.","impact":"medium"}],"adverselyAffected":[{"symbol":"TATASTEEL","company":"Tata Steel Ltd","rationale":"Energy costs increase smelting margins.","impact":"high"},{"symbol":"HINDALCO","company":"Hindalco Industries","rationale":"Power-intensive smelting hit by coal prices.","impact":"medium"}],"historicalAnalog":"Similar to 2021 coal shortage when COALINDIA rallied 40%.","sources":["IEA Coal Report","Bloomberg Commodities"]}`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -106,7 +93,7 @@ async function main() {
   console.log('');
 
   // ── 1. Call Ollama ──────────────────────────────────────────────────────────
-  console.log('⏳ Calling Ollama... (this may take 2-5 minutes for qwen2.5:14b)');
+  console.log(`⏳ Calling Ollama (${MODEL})... please wait`);
 
   let llmRes;
   try {
@@ -116,7 +103,6 @@ async function main() {
       body: JSON.stringify({
         model: MODEL,
         stream: false,
-        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_MESSAGE },
           { role: 'user',   content: buildUserPrompt(today) },
@@ -195,8 +181,8 @@ async function main() {
     }
   }
 
-  if (!Array.isArray(parsed) || parsed.length < 4) {
-    console.error(`\n✗ Expected array with ≥4 themes, got: ${JSON.stringify(parsed).slice(0, 200)}`);
+  if (!Array.isArray(parsed) || parsed.length < 1) {
+    console.error(`\n✗ Expected array with themes, got: ${JSON.stringify(parsed).slice(0, 200)}`);
     process.exit(1);
   }
 
