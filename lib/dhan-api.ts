@@ -352,6 +352,51 @@ export async function fetchNseIndices(): Promise<IndexQuote[]> {
   } catch { return []; }
 }
 
+// ── NSE bulk option OI (CE + PE in parallel — no credentials needed) ─────────
+
+export async function fetchNseOptionOIBulk(cookies: string): Promise<{
+  ceMap: Map<string, { latestOI: number; changeInOI: number }>;
+  peMap: Map<string, { latestOI: number; changeInOI: number }>;
+}> {
+  const fetchType = async (type: 'CE' | 'PE') => {
+    const map = new Map<string, { latestOI: number; changeInOI: number }>();
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 12_000);
+      let res: Response;
+      try {
+        res = await fetch(
+          `https://www.nseindia.com/api/live-analysis-oi-spurts-underlyings?type=${type}`,
+          {
+            headers: {
+              ...NSE_HEADERS,
+              'Accept': 'application/json, text/plain, */*',
+              'X-Requested-With': 'XMLHttpRequest',
+              ...(cookies ? { Cookie: cookies } : {}),
+            },
+            cache: 'no-store',
+            signal: ctrl.signal,
+          },
+        );
+      } finally { clearTimeout(t); }
+      if (!res.ok) return map;
+      const json = await res.json() as { data?: Record<string, unknown>[] };
+      for (const row of json.data ?? []) {
+        const symbol = String(row.symbol ?? '').trim().toUpperCase();
+        if (!symbol) continue;
+        map.set(symbol, {
+          latestOI:   Number(row.latestOI   ?? 0),
+          changeInOI: Number(row.changeInOI ?? 0),
+        });
+      }
+    } catch { /* return empty map */ }
+    return map;
+  };
+
+  const [ceMap, peMap] = await Promise.all([fetchType('CE'), fetchType('PE')]);
+  return { ceMap, peMap };
+}
+
 // ── NSE futures OI for indices (allFut — returns OI spurts, covers indices) ──
 
 interface NseFutOIEntry {
