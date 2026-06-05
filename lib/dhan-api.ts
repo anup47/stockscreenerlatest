@@ -354,10 +354,11 @@ export async function fetchNseIndices(): Promise<IndexQuote[]> {
 
 // ── NSE bulk option OI (CE + PE in parallel — no credentials needed) ─────────
 
-export async function fetchNseOptionOIBulk(cookies: string): Promise<{
+export async function fetchNseOptionOIBulk(): Promise<{
   ceMap: Map<string, { latestOI: number; changeInOI: number }>;
   peMap: Map<string, { latestOI: number; changeInOI: number }>;
 }> {
+  const cookies = await fetchNseCookies();
   const fetchType = async (type: 'CE' | 'PE') => {
     const map = new Map<string, { latestOI: number; changeInOI: number }>();
     try {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchNseCookies, fetchNseOptionOIBulk } from '@/lib/dhan-api';
+import { fetchNseOptionOIBulk } from '@/lib/dhan-api';
 import type { OIScreenerRow } from '@/lib/oi-screener';
 
 export const maxDuration = 30;
@@ -10,8 +10,7 @@ export const maxDuration = 30;
 // data source already used by the OI Buildup tab. Single call, ~5s, no auth.
 
 export async function GET() {
-  const cookies = await fetchNseCookies();
-  const { ceMap, peMap } = await fetchNseOptionOIBulk(cookies);
+  const { ceMap, peMap } = await fetchNseOptionOIBulk();
 
   if (ceMap.size === 0 && peMap.size === 0) {
     return NextResponse.json(
