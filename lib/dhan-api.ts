@@ -383,12 +383,23 @@ export async function fetchNseOptionOIBulk(): Promise<{
       if (!res.ok) return map;
       const json = await res.json() as { data?: Record<string, unknown>[] };
       for (const row of json.data ?? []) {
-        const symbol = String(row.symbol ?? '').trim().toUpperCase();
+        const symbol = String(row.symbol ?? row.underlying ?? '').trim().toUpperCase();
         if (!symbol) continue;
-        map.set(symbol, {
-          latestOI:   Number(row.latestOI   ?? 0),
-          changeInOI: Number(row.changeInOI ?? 0),
-        });
+        const latestOI = Number(row.latestOI ?? row.openInterest ?? 0);
+        const prevOI   = Number(row.prevOI   ?? row.prevOpenInterest ?? 0);
+        // changeInOI may be named differently or omitted — derive from latestOI - prevOI
+        const changeInOI = Number(row.changeInOI ?? row.changeinOpenInterest ?? row.chngInOI ?? 0)
+          || (latestOI - prevOI);
+        if (map.has(symbol)) {
+          // Aggregate across multiple strikes for the same underlying
+          const existing = map.get(symbol)!;
+          map.set(symbol, {
+            latestOI:   existing.latestOI   + latestOI,
+            changeInOI: existing.changeInOI + changeInOI,
+          });
+        } else {
+          map.set(symbol, { latestOI, changeInOI });
+        }
       }
     } catch { /* return empty map */ }
     return map;
