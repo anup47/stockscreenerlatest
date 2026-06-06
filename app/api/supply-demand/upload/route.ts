@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
+import { put, list } from '@vercel/blob';
 import type { SupplyDemandSnapshot } from '@/lib/supply-demand-types';
+import { mergeIntoTracker, EMPTY_TRACKER } from '@/lib/supply-demand-tracker';
+import type { SupplyDemandTracker } from '@/lib/supply-demand-tracker';
 
 export const maxDuration = 30;
 
@@ -26,22 +28,43 @@ export async function POST(req: NextRequest) {
   }
 
   const snapshot = body as Partial<SupplyDemandSnapshot>;
-  if (!Array.isArray(snapshot?.themes) || snapshot.themes.length < 4) {
+  if (!Array.isArray(snapshot?.themes) || snapshot.themes.length < 1) {
     return NextResponse.json(
-      { error: 'Invalid snapshot: themes must be an array with at least 4 entries' },
+      { error: 'Invalid snapshot: themes must be a non-empty array' },
       { status: 422 }
     );
   }
 
-  const blob = await put('sd-latest.json', JSON.stringify(body), {
+  // ── 1. Save latest snapshot ────────────────────────────────────────────────
+  const snapshotBlob = await put('sd-latest.json', JSON.stringify(body), {
+    access: 'public',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+  });
+
+  // ── 2. Load existing tracker, merge new themes, save back ─────────────────
+  let currentTracker: SupplyDemandTracker = { ...EMPTY_TRACKER };
+  try {
+    const { blobs } = await list({ prefix: 'sd-tracker.json', limit: 1 });
+    if (blobs.length > 0) {
+      const res = await fetch(blobs[0].url, { cache: 'no-store' });
+      if (res.ok) currentTracker = await res.json() as SupplyDemandTracker;
+    }
+  } catch { /* start fresh if tracker unreadable */ }
+
+  const updatedTracker = mergeIntoTracker(currentTracker, snapshot.themes);
+
+  await put('sd-tracker.json', JSON.stringify(updatedTracker), {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
   });
 
   return NextResponse.json({
-    url:        blob.url,
-    uploadedAt: new Date().toISOString(),
-    themes:     snapshot.themes.length,
+    url:           snapshotBlob.url,
+    uploadedAt:    new Date().toISOString(),
+    themes:        snapshot.themes.length,
+    trackerStories:updatedTracker.stories.length,
+    trackerRuns:   updatedTracker.totalRuns,
   });
 }
