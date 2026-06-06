@@ -129,42 +129,56 @@ async function main() {
     process.exit(1);
   }
 
-  // ── 2. Parse JSON ───────────────────────────────────────────────────────────
+  // ── 2. Parse JSON (tolerant of truncated output from small models) ──────────
   console.log(`✓ Got response (${rawContent.length} chars). Parsing...`);
 
-  let parsed;
-  try {
-    parsed = JSON.parse(stripMarkdownFences(rawContent));
-  } catch {
+  function tryParse(text) {
+    try { return JSON.parse(text); } catch { return null; }
+  }
+
+  // Attempt 1: clean parse
+  let parsed = tryParse(stripMarkdownFences(rawContent));
+
+  // Attempt 2: find outermost [ ... ]
+  if (!parsed) {
     const start = rawContent.indexOf('[');
-    const end   = rawContent.lastIndexOf(']');
-    if (start !== -1 && end > start) {
-      try { parsed = JSON.parse(rawContent.slice(start, end + 1)); }
-      catch {
-        console.error('\n✗ Could not parse model output as JSON array.');
-        console.error('  Raw excerpt:', rawContent.slice(0, 300));
-        process.exit(1);
-      }
-    } else {
-      // Try unwrapping { themes: [...] } or similar wrapper
-      try {
-        const obj = JSON.parse(stripMarkdownFences(rawContent));
-        const keys = Object.keys(obj);
-        if (keys.length === 1 && Array.isArray(obj[keys[0]])) {
-          parsed = obj[keys[0]];
-        } else {
-          console.error('\n✗ Model returned object instead of array. Keys:', keys.join(', '));
-          process.exit(1);
-        }
-      } catch {
-        console.error('\n✗ Could not parse model output as JSON.');
-        console.error('  Raw excerpt:', rawContent.slice(0, 300));
-        process.exit(1);
+    if (start !== -1) {
+      const end = rawContent.lastIndexOf(']');
+      if (end > start) parsed = tryParse(rawContent.slice(start, end + 1));
+    }
+  }
+
+  // Attempt 3: truncated array — close it and re-parse
+  if (!parsed) {
+    const start = rawContent.indexOf('[');
+    if (start !== -1) {
+      // Try closing with ]} progressively
+      for (const suffix of [']', ',{}]', '}]', '"}]', '"}]}]']) {
+        const attempt = tryParse(rawContent.slice(start) + suffix);
+        if (attempt) { parsed = attempt; break; }
       }
     }
   }
 
-  // Unwrap if the array is nested in an object key
+  // Attempt 4: extract individual complete objects via brace counting
+  if (!parsed) {
+    const objects = [];
+    let depth = 0, objStart = -1;
+    for (let i = 0; i < rawContent.length; i++) {
+      if (rawContent[i] === '{') { if (depth === 0) objStart = i; depth++; }
+      else if (rawContent[i] === '}') {
+        depth--;
+        if (depth === 0 && objStart >= 0) {
+          const obj = tryParse(rawContent.slice(objStart, i + 1));
+          if (obj && obj.commodity) objects.push(obj);
+          objStart = -1;
+        }
+      }
+    }
+    if (objects.length > 0) { parsed = objects; console.log(`  (recovered ${objects.length} objects from truncated output)`); }
+  }
+
+  // Unwrap { themes: [...] } or any single-key object containing an array
   if (!Array.isArray(parsed) && parsed !== null && typeof parsed === 'object') {
     for (const k of Object.keys(parsed)) {
       if (Array.isArray(parsed[k])) { parsed = parsed[k]; break; }
@@ -172,9 +186,13 @@ async function main() {
   }
 
   if (!Array.isArray(parsed) || parsed.length < 1) {
-    console.error(`\n✗ Expected array with themes, got: ${JSON.stringify(parsed).slice(0, 200)}`);
+    console.error(`\n✗ Could not extract any themes from model output.`);
+    console.error('  Raw excerpt:', rawContent.slice(0, 400));
     process.exit(1);
   }
+
+  // Drop items that are clearly not theme objects (e.g. beneficiary objects leaked to top level)
+  parsed = parsed.filter(item => item && typeof item === 'object' && item.commodity && item.description);
 
   // ── 3. Build snapshot ────────────────────────────────────────────────────────
   const themes = parsed.map((item, index) => ({
