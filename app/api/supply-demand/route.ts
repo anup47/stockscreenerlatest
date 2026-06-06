@@ -36,52 +36,44 @@ const SYSTEM_MESSAGE = `You are a senior institutional commodity research analys
 Your analysis is grounded in real macroeconomic data, government policy, seasonal patterns, and industry fundamentals. You communicate in precise, factual language suitable for institutional use. You always cite specific data points (prices, percentages, volumes, trade flows) in your descriptions.`;
 
 function buildUserPrompt(today: string): string {
-  return `Today's date is ${today}. Analyze current global and domestic supply-demand dynamics most relevant to Indian equity investors. Generate a JSON array of exactly 12 supply-demand themes covering a diverse mix of commodities.
+  return `Today's date is ${today}. Analyze current global and domestic supply-demand dynamics for Indian equity investors. Generate a JSON array of exactly 12 supply-demand themes.
 
-Coverage mandate — include themes from these sectors:
-- Energy: crude oil, natural gas, thermal coal
-- Battery/EV metals: lithium, cobalt, nickel
-- Industrial metals: copper, aluminium
-- Technology materials: semiconductors (DRAM, NAND flash, logic chips), silicon, rare earths, display panels
-- Agriculture: wheat, soybean, sugar, palm oil, cotton
-- Chemicals: urea, caustic soda, titanium dioxide, PVC, MDI/TDI isocyanates
+MANDATORY — you must include all of the following:
+1. Cocoa — global shortage near record prices (~$10,000/tonne), West Africa crop failures. Impact on Indian FMCG/chocolate companies.
+2. AI compute hardware — GPU shortage (NVIDIA H100/Blackwell), HBM memory scarcity, advanced packaging bottleneck (CoWoS). Impact on Indian IT/infra/electronics companies.
+3. Thermal coal — Indian import dependency, domestic supply gaps
+4. Crude oil — OPEC policy, refining margins, Indian refiners
+5. Lithium — EV battery supply chain, Indian battery/EV plays
+6. Copper — green energy demand, mining constraints
+7. DRAM / NAND flash — memory cycle (oversupply normalising)
+8. Urea / fertilisers — natural gas feedstock impact on Indian cos
+9. Palm oil — edible oil supply, India import dependency
+10. Steel — China overcapacity vs India capacity expansion
+11. Rare earths — China export controls, Indian defence/EV angle
+12. One more of your choice: natural gas, aluminium, sugar, caustic soda, solar glass, or titanium dioxide
 
-Distribution requirement: include at least 3 shortage themes, 3 oversupply themes, 3 emerging themes, and the remainder balanced.
+Distribution: at least 3 shortage, 3 oversupply, 3 emerging, remainder balanced.
 
-Each theme object must conform exactly to this schema (no extra fields, no missing fields):
+Each theme object schema:
 {
-  "commodity": string,              // commodity or sector name, e.g. "Thermal Coal", "DRAM Memory"
+  "commodity": string,
   "category": "shortage" | "oversupply" | "emerging" | "balanced",
   "pricingPower": "rising" | "collapsing" | "stable",
-  "description": string,            // 2-3 sentences with specific data points (prices, %, volumes, trade flows)
-  "confidence": number,             // integer 0-100 representing your confidence in this assessment
+  "description": string,
+  "confidence": number,
   "timeHorizon": "near-term" | "medium-term" | "long-term",
-  "beneficiaries": [                // 2-4 real NSE-listed companies that benefit
-    {
-      "symbol": string,             // NSE ticker symbol only, e.g. "COALINDIA", "RELIANCE"
-      "company": string,            // full company display name
-      "rationale": string,          // 1 sentence explaining why this company benefits
-      "impact": "high" | "medium" | "low"
-    }
-  ],
-  "adverselyAffected": [            // 2-4 real NSE-listed companies harmed
-    {
-      "symbol": string,
-      "company": string,
-      "rationale": string,
-      "impact": "high" | "medium" | "low"
-    }
-  ],
-  "historicalAnalog": string,       // 1 sentence referencing a past comparable episode with year
-  "sources": string[]               // 2-3 publication or data source names (e.g. "IEA Monthly Oil Report", "Bloomberg")
+  "beneficiaries": [{"symbol": string, "company": string, "rationale": string, "impact": "high" | "medium" | "low"}],
+  "adverselyAffected": [{"symbol": string, "company": string, "rationale": string, "impact": "high" | "medium" | "low"}],
+  "historicalAnalog": string,
+  "sources": string[]
 }
 
 Hard rules:
-- All ticker symbols must be real, actively traded NSE symbols (e.g. HINDUNILVR, TATASTEEL, JSWSTEEL, COALINDIA, ONGC, RELIANCE, ADANIPORTS, HINDALCO, VEDL, UPL, COROMANDEL, CHAMBAL, DEEPAKNITRIT, GNFC, ATUL, NAVINFLUOR)
-- description must cite at least one specific number (price, %, volume, or capacity figure)
-- confidence must be an integer between 40 and 95
-- beneficiaries and adverselyAffected must each have 2 to 4 entries
-- Return ONLY a valid JSON array — no markdown, no code fences, no prose, no explanation before or after
+- Use real NSE tickers. For cocoa/FMCG: NESTLEIND, ITC, HINDUNILVR, BRITANNIA, TATACONSUMER. For AI/IT: INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON. For energy: COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL. For metals: TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL. For EV/defence: TATAMOTORS, MOTHERSON, ADANIGREEN, TATAPOWER. For agri: COROMANDEL, CHAMBAL, UPL, DEEPAKNITRIT.
+- description must cite at least one specific price, % change, or volume figure
+- confidence integer 40-95
+- beneficiaries and adverselyAffected: 2 to 4 entries each
+- Return ONLY a valid JSON array — no markdown, no code fences, no prose
 Respond with the JSON array only.`;
 }
 

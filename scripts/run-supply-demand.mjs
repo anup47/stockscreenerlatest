@@ -34,34 +34,24 @@ const OUTPUT_PATH = outArg ? resolve(outArg) : resolve(ROOT, 'supply-demand-snap
 const SYSTEM_MESSAGE = `You are a commodity research analyst. You output only valid JSON. No prose, no markdown, no explanation.`;
 
 function buildUserPrompt(today) {
-  return `Date: ${today}. Output a JSON object with key "themes" containing an array of 6 supply-demand themes for Indian equity investors.
+  return `Date: ${today}. Output a JSON array of 8 supply-demand themes for Indian equity investors.
+
+MANDATORY themes to include (you must cover all of these):
+1. Cocoa — global shortage, prices near $10,000/tonne, West Africa crop failure. Indian FMCG impact.
+2. AI compute hardware — GPU/HBM memory scarcity, NVIDIA Blackwell/H100 supply constraints. Indian IT/infra impact.
+3. Thermal coal or crude oil — energy supply story
+4. Lithium or copper — battery metals story
+5. Urea or palm oil — agri-chemicals or edible oils
+6. Semiconductors (DRAM/NAND) — memory cycle
+7. Steel or aluminium — industrial metals
+8. One more of your choice from: natural gas, rare earths, sugar, caustic soda, solar panels
 
 Each theme MUST have exactly these fields:
-{
-  "commodity": "name of commodity or sector",
-  "category": "shortage" OR "oversupply" OR "emerging" OR "balanced",
-  "pricingPower": "rising" OR "collapsing" OR "stable",
-  "description": "2 sentences with a specific number (price/% /volume)",
-  "confidence": integer 40-90,
-  "timeHorizon": "near-term" OR "medium-term" OR "long-term",
-  "beneficiaries": [
-    {"symbol": "NSE_TICKER", "company": "Company Name", "rationale": "one sentence", "impact": "high" OR "medium" OR "low"}
-  ],
-  "adverselyAffected": [
-    {"symbol": "NSE_TICKER", "company": "Company Name", "rationale": "one sentence", "impact": "high" OR "medium" OR "low"}
-  ],
-  "historicalAnalog": "one sentence referencing a past episode",
-  "sources": ["source 1", "source 2"]
-}
+{"commodity":"...","category":"shortage" OR "oversupply" OR "emerging" OR "balanced","pricingPower":"rising" OR "collapsing" OR "stable","description":"2 sentences with a specific number","confidence":integer 40-90,"timeHorizon":"near-term" OR "medium-term" OR "long-term","beneficiaries":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"}],"adverselyAffected":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"}],"historicalAnalog":"one sentence","sources":["source 1","source 2"]}
 
-Rules:
-- Include 2 shortage, 2 oversupply, 1 emerging, 1 balanced theme
-- beneficiaries: 2 entries. adverselyAffected: 2 entries. No more, no less.
-- Use real NSE tickers: COALINDIA, ONGC, RELIANCE, TATASTEEL, JSWSTEEL, HINDALCO, HINDUNILVR, UPL, COROMANDEL, ADANIPORTS, NTPC, POWERGRID, BPCL, IOC, GAIL, SAIL
-- Output ONLY the JSON object. No text before or after.
+NSE tickers to use: NESTLEIND, ITC, HINDUNILVR, BRITANNIA, TATACONSUMER (for cocoa/FMCG), INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT (for AI/IT), COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy), TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals), TATAMOTORS, MOTHERSON, DIXON, KAYNES (electronics), COROMANDEL, CHAMBAL, UPL (agri), ADANIGREEN, TATAPOWER (renewables).
 
-Example of one theme inside the array:
-{"commodity":"Thermal Coal","category":"shortage","pricingPower":"rising","description":"Global thermal coal prices rose 18% YoY to $135/tonne. Indian imports up 12% in Q1.","confidence":72,"timeHorizon":"near-term","beneficiaries":[{"symbol":"COALINDIA","company":"Coal India Ltd","rationale":"Domestic coal shortage raises realisations.","impact":"high"},{"symbol":"NTPC","company":"NTPC Ltd","rationale":"Higher tariffs offset fuel cost rise.","impact":"medium"}],"adverselyAffected":[{"symbol":"TATASTEEL","company":"Tata Steel Ltd","rationale":"Energy costs increase smelting margins.","impact":"high"},{"symbol":"HINDALCO","company":"Hindalco Industries","rationale":"Power-intensive smelting hit by coal prices.","impact":"medium"}],"historicalAnalog":"Similar to 2021 coal shortage when COALINDIA rallied 40%.","sources":["IEA Coal Report","Bloomberg Commodities"]}`;
+Output ONLY a valid JSON array. No text, no markdown, no object wrapper.`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
