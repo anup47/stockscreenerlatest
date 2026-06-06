@@ -32,45 +32,38 @@ export interface SupplyDemandTracker {
   totalRuns: number;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers (exported so route and page can import instead of duplicating) ────
 
-function todayIST(): string {
+export function todayIST(): string {
   return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function deriveStatus(updates: StoryUpdate[]): StoryStatus {
   if (updates.length < 2) return 'new';
   const [latest, prev] = updates;
-  const confDelta = latest.confidence - prev.confidence;
-  // Category shift towards shortage/emerging = escalating
-  const escalatingCats: Category[] = ['shortage', 'emerging'];
-  const easingCats: Category[] = ['oversupply', 'balanced'];
-  if (confDelta >= 8 || (escalatingCats.includes(latest.category) && easingCats.includes(prev.category))) {
-    return 'escalating';
-  }
-  if (confDelta <= -8 || (easingCats.includes(latest.category) && escalatingCats.includes(prev.category))) {
-    return 'easing';
-  }
-  if (latest.category === 'balanced' && prev.category !== 'balanced') return 'resolved';
+  const delta = latest.confidence - prev.confidence;
+  if (delta >= 8  || (['shortage', 'emerging'] as Category[]).includes(latest.category) && (['oversupply', 'balanced'] as Category[]).includes(prev.category)) return 'escalating';
+  if (delta <= -8 || (['oversupply', 'balanced'] as Category[]).includes(latest.category) && (['shortage', 'emerging'] as Category[]).includes(prev.category)) return 'easing';
   return 'stable';
 }
 
-// Fuzzy commodity match — handles "Thermal Coal" matching "Coal (Thermal)" etc.
+// Fuzzy commodity match — handles "Thermal Coal" vs "Coal (Thermal)" etc.
+// Substring match requires shorter string ≥ 6 chars AND ≥ 60% of longer string's length
+// to prevent short tokens like "coal" matching both "Thermal Coal" and "Coking Coal".
 function sameStory(existing: string, incoming: string): boolean {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const a = norm(existing);
   const b = norm(incoming);
   if (a === b) return true;
-  // One contains the other (min 4 chars to avoid false positives)
-  if (a.length >= 4 && b.includes(a)) return true;
-  if (b.length >= 4 && a.includes(b)) return true;
-  // Share a significant word (≥5 chars)
-  const wordsA = existing.toLowerCase().split(/\s+/).filter(w => w.length >= 5);
-  const wordsB = incoming.toLowerCase().split(/\s+/).filter(w => w.length >= 5);
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (shorter.length >= 6 && shorter.length / longer.length >= 0.6 && longer.includes(shorter)) return true;
+  // Share a significant word (≥6 chars)
+  const wordsA = existing.toLowerCase().split(/\s+/).filter(w => w.length >= 6);
+  const wordsB = incoming.toLowerCase().split(/\s+/).filter(w => w.length >= 6);
   return wordsA.some(w => wordsB.includes(w));
 }
 

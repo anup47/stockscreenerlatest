@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { list, head } from '@vercel/blob';
+import { list } from '@vercel/blob';
 import type { SupplyDemandTracker } from '@/lib/supply-demand-tracker';
 import { EMPTY_TRACKER } from '@/lib/supply-demand-tracker';
 

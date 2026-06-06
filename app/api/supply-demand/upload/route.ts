@@ -35,18 +35,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  try {
-    // ── 1. Save latest snapshot ──────────────────────────────────────────────
-    const snapshotBlob = await put('sd-latest.json', JSON.stringify(body), {
-      access: 'public',
-      contentType: 'application/json',
-      allowOverwrite: true,
-    });
+  const BLOB_OPTS = { access: 'public', contentType: 'application/json', allowOverwrite: true } as const;
 
-    // ── 2. Load existing tracker, merge new themes, save back ───────────────
+  try {
+    // ── 1 + 2a. Save snapshot and list tracker in parallel (independent) ────
+    const [snapshotBlob, { blobs }] = await Promise.all([
+      put('sd-latest.json', JSON.stringify(body), BLOB_OPTS),
+      list({ prefix: 'sd-tracker.json', limit: 1 }),
+    ]);
+
+    // ── 2b. Load tracker, merge, save back ──────────────────────────────────
     let currentTracker: SupplyDemandTracker = { ...EMPTY_TRACKER };
     try {
-      const { blobs } = await list({ prefix: 'sd-tracker.json', limit: 1 });
       if (blobs.length > 0) {
         const res = await fetch(blobs[0].url, { cache: 'no-store' });
         if (res.ok) currentTracker = await res.json() as SupplyDemandTracker;
@@ -54,12 +54,7 @@ export async function POST(req: NextRequest) {
     } catch { /* start fresh if tracker unreadable */ }
 
     const updatedTracker = mergeIntoTracker(currentTracker, snapshot.themes);
-
-    await put('sd-tracker.json', JSON.stringify(updatedTracker), {
-      access: 'public',
-      contentType: 'application/json',
-      allowOverwrite: true,
-    });
+    await put('sd-tracker.json', JSON.stringify(updatedTracker), BLOB_OPTS);
 
     return NextResponse.json({
       url:           snapshotBlob.url,

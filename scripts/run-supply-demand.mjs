@@ -148,19 +148,7 @@ async function main() {
     }
   }
 
-  // Attempt 3: truncated array — close it and re-parse
-  if (!parsed) {
-    const start = rawContent.indexOf('[');
-    if (start !== -1) {
-      // Try closing with ]} progressively
-      for (const suffix of [']', ',{}]', '}]', '"}]', '"}]}]']) {
-        const attempt = tryParse(rawContent.slice(start) + suffix);
-        if (attempt) { parsed = attempt; break; }
-      }
-    }
-  }
-
-  // Attempt 4: extract individual complete objects via brace counting
+  // Attempt 3: extract individual complete objects via brace counting (handles truncated output)
   if (!parsed) {
     const objects = [];
     let depth = 0, objStart = -1;

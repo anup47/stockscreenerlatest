@@ -11,14 +11,12 @@ import {
 import { cn } from '@/lib/utils';
 import type { SupplyDemandSnapshot } from '@/lib/supply-demand-types';
 import type { SupplyDemandTracker, TrackedStory, StoryStatus, StoryUpdate } from '@/lib/supply-demand-tracker';
+import { todayIST } from '@/lib/supply-demand-tracker';
 
 // ── localStorage ──────────────────────────────────────────────────────────────
 const SNAPSHOT_KEY = 'sd-snapshot';
 const DATE_KEY     = 'sd-date';
 
-function todayIST(): string {
-  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 function canRefreshNow(): boolean {
   const istMins = (Math.floor(Date.now() / 60000) + 330) % 1440;
   return istMins >= 780;
@@ -514,18 +512,17 @@ export default function SupplyDemandPage() {
         {/* ── Error ── */}
         {error && (() => {
           const isNoProvider = error.toLowerCase().includes('no llm provider') || error.toLowerCase().includes('groq_api_key');
-          // If tracker already has data and it's just a missing cloud key, show softer notice
-          if (isNoProvider && tracker && tracker.stories.length > 0) {
-            return (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>
-                  Cloud analysis unavailable (no GROQ_API_KEY). To update, run locally:{' '}
-                  <code className="font-mono bg-amber-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>
-                </span>
-              </div>
-            );
-          }
+          const hasPriorData  = (tracker?.stories.length ?? 0) > 0;
+          // Soft amber notice when cloud key is missing but tracker already has data
+          if (isNoProvider && hasPriorData) return (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                Cloud analysis unavailable (no GROQ_API_KEY). To update, run locally:{' '}
+                <code className="font-mono bg-amber-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>
+              </span>
+            </div>
+          );
           return (
             <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />

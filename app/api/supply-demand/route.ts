@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { SupplyDemandTheme, SupplyDemandSnapshot } from '@/lib/supply-demand-types';
+import { slugify } from '@/lib/supply-demand-tracker';
 
 export const maxDuration = 60;
 
@@ -77,12 +78,6 @@ Hard rules:
 Respond with the JSON array only.`;
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
 
 function stripMarkdownFences(raw: string): string {
   // Strip ```json ... ``` or ``` ... ``` wrappers the model may add despite format:json
@@ -97,15 +92,12 @@ export async function GET() {
 
   const provider = resolveProvider();
 
-  if (!provider.apiKey && !process.env.OLLAMA_BASE_URL && typeof window === 'undefined') {
-    // Running on Vercel with no provider configured
-    const isVercel = !!process.env.VERCEL;
-    if (isVercel) {
-      return NextResponse.json(
-        { error: 'No LLM provider configured. Add GROQ_API_KEY to your Vercel environment variables (free at console.groq.com).' },
-        { status: 503 }
-      );
-    }
+  // Fast-fail on Vercel when no provider is configured (saves a 55s timeout)
+  if (!provider.apiKey && !process.env.OLLAMA_BASE_URL && process.env.VERCEL) {
+    return NextResponse.json(
+      { error: 'No LLM provider configured. Add GROQ_API_KEY to your Vercel environment variables (free at console.groq.com).' },
+      { status: 503 }
+    );
   }
 
   // IST date for prompt context
