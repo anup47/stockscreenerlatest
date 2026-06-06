@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const snapshotBlob = await put('sd-latest.json', JSON.stringify(body), {
       access: 'public',
       contentType: 'application/json',
-      addRandomSuffix: false,
+      allowOverwrite: true,
     });
 
     // ── 2. Load existing tracker, merge new themes, save back ───────────────
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     await put('sd-tracker.json', JSON.stringify(updatedTracker), {
       access: 'public',
       contentType: 'application/json',
-      addRandomSuffix: false,
+      allowOverwrite: true,
     });
 
     return NextResponse.json({
