@@ -35,36 +35,41 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── 1. Save latest snapshot ────────────────────────────────────────────────
-  const snapshotBlob = await put('sd-latest.json', JSON.stringify(body), {
-    access: 'public',
-    contentType: 'application/json',
-    addRandomSuffix: false,
-  });
-
-  // ── 2. Load existing tracker, merge new themes, save back ─────────────────
-  let currentTracker: SupplyDemandTracker = { ...EMPTY_TRACKER };
   try {
-    const { blobs } = await list({ prefix: 'sd-tracker.json', limit: 1 });
-    if (blobs.length > 0) {
-      const res = await fetch(blobs[0].url, { cache: 'no-store' });
-      if (res.ok) currentTracker = await res.json() as SupplyDemandTracker;
-    }
-  } catch { /* start fresh if tracker unreadable */ }
+    // ── 1. Save latest snapshot ──────────────────────────────────────────────
+    const snapshotBlob = await put('sd-latest.json', JSON.stringify(body), {
+      access: 'public',
+      contentType: 'application/json',
+      addRandomSuffix: false,
+    });
 
-  const updatedTracker = mergeIntoTracker(currentTracker, snapshot.themes);
+    // ── 2. Load existing tracker, merge new themes, save back ───────────────
+    let currentTracker: SupplyDemandTracker = { ...EMPTY_TRACKER };
+    try {
+      const { blobs } = await list({ prefix: 'sd-tracker.json', limit: 1 });
+      if (blobs.length > 0) {
+        const res = await fetch(blobs[0].url, { cache: 'no-store' });
+        if (res.ok) currentTracker = await res.json() as SupplyDemandTracker;
+      }
+    } catch { /* start fresh if tracker unreadable */ }
 
-  await put('sd-tracker.json', JSON.stringify(updatedTracker), {
-    access: 'public',
-    contentType: 'application/json',
-    addRandomSuffix: false,
-  });
+    const updatedTracker = mergeIntoTracker(currentTracker, snapshot.themes);
 
-  return NextResponse.json({
-    url:           snapshotBlob.url,
-    uploadedAt:    new Date().toISOString(),
-    themes:        snapshot.themes.length,
-    trackerStories:updatedTracker.stories.length,
-    trackerRuns:   updatedTracker.totalRuns,
-  });
+    await put('sd-tracker.json', JSON.stringify(updatedTracker), {
+      access: 'public',
+      contentType: 'application/json',
+      addRandomSuffix: false,
+    });
+
+    return NextResponse.json({
+      url:           snapshotBlob.url,
+      uploadedAt:    new Date().toISOString(),
+      themes:        snapshot.themes.length,
+      trackerStories:updatedTracker.stories.length,
+      trackerRuns:   updatedTracker.totalRuns,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
