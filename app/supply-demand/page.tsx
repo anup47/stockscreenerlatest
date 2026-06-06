@@ -178,6 +178,17 @@ function StoryCard({ story }: { story: TrackedStory }) {
       </CardHeader>
 
       <CardContent className="px-4 pb-4 space-y-3">
+        {/* Live price badge */}
+        {latest?.livePrice && (
+          <div className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-emerald-700">
+            <Zap className="h-2.5 w-2.5" />
+            Live: {latest.livePrice.value} {latest.livePrice.unit}
+            <span className={cn(latest.livePrice.change1d >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+              ({latest.livePrice.change1d >= 0 ? '+' : ''}{latest.livePrice.change1d}%)
+            </span>
+          </div>
+        )}
+
         {/* Latest description */}
         <p className="text-sm text-muted-foreground leading-relaxed">{latest?.description}</p>
 
@@ -452,7 +463,7 @@ export default function SupplyDemandPage() {
               <div className="flex items-center gap-3 mt-1.5 flex-wrap text-[11px] text-muted-foreground">
                 <span>{tracker.stories.length} stories tracked</span>
                 <span>·</span>
-                <span>{tracker.totalRuns} analysis run{tracker.totalRuns !== 1 ? 's' : ''}</span>
+                <span>{tracker.totalRuns} run{tracker.totalRuns !== 1 ? 's' : ''}</span>
                 <span>·</span>
                 <span>Last run: <span className="text-foreground font-medium">{getISTTimeString(tracker.lastRun)} IST</span></span>
               </div>
@@ -538,6 +549,17 @@ export default function SupplyDemandPage() {
             </div>
           );
         })()}
+
+        {/* ── Staleness warning — shown when stories have no live price data ── */}
+        {tracker && tracker.stories.length > 0 && !tracker.stories.some(s => s.updates[0]?.livePrice) && !error && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>
+              This analysis was generated without live market prices — descriptions may reflect data from the model&apos;s training period, not today&apos;s market.
+              Re-run with <code className="font-mono bg-amber-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code> to ground analysis in current prices.
+            </span>
+          </div>
+        )}
 
         {/* ── Summary tiles ── */}
         {tracker && tracker.stories.length > 0 && (

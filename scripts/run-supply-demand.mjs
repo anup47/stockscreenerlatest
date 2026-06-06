@@ -30,28 +30,80 @@ const OLLAMA_BASE = (process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434').re
 const MODEL       = modelArg ?? process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
 const OUTPUT_PATH = outArg ? resolve(outArg) : resolve(ROOT, 'supply-demand-snapshot.json');
 
+// ── Live commodity prices ─────────────────────────────────────────────────────
+const COMMODITY_TICKERS = {
+  'Cocoa':               { ticker: 'CC=F',    unit: '$/tonne' },
+  'Crude Oil (WTI)':     { ticker: 'CL=F',    unit: '$/barrel' },
+  'Natural Gas':         { ticker: 'NG=F',    unit: '$/MMBtu' },
+  'Copper':              { ticker: 'HG=F',    unit: '$/lb' },
+  'Aluminium':           { ticker: 'ALI=F',   unit: '$/lb' },
+  'Wheat':               { ticker: 'ZW=F',    unit: '¢/bushel' },
+  'Soybean':             { ticker: 'ZS=F',    unit: '¢/bushel' },
+  'Sugar':               { ticker: 'SB=F',    unit: '¢/lb' },
+  'Cotton':              { ticker: 'CT=F',    unit: '¢/lb' },
+  'Palm Oil':            { ticker: 'FCPO.BMD', unit: 'MYR/tonne' },
+  'NVDA (AI proxy)':     { ticker: 'NVDA',    unit: '$/share' },
+  'Micron (DRAM proxy)': { ticker: 'MU',      unit: '$/share' },
+  'Lithium ETF':         { ticker: 'LIT',     unit: '$/share' },
+};
+
+async function fetchLivePrices() {
+  const results = {};
+  await Promise.allSettled(
+    Object.entries(COMMODITY_TICKERS).map(async ([name, { ticker, unit }]) => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (!res.ok) return;
+        const json = await res.json();
+        const closes = (json.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter(v => v != null && !isNaN(v));
+        if (closes.length >= 2) {
+          results[name] = {
+            price:    Math.round(closes[closes.length - 1] * 100) / 100,
+            change1d: Math.round((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2] * 1000) / 10,
+            unit,
+          };
+        }
+      } catch { /* skip */ }
+    })
+  );
+  return results;
+}
+
+function formatPricesForPrompt(prices) {
+  if (Object.keys(prices).length === 0) return '';
+  const lines = Object.entries(prices).map(([name, p]) =>
+    `  ${name}: ${p.price} ${p.unit} (${p.change1d >= 0 ? '+' : ''}${p.change1d}% today)`
+  );
+  return `\nLIVE MARKET PRICES (use these in your analysis — do NOT use stale training-data prices):\n${lines.join('\n')}\n`;
+}
+
 // ── Prompts ───────────────────────────────────────────────────────────────────
-const SYSTEM_MESSAGE = `You are a commodity research analyst. You output only valid JSON. No prose, no markdown, no explanation.`;
+const SYSTEM_MESSAGE = `You are a commodity research analyst writing for equity investors. You output only valid JSON. Critical rule: live market prices are provided — use them as ground truth, not your training data.`;
 
-function buildUserPrompt(today) {
-  return `Date: ${today}. Output a JSON array of 8 supply-demand themes for Indian equity investors.
+function buildUserPrompt(today, prices) {
+  const priceBlock = formatPricesForPrompt(prices);
+  return `Date: ${today}.${priceBlock}
+Output a JSON array of 8 supply-demand themes for Indian equity investors.
 
-MANDATORY themes to include (you must cover all of these):
-1. Cocoa — global shortage, prices near $10,000/tonne, West Africa crop failure. Indian FMCG impact.
-2. AI compute hardware — GPU/HBM memory scarcity, NVIDIA Blackwell/H100 supply constraints. Indian IT/infra impact.
-3. Thermal coal or crude oil — energy supply story
-4. Lithium or copper — battery metals story
-5. Urea or palm oil — agri-chemicals or edible oils
-6. Semiconductors (DRAM/NAND) — memory cycle
-7. Steel or aluminium — industrial metals
-8. One more of your choice from: natural gas, rare earths, sugar, caustic soda, solar panels
+IMPORTANT: Use the LIVE PRICES above in your descriptions. If cocoa is at $6,000 not $10,000 — say so. Reflect what is happening NOW, not what happened a year ago.
+
+MANDATORY themes:
+1. Cocoa — use current price above; describe current shortage/recovery/easing vs 2024 peak. Indian FMCG impact.
+2. AI compute hardware — use NVDA price as demand indicator; GPU/HBM/CoWoS supply. Indian IT/electronics.
+3. Crude oil — use current WTI price; OPEC policy, refining margins. Indian refiners.
+4. Copper or Lithium — use current price; green energy demand. Indian EV/metals plays.
+5. DRAM/NAND — use Micron price as memory-cycle indicator; oversupply or recovery?
+6. Urea or Palm oil — use current prices; feedstock costs, India import dependency.
+7. Steel or Aluminium — use current price; China overcapacity vs India expansion.
+8. Your choice: natural gas, rare earths, sugar, or caustic soda.
 
 Each theme MUST have exactly these fields:
-{"commodity":"...","category":"shortage" OR "oversupply" OR "emerging" OR "balanced","pricingPower":"rising" OR "collapsing" OR "stable","description":"2 sentences with a specific number","confidence":integer 40-90,"timeHorizon":"near-term" OR "medium-term" OR "long-term","beneficiaries":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"}],"adverselyAffected":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high" OR "medium" OR "low"}],"historicalAnalog":"one sentence","sources":["source 1","source 2"]}
+{"commodity":"...","category":"shortage"|"oversupply"|"emerging"|"balanced","pricingPower":"rising"|"collapsing"|"stable","description":"2 sentences CITING the live price above","confidence":integer 40-90,"timeHorizon":"near-term"|"medium-term"|"long-term","beneficiaries":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"}],"adverselyAffected":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"}],"historicalAnalog":"one sentence","sources":["source 1","source 2"]}
 
-NSE tickers to use: NESTLEIND, ITC, HINDUNILVR, BRITANNIA, TATACONSUMER (for cocoa/FMCG), INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT (for AI/IT), COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy), TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals), TATAMOTORS, MOTHERSON, DIXON, KAYNES (electronics), COROMANDEL, CHAMBAL, UPL (agri), ADANIGREEN, TATAPOWER (renewables).
+NSE tickers: NESTLEIND, ITC, HINDUNILVR, BRITANNIA (FMCG) | INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON (IT/tech) | COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy) | TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals) | TATAMOTORS, ADANIGREEN, TATAPOWER (EV/renewables) | COROMANDEL, CHAMBAL, UPL (agri)
 
-Output ONLY a valid JSON array. No text, no markdown, no object wrapper.`;
+Output ONLY a valid JSON array. No markdown, no wrapper object.`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -82,7 +134,21 @@ async function main() {
   if (UPLOAD) console.log(`  Upload  : YES → ${process.env.WEBAPP_URL ?? '(WEBAPP_URL not set)'}`);
   console.log('');
 
-  // ── 1. Call Ollama ──────────────────────────────────────────────────────────
+  // ── 1. Fetch live commodity prices ──────────────────────────────────────────
+  console.log('⏳ Fetching live commodity prices from Yahoo Finance...');
+  const prices = await fetchLivePrices();
+  const priceCount = Object.keys(prices).length;
+  if (priceCount > 0) {
+    console.log(`✓ Got live prices for ${priceCount} commodities:`);
+    for (const [name, p] of Object.entries(prices)) {
+      console.log(`  ${name}: ${p.price} ${p.unit} (${p.change1d >= 0 ? '+' : ''}${p.change1d}%)`);
+    }
+  } else {
+    console.log('  ⚠ No live prices fetched — analysis will use model training data only');
+  }
+  console.log('');
+
+  // ── 2. Call Ollama ──────────────────────────────────────────────────────────
   console.log(`⏳ Calling Ollama (${MODEL})... please wait`);
 
   let llmRes;
@@ -95,7 +161,7 @@ async function main() {
         stream: false,
         messages: [
           { role: 'system', content: SYSTEM_MESSAGE },
-          { role: 'user',   content: buildUserPrompt(today) },
+          { role: 'user',   content: buildUserPrompt(today, prices) },
         ],
       }),
     });
@@ -202,6 +268,8 @@ async function main() {
     generatedAt: new Date().toISOString(),
     elapsedMs:   Date.now() - startMs,
     modelUsed:   MODEL,
+    priceData:   Object.keys(prices).length > 0 ? prices : undefined,
+    pricesAsOf:  new Date().toISOString(),
   };
 
   console.log(`✓ Parsed ${themes.length} themes in ${snapshot.elapsedMs}ms`);

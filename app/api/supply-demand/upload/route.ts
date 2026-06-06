@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* start fresh if tracker unreadable */ }
 
-    const updatedTracker = mergeIntoTracker(currentTracker, snapshot.themes);
+    const updatedTracker = mergeIntoTracker(currentTracker, snapshot.themes, snapshot.priceData);
     await put('sd-tracker.json', JSON.stringify(updatedTracker), BLOB_OPTS);
 
     return NextResponse.json({

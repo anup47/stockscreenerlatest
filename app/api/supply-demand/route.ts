@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import type { SupplyDemandTheme, SupplyDemandSnapshot } from '@/lib/supply-demand-types';
+import type { SupplyDemandTheme, SupplyDemandSnapshot, LivePrice } from '@/lib/supply-demand-types';
 import { slugify } from '@/lib/supply-demand-tracker';
 
 export const maxDuration = 60;
@@ -29,53 +29,110 @@ function resolveProvider(): { baseUrl: string; model: string; apiKey: string | n
   };
 }
 
-const SYSTEM_MESSAGE = `You are a senior institutional commodity research analyst specializing in global supply-demand dynamics and their impact on the Indian equity market (NSE/BSE listed companies). You have deep expertise in:
-- Global commodity markets: energy, metals, agricultural, chemicals
-- Indian manufacturing, refining, and consumption patterns
-- Supply chain disruptions, geopolitical trade flows, and seasonal demand cycles
-- Identifying NSE/BSE listed beneficiaries and companies adversely affected by commodity shifts
-Your analysis is grounded in real macroeconomic data, government policy, seasonal patterns, and industry fundamentals. You communicate in precise, factual language suitable for institutional use. You always cite specific data points (prices, percentages, volumes, trade flows) in your descriptions.`;
+// ── Live commodity price fetching ─────────────────────────────────────────────
+// Tickers: Yahoo Finance futures/ETF proxies for key commodities
+const COMMODITY_TICKERS: Record<string, { ticker: string; unit: string }> = {
+  'Cocoa':           { ticker: 'CC=F',   unit: '$/tonne' },
+  'Crude Oil (WTI)': { ticker: 'CL=F',   unit: '$/barrel' },
+  'Natural Gas':     { ticker: 'NG=F',   unit: '$/MMBtu' },
+  'Copper':          { ticker: 'HG=F',   unit: '$/lb' },
+  'Aluminium':       { ticker: 'ALI=F',  unit: '$/lb' },
+  'Gold':            { ticker: 'GC=F',   unit: '$/oz' },
+  'Wheat':           { ticker: 'ZW=F',   unit: '¢/bushel' },
+  'Soybean':         { ticker: 'ZS=F',   unit: '¢/bushel' },
+  'Sugar':           { ticker: 'SB=F',   unit: '¢/lb' },
+  'Cotton':          { ticker: 'CT=F',   unit: '¢/lb' },
+  'Palm Oil':        { ticker: 'FCPO.BMD', unit: 'MYR/tonne' },
+  'NVDA (AI proxy)': { ticker: 'NVDA',   unit: '$/share' },
+  'Micron (DRAM proxy)': { ticker: 'MU', unit: '$/share' },
+  'Lithium ETF':     { ticker: 'LIT',    unit: '$/share' },
+};
 
-function buildUserPrompt(today: string): string {
-  return `Today's date is ${today}. Analyze current global and domestic supply-demand dynamics for Indian equity investors. Generate a JSON array of exactly 12 supply-demand themes.
+async function fetchLivePrices(): Promise<Record<string, LivePrice>> {
+  const results: Record<string, LivePrice> = {};
+  await Promise.allSettled(
+    Object.entries(COMMODITY_TICKERS).map(async ([name, { ticker, unit }]) => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          // @ts-ignore
+          cache: 'no-store',
+          signal: AbortSignal.timeout(6_000),
+        });
+        if (!res.ok) return;
+        const json = await res.json() as { chart?: { result?: Array<{ indicators: { quote: Array<{ close: number[] }> } }> } };
+        const closes = (json.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter((v): v is number => v != null && !isNaN(v));
+        if (closes.length >= 2) {
+          results[name] = {
+            price:    Math.round(closes[closes.length - 1] * 100) / 100,
+            change1d: Math.round((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2] * 1000) / 10,
+            unit,
+          };
+        }
+      } catch { /* skip unavailable tickers */ }
+    })
+  );
+  return results;
+}
 
-MANDATORY — you must include all of the following:
-1. Cocoa — global shortage near record prices (~$10,000/tonne), West Africa crop failures. Impact on Indian FMCG/chocolate companies.
-2. AI compute hardware — GPU shortage (NVIDIA H100/Blackwell), HBM memory scarcity, advanced packaging bottleneck (CoWoS). Impact on Indian IT/infra/electronics companies.
-3. Thermal coal — Indian import dependency, domestic supply gaps
-4. Crude oil — OPEC policy, refining margins, Indian refiners
-5. Lithium — EV battery supply chain, Indian battery/EV plays
-6. Copper — green energy demand, mining constraints
-7. DRAM / NAND flash — memory cycle (oversupply normalising)
-8. Urea / fertilisers — natural gas feedstock impact on Indian cos
-9. Palm oil — edible oil supply, India import dependency
-10. Steel — China overcapacity vs India capacity expansion
-11. Rare earths — China export controls, Indian defence/EV angle
-12. One more of your choice: natural gas, aluminium, sugar, caustic soda, solar glass, or titanium dioxide
+function formatPricesForPrompt(prices: Record<string, LivePrice>): string {
+  if (Object.keys(prices).length === 0) return '';
+  const lines = Object.entries(prices).map(([name, p]) => {
+    const sign = p.change1d >= 0 ? '+' : '';
+    return `  ${name}: ${p.price} ${p.unit} (${sign}${p.change1d}% today)`;
+  });
+  return `\nLIVE MARKET PRICES fetched right now (use these actual prices in your analysis — do NOT use prices from your training data):\n${lines.join('\n')}\n`;
+}
+
+const SYSTEM_MESSAGE = `You are a senior institutional commodity research analyst. You write for equity investors who need to act on TODAY's supply-demand reality, not historical situations.
+
+Critical rule: Your training data may be months or years old. Live market prices are provided in the prompt — use them as ground truth. If a commodity's current price differs significantly from what you learned in training, your training data is stale — trust the live price.
+
+You identify NSE/BSE listed companies that benefit from or are harmed by current supply-demand dynamics. You cite specific current data points in every description.`;
+
+function buildUserPrompt(today: string, prices: Record<string, LivePrice>): string {
+  const priceBlock = formatPricesForPrompt(prices);
+
+  return `Today's date is ${today}.${priceBlock}
+Analyze CURRENT global supply-demand dynamics relevant to Indian equity investors. Generate a JSON array of exactly 12 themes.
+
+IMPORTANT: Base your analysis on the live prices above. If a commodity shows a price significantly different from what you expected from training data, reflect the CURRENT situation accurately. For example, if cocoa is trading at $6,000/tonne (down from the 2024 peak of ~$10,000), describe the CURRENT situation, not the 2024 peak.
+
+MANDATORY commodities to cover:
+1. Cocoa — use current price above; describe whether shortage/easing/recovery vs the 2024 peak
+2. AI compute hardware — NVDA price above reflects demand; GPU/HBM supply chain
+3. Thermal coal — current import price, India dependency
+4. Crude Oil — use current WTI price; OPEC policy, refining margins
+5. Copper — green energy demand vs mining supply; use current price
+6. DRAM / NAND — Micron price above reflects memory cycle; current oversupply or recovery
+7. Urea / Fertilisers — natural gas feedstock cost at current NG price
+8. Palm Oil / Edible oils — use current price; India import exposure
+9. Steel — China overcapacity vs India expansion; use current indicators
+10. Lithium — EV demand vs supply glut; LIT ETF price reflects sentiment
+11. Rare Earths — China export controls, current geopolitical tension
+12. Your choice: natural gas, aluminium, sugar, caustic soda, or solar glass
 
 Distribution: at least 3 shortage, 3 oversupply, 3 emerging, remainder balanced.
 
-Each theme object schema:
+Schema for each theme:
 {
   "commodity": string,
   "category": "shortage" | "oversupply" | "emerging" | "balanced",
   "pricingPower": "rising" | "collapsing" | "stable",
-  "description": string,
-  "confidence": number,
+  "description": string,   // MUST cite the current price from the live data above
+  "confidence": number,    // Lower confidence (40-55) if uncertain about recency
   "timeHorizon": "near-term" | "medium-term" | "long-term",
-  "beneficiaries": [{"symbol": string, "company": string, "rationale": string, "impact": "high" | "medium" | "low"}],
-  "adverselyAffected": [{"symbol": string, "company": string, "rationale": string, "impact": "high" | "medium" | "low"}],
+  "beneficiaries": [{"symbol": string, "company": string, "rationale": string, "impact": "high"|"medium"|"low"}],
+  "adverselyAffected": [{"symbol": string, "company": string, "rationale": string, "impact": "high"|"medium"|"low"}],
   "historicalAnalog": string,
   "sources": string[]
 }
 
-Hard rules:
-- Use real NSE tickers. For cocoa/FMCG: NESTLEIND, ITC, HINDUNILVR, BRITANNIA, TATACONSUMER. For AI/IT: INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON. For energy: COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL. For metals: TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL. For EV/defence: TATAMOTORS, MOTHERSON, ADANIGREEN, TATAPOWER. For agri: COROMANDEL, CHAMBAL, UPL, DEEPAKNITRIT.
-- description must cite at least one specific price, % change, or volume figure
-- confidence integer 40-95
-- beneficiaries and adverselyAffected: 2 to 4 entries each
-- Return ONLY a valid JSON array — no markdown, no code fences, no prose
-Respond with the JSON array only.`;
+NSE tickers: NESTLEIND, ITC, HINDUNILVR, BRITANNIA (FMCG/cocoa) | INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON (IT/electronics) | COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy) | TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals) | TATAMOTORS, MOTHERSON, ADANIGREEN, TATAPOWER (EV/renewables) | COROMANDEL, CHAMBAL, UPL, DEEPAKNITRIT (agri)
+
+Rules: description MUST use the live price cited above. confidence 40-95. beneficiaries and adverselyAffected: 2-4 each.
+Return ONLY a valid JSON array. No markdown, no prose.`;
 }
 
 
@@ -104,6 +161,11 @@ export async function GET() {
   const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const todayISO = nowIST.toISOString().slice(0, 10);
 
+  // Fetch live commodity prices to ground the analysis in current reality
+  const [priceData] = await Promise.allSettled([fetchLivePrices()]);
+  const prices = priceData.status === 'fulfilled' ? priceData.value : {};
+  const pricesAsOf = new Date().toISOString();
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 55_000);
 
@@ -121,7 +183,7 @@ export async function GET() {
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_MESSAGE },
-          { role: 'user', content: buildUserPrompt(todayISO) },
+          { role: 'user', content: buildUserPrompt(todayISO, prices) },
         ],
       }),
       signal: controller.signal,
@@ -268,6 +330,8 @@ export async function GET() {
     themes,
     generatedAt: new Date().toISOString(),
     elapsedMs: Date.now() - startMs,
+    priceData: Object.keys(prices).length > 0 ? prices : undefined,
+    pricesAsOf,
   };
 
   return NextResponse.json(snapshot);

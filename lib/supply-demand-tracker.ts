@@ -1,4 +1,4 @@
-import type { Category, PricingPower, ThemeStock, SupplyDemandTheme } from './supply-demand-types';
+import type { Category, PricingPower, ThemeStock, SupplyDemandTheme, LivePrice } from './supply-demand-types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ export interface StoryUpdate {
   category: Category;
   pricingPower: PricingPower;
   sources: string[];
+  livePrice?: { value: number; unit: string; change1d: number }; // spot price at time of update
 }
 
 export interface TrackedStory {
@@ -72,11 +73,22 @@ function sameStory(existing: string, incoming: string): boolean {
 export function mergeIntoTracker(
   tracker: SupplyDemandTracker,
   themes: SupplyDemandTheme[],
+  priceData?: Record<string, LivePrice>,
 ): SupplyDemandTracker {
   const today = todayIST();
   const updatedStories = [...tracker.stories];
 
   for (const theme of themes) {
+    // Find the live price for this commodity (fuzzy match on commodity name)
+    let livePrice: StoryUpdate['livePrice'];
+    if (priceData) {
+      const matchKey = Object.keys(priceData).find(k => sameStory(k.split('(')[0].trim(), theme.commodity));
+      if (matchKey) {
+        const p = priceData[matchKey];
+        livePrice = { value: p.price, unit: p.unit, change1d: p.change1d };
+      }
+    }
+
     const newUpdate: StoryUpdate = {
       date:         today,
       description:  theme.description,
@@ -84,6 +96,7 @@ export function mergeIntoTracker(
       category:     theme.category,
       pricingPower: theme.pricingPower,
       sources:      theme.sources,
+      ...(livePrice ? { livePrice } : {}),
     };
 
     const existingIdx = updatedStories.findIndex(s => sameStory(s.commodity, theme.commodity));

@@ -66,11 +66,19 @@ export interface SupplyDemandStory {
   lastUpdated: string;
 }
 
+export interface LivePrice {
+  price: number;
+  change1d: number; // % change vs previous close
+  unit: string;     // "$/tonne", "$/barrel", etc.
+}
+
 export interface SupplyDemandSnapshot {
   themes: SupplyDemandTheme[];
   generatedAt: string;
   elapsedMs: number;
   error?: string;
+  priceData?: Record<string, LivePrice>; // live prices used to ground the analysis
+  pricesAsOf?: string;                   // ISO timestamp of price fetch
   // Legacy fields kept for backwards compatibility
   stories?: SupplyDemandStory[];
   modelUsed?: string;
