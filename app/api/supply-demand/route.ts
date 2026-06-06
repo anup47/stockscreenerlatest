@@ -1,337 +1,385 @@
 import { NextResponse } from 'next/server';
-import type { SupplyDemandTheme, SupplyDemandSnapshot, LivePrice } from '@/lib/supply-demand-types';
+import type { SupplyDemandTheme, SupplyDemandSnapshot, LivePrice, Category, PricingPower } from '@/lib/supply-demand-types';
 import { slugify } from '@/lib/supply-demand-tracker';
 
-export const maxDuration = 60;
+export const maxDuration = 55;
 
-// ── Provider resolution ────────────────────────────────────────────────────
-// Priority: GROQ_API_KEY → OPENROUTER_API_KEY → OLLAMA_BASE_URL (local)
-function resolveProvider(): { baseUrl: string; model: string; apiKey: string | null } {
-  if (process.env.GROQ_API_KEY) {
-    return {
-      baseUrl: 'https://api.groq.com/openai/v1',
-      model: process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile',
-      apiKey: process.env.GROQ_API_KEY,
+// ── Commodity universe ─────────────────────────────────────────────────────────
+// Uses Yahoo Finance free API — same as all other tabs in this app.
+// ticker: Yahoo Finance symbol
+// unit: display unit for prices
+// beneficiaries/adverselyAffected: NSE-listed Indian equities
+interface CommodityDef {
+  name:               string;
+  ticker:             string;
+  unit:               string;
+  sector:             string;
+  timeHorizon:        SupplyDemandTheme['timeHorizon'];
+  historicalAnalog:   string;
+  sources:            string[];
+  beneficiaries: Array<{ symbol: string; company: string; rationale: string; impact: 'high' | 'medium' | 'low' }>;
+  adverselyAffected: Array<{ symbol: string; company: string; rationale: string; impact: 'high' | 'medium' | 'low' }>;
+}
+
+const COMMODITIES: CommodityDef[] = [
+  {
+    name: 'Crude Oil (WTI)', ticker: 'CL=F', unit: '$/barrel', sector: 'Energy',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2014-16 supply glut when OPEC+ raised output, crushing OMC margins',
+    sources: ['EIA Weekly Petroleum Report', 'OPEC Monthly Oil Market Report', 'Reuters Energy'],
+    beneficiaries: [
+      { symbol: 'BPCL',   company: 'BPCL',             rationale: 'Lower crude input cost expands refining margins', impact: 'high' },
+      { symbol: 'IOC',    company: 'Indian Oil Corp',   rationale: 'OMC benefits from cheaper crude and wider GRMs', impact: 'high' },
+      { symbol: 'HINDPETRO', company: 'HPCL',          rationale: 'Downstream margin expansion on lower feedstock', impact: 'high' },
+      { symbol: 'INDIGO', company: 'IndiGo',            rationale: 'Aviation turbine fuel cost declines', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'ONGC',   company: 'ONGC',              rationale: 'Upstream realization falls with lower oil prices', impact: 'high' },
+      { symbol: 'OIL',    company: 'Oil India',          rationale: 'Oil field economics deteriorate at lower prices', impact: 'high' },
+      { symbol: 'RELIANCE', company: 'Reliance Industries', rationale: 'O2C segment margins compress at lower crude spread', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Natural Gas', ticker: 'NG=F', unit: '$/MMBtu', sector: 'Energy',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2022 European energy crisis when gas prices spiked 10x post Ukraine invasion',
+    sources: ['EIA Natural Gas Storage Report', 'Bloomberg Energy', 'PPAC India'],
+    beneficiaries: [
+      { symbol: 'GAIL',   company: 'GAIL (India)',       rationale: 'Gas transmission volumes and trading margins improve', impact: 'high' },
+      { symbol: 'PETRONET', company: 'Petronet LNG',     rationale: 'LNG regasification demand grows with gas shortages', impact: 'high' },
+      { symbol: 'GSPL',   company: 'GSPL',               rationale: 'Gujarat gas pipeline utilisation rises', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'CHAMBAL', company: 'Chambal Fertilisers', rationale: 'Natural gas is primary feedstock for urea — input cost spike', impact: 'high' },
+      { symbol: 'COROMANDEL', company: 'Coromandel International', rationale: 'DAP/MAP production costs rise with gas price', impact: 'medium' },
+      { symbol: 'DEEPAKNITRIT', company: 'Deepak Nitrite',  rationale: 'Energy-intensive chemical processes face margin pressure', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Copper', ticker: 'HG=F', unit: '$/lb', sector: 'Base Metals',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2010-11 copper supercycle driven by China urbanisation and constrained Chilean output',
+    sources: ['LME Market Report', 'Wood Mackenzie Copper Outlook', 'ICSG Copper Bulletin'],
+    beneficiaries: [
+      { symbol: 'HINDALCO', company: 'Hindalco Industries', rationale: 'Copper smelting business benefits from higher LME prices', impact: 'high' },
+      { symbol: 'STERLITE', company: 'Sterlite Technologies', rationale: 'Optical fibre demand tied to electrification; copper wiring volumes rise', impact: 'medium' },
+      { symbol: 'POLYCAB', company: 'Polycab India',          rationale: 'Wire and cable ASPs rise as copper content re-prices', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'HAVELLS',  company: 'Havells India',      rationale: 'Electrical equipment cost base rises with copper input', impact: 'medium' },
+      { symbol: 'KEI',      company: 'KEI Industries',     rationale: 'Cable margin compression if input cost cannot be passed through', impact: 'medium' },
+      { symbol: 'VOLTAS',   company: 'Voltas',             rationale: 'AC manufacturing uses copper in heat exchangers — cost headwind', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Aluminium', ticker: 'ALI=F', unit: '$/lb', sector: 'Base Metals',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2018 US sanctions on Rusal triggered 30% price spike in weeks',
+    sources: ['LME Daily Report', 'International Aluminium Institute', 'Reuters Metals'],
+    beneficiaries: [
+      { symbol: 'HINDALCO', company: 'Hindalco Industries', rationale: 'Primary aluminium producer — direct price beneficiary', impact: 'high' },
+      { symbol: 'NALCO',    company: 'NALCO',               rationale: 'State-owned aluminium smelter benefits from LME rally', impact: 'high' },
+      { symbol: 'VEDL',     company: 'Vedanta',             rationale: 'Aluminium segment revenue expands with higher prices', impact: 'high' },
+    ],
+    adverselyAffected: [
+      { symbol: 'TATAMOTORS', company: 'Tata Motors',   rationale: 'Automotive aluminium body costs rise', impact: 'medium' },
+      { symbol: 'APOLLO',     company: 'Apollo Tyres',  rationale: 'Rim/wheel costs rise for OEM supply chain', impact: 'low' },
+      { symbol: 'SKIPPER',    company: 'Skipper Ltd',   rationale: 'Power transmission tower fabrication cost base rises', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Steel (HRC Futures)', ticker: 'HRC=F', unit: '$/tonne', sector: 'Steel',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2015-16 China steel dumping cycle that crushed global mills and spurred anti-dumping duties',
+    sources: ['World Steel Association', 'SteelMint India', 'Platts Steel Markets Daily'],
+    beneficiaries: [
+      { symbol: 'TATASTEEL', company: 'Tata Steel',    rationale: 'Largest Indian steelmaker — top-line and EBITDA move with HRC', impact: 'high' },
+      { symbol: 'JSWSTEEL',  company: 'JSW Steel',     rationale: 'Integrated producer benefits from realization improvement', impact: 'high' },
+      { symbol: 'SAIL',      company: 'SAIL',           rationale: 'Public sector steel — earnings highly leveraged to prices', impact: 'high' },
+    ],
+    adverselyAffected: [
+      { symbol: 'ASHOKLEY',  company: 'Ashok Leyland', rationale: 'CV body fabrication costs rise with steel', impact: 'medium' },
+      { symbol: 'JINDALSAW', company: 'Jindal Saw',    rationale: 'Pipe fabrication business margin compresses on higher input', impact: 'medium' },
+      { symbol: 'KALYANKJIL', company: 'Kalyan Jewellers', rationale: 'Jewellery display and store fitting costs minor impact', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Gold', ticker: 'GC=F', unit: '$/oz', sector: 'Precious Metals',
+    timeHorizon: 'long-term',
+    historicalAnalog: '2008-11 safe-haven rally when gold tripled as central banks cut rates to zero',
+    sources: ['World Gold Council', 'LBMA Gold Price', 'RBI Gold Reserve Data'],
+    beneficiaries: [
+      { symbol: 'MUTHOOTFIN', company: 'Muthoot Finance',  rationale: 'Gold loan portfolio value rises; AUM per gram improves', impact: 'high' },
+      { symbol: 'MANAPPURAM', company: 'Manappuram Finance', rationale: 'Gold-backed lending book grows with collateral value', impact: 'high' },
+      { symbol: 'TITAN',      company: 'Titan Company',    rationale: 'Jewellery ASP rises; inventory gains on gold holdings', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'KALYANKJIL', company: 'Kalyan Jewellers', rationale: 'Volume demand for jewellery falls as gold price rises', impact: 'medium' },
+      { symbol: 'SENCO',      company: 'Senco Gold',       rationale: 'Unit volume pressure as consumer affordability reduces', impact: 'medium' },
+      { symbol: 'PCJEWELLER', company: 'PC Jeweller',      rationale: 'Working capital requirement rises with gold inventory cost', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Cocoa', ticker: 'CC=F', unit: '$/tonne', sector: 'Soft Commodities',
+    timeHorizon: 'near-term',
+    historicalAnalog: '1977 cocoa shortage when West Africa drought sent prices up 400% in two years',
+    sources: ['ICCO Quarterly Bulletin', 'Bloomberg Soft Commodities', 'FAOSTAT'],
+    beneficiaries: [
+      { symbol: 'DEVYANI',   company: 'Devyani International', rationale: 'QSR chocolate menu items priced upward; lower volume risk', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'NESTLEIND', company: 'Nestle India',      rationale: 'Cocoa-heavy SKUs (KitKat, Munch) face input cost inflation', impact: 'high' },
+      { symbol: 'BRITANNIA', company: 'Britannia Industries', rationale: 'Chocolate biscuit range input cost rises', impact: 'medium' },
+      { symbol: 'ITC',       company: 'ITC Ltd',            rationale: 'Bingo and chocolate confectionery segment margin pressure', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Palm Oil', ticker: 'FCPO.BMD', unit: 'MYR/tonne', sector: 'Agri Commodities',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021-22 edible oil shortage post Ukraine war when palm, soy and sunflower all spiked together',
+    sources: ['MPOB Malaysia Monthly Report', 'SEA India Solvent Extraction Bulletin', 'USDA WASDE'],
+    beneficiaries: [
+      { symbol: 'GOKULGOKUL', company: 'Gokul Agro Resources', rationale: 'Palm oil refiner gains on inventory as crude palm oil prices rise', impact: 'medium' },
+      { symbol: 'KRBL',       company: 'KRBL',                 rationale: 'Minor; rice bran oil substitution demand rises', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'HINDUNILVR', company: 'HUL',           rationale: 'Edible oil is key input for soaps, cooking oils and processed foods', impact: 'high' },
+      { symbol: 'MARICO',     company: 'Marico',        rationale: 'Saffola edible oils business faces direct input cost pressure', impact: 'high' },
+      { symbol: 'VIMTA',      company: 'Adani Wilmar',  rationale: 'Fortune brand edible oil volumes and margins squeezed', impact: 'high' },
+    ],
+  },
+  {
+    name: 'Wheat', ticker: 'ZW=F', unit: '¢/bushel', sector: 'Agri Commodities',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2007-08 global food crisis when wheat prices doubled and India imposed export bans',
+    sources: ['USDA WASDE', 'FCI Procurement Data', 'IGC Grain Report'],
+    beneficiaries: [
+      { symbol: 'RATHI',    company: 'Rathi Steel',     rationale: 'Indirect; flour milling capex cycle', impact: 'low' },
+      { symbol: 'LT',       company: 'Triveni Engineering', rationale: 'Sugar-wheat crop rotation, farm income rises', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'BRITANNIA', company: 'Britannia Industries', rationale: 'Wheat flour is primary input for biscuits — cost headwind', impact: 'high' },
+      { symbol: 'NESTLEIND', company: 'Nestle India',       rationale: 'Maggi noodles input cost rises with wheat prices', impact: 'high' },
+      { symbol: 'ITC',       company: 'ITC',               rationale: 'Sunfeast biscuit and pasta range input cost rises', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Lithium ETF', ticker: 'LIT', unit: '$/share', sector: 'Battery Materials',
+    timeHorizon: 'long-term',
+    historicalAnalog: '2022-23 EV demand surge when lithium carbonate prices rose 10x, then crashed on Chinese supply surge',
+    sources: ['Benchmark Mineral Intelligence', 'Fastmarkets Lithium Price Assessment', 'USGS Mineral Survey'],
+    beneficiaries: [
+      { symbol: 'TATAMOTORS', company: 'Tata Motors',    rationale: 'Tata EV (Nexon, Punch EV) battery costs fall, improving unit economics', impact: 'high' },
+      { symbol: 'EXIDEIND',   company: 'Exide Industries', rationale: 'Li-ion cell expansion economics improve with lower lithium', impact: 'medium' },
+      { symbol: 'AMARARAJA',  company: 'Amara Raja Energy', rationale: 'Battery manufacturing capex becomes cheaper', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'GMRINFRA',  company: 'GMR Airports',     rationale: 'Indirect — renewable energy storage project costs fall, competitive dynamics shift', impact: 'low' },
+    ],
+  },
+  {
+    name: 'NVDA (AI Compute Proxy)', ticker: 'NVDA', unit: '$/share', sector: 'Technology',
+    timeHorizon: 'long-term',
+    historicalAnalog: '1999-2000 internet infrastructure capex boom, then bust — current AI capex mirrors the scale',
+    sources: ['NVIDIA Earnings Reports', 'IDC AI Infrastructure Tracker', 'Gartner AI Forecast'],
+    beneficiaries: [
+      { symbol: 'INFY',        company: 'Infosys',           rationale: 'AI services revenue and GenAI project pipeline grows with hyperscaler spend', impact: 'high' },
+      { symbol: 'TCS',         company: 'TCS',               rationale: 'Large enterprise AI transformation deals drive IT services demand', impact: 'high' },
+      { symbol: 'PERSISTENT',  company: 'Persistent Systems', rationale: 'AI engineering services highest-growth segment', impact: 'high' },
+      { symbol: 'KAYNES',      company: 'Kaynes Technology', rationale: 'Electronics manufacturing services for AI hardware supply chain', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'WIPRO',  company: 'Wipro',     rationale: 'Legacy IT transformation business at risk from AI automation', impact: 'medium' },
+      { symbol: 'KPITTECH', company: 'KPIT Technologies', rationale: 'Automotive software faces AI commoditisation risk', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Micron (DRAM/NAND Proxy)', ticker: 'MU', unit: '$/share', sector: 'Semiconductors',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2019 DRAM oversupply cycle when memory prices fell 50% and Samsung/SK Hynix cut capex',
+    sources: ['DRAMeXchange Price Index', 'TrendForce DRAM Report', 'IDC Storage Tracker'],
+    beneficiaries: [
+      { symbol: 'DIXON',    company: 'Dixon Technologies', rationale: 'Lower memory component cost improves TV/phone assembled margins', impact: 'medium' },
+      { symbol: 'AMBER',    company: 'Amber Enterprises',  rationale: 'Smart AC with embedded memory chips — BOM cost reduction', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'CYIENT', company: 'Cyient',        rationale: 'Semiconductor design services revenue faces spending cuts in downturn', impact: 'medium' },
+      { symbol: 'SASKEN', company: 'Sasken Technologies', rationale: 'Chip design and embedded software revenue tied to memory capex', impact: 'medium' },
+    ],
+  },
+];
+
+// ── Yahoo Finance fetcher ──────────────────────────────────────────────────────
+interface YFBar { close: number; date: string }
+
+async function fetchBars(ticker: string): Promise<YFBar[] | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1y`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      cache: 'no-store',
+      signal: ctrl.signal,
+    } as RequestInit);
+    if (!res.ok) return null;
+    const json = await res.json() as {
+      chart?: { result?: Array<{ timestamp: number[]; indicators: { quote: Array<{ close: number[] }> } }> }
     };
-  }
-  if (process.env.OPENROUTER_API_KEY) {
-    return {
-      baseUrl: 'https://openrouter.ai/api/v1',
-      model: process.env.OPENROUTER_MODEL ?? 'qwen/qwen-2.5-72b-instruct',
-      apiKey: process.env.OPENROUTER_API_KEY,
-    };
-  }
-  // Local Ollama fallback
-  return {
-    baseUrl: `${(process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
-    model: process.env.OLLAMA_MODEL ?? 'qwen2.5:14b',
-    apiKey: null,
+    const r = json.chart?.result?.[0];
+    if (!r) return null;
+    const closes = r.indicators.quote[0].close;
+    const bars: YFBar[] = [];
+    for (let i = 0; i < r.timestamp.length; i++) {
+      if (closes[i] == null || isNaN(closes[i])) continue;
+      bars.push({ close: closes[i], date: new Date(r.timestamp[i] * 1000).toISOString().slice(0, 10) });
+    }
+    return bars.length >= 20 ? bars : null;
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
+// ── Trend analysis engine ─────────────────────────────────────────────────────
+function pctChange(from: number, to: number): number {
+  return Math.round((to - from) / from * 1000) / 10; // one decimal
+}
+
+function percentile52w(bars: YFBar[]): number {
+  const year = bars.slice(-252);
+  const closes = year.map(b => b.close);
+  const lo = Math.min(...closes), hi = Math.max(...closes);
+  const current = closes[closes.length - 1];
+  if (hi === lo) return 50;
+  return Math.round((current - lo) / (hi - lo) * 100);
+}
+
+function deriveCategory(
+  chg1m: number, chg3m: number, chg6m: number, pct52: number
+): Category {
+  // Shortage: sustained rally, near 52-week high
+  if (chg3m > 12 && pct52 > 70) return 'shortage';
+  if (chg1m > 6  && chg3m > 8  && pct52 > 65) return 'shortage';
+
+  // Oversupply: sustained decline, near 52-week low
+  if (chg3m < -12 && pct52 < 30) return 'oversupply';
+  if (chg1m < -6  && chg3m < -8 && pct52 < 35) return 'oversupply';
+
+  // Emerging: rapid recent move, not yet at extremes
+  if (Math.abs(chg1m) > 7 && pct52 > 40 && pct52 < 80) return 'emerging';
+  if (chg1m > 4 && chg3m > 6) return 'emerging';
+
+  return 'balanced';
+}
+
+function derivePricingPower(chg1m: number, chg3m: number): PricingPower {
+  if (chg3m > 8 || (chg1m > 4 && chg3m > 4)) return 'rising';
+  if (chg3m < -8 || (chg1m < -4 && chg3m < -4)) return 'collapsing';
+  return 'stable';
+}
+
+function deriveConfidence(chg1m: number, chg3m: number, chg6m: number, pct52: number): number {
+  // Confidence rises with signal consistency and extreme positioning
+  let score = 50;
+  const trending = (chg1m > 0 && chg3m > 0 && chg6m > 0) || (chg1m < 0 && chg3m < 0 && chg6m < 0);
+  if (trending) score += 15;
+  if (Math.abs(chg3m) > 20) score += 10;
+  if (Math.abs(chg3m) > 10) score += 5;
+  if (pct52 > 85 || pct52 < 15) score += 10;
+  if (pct52 > 75 || pct52 < 25) score += 5;
+  return Math.min(92, Math.max(35, score));
+}
+
+function buildDescription(
+  name: string, current: number, unit: string,
+  chg1d: number, chg1m: number, chg3m: number, chg6m: number,
+  pct52: number, category: Category, pricingPower: PricingPower
+): string {
+  const dir3m = chg3m >= 0 ? 'up' : 'down';
+  const posLabel = pct52 > 75 ? 'near 52-week highs' : pct52 < 25 ? 'near 52-week lows' : `at the ${pct52}th percentile of its 52-week range`;
+  const momentum = Math.abs(chg1m) > 5 ? (chg1m > 0 ? 'accelerating upward' : 'accelerating downward') : 'consolidating';
+
+  const catPhrase: Record<Category, string> = {
+    shortage: 'Supply constraints are driving a price rally',
+    oversupply: 'Excess supply is weighing on prices',
+    emerging: 'A nascent supply-demand imbalance is developing',
+    balanced: 'Supply and demand are broadly in equilibrium',
+    'rising-pricing': 'Producers are gaining pricing power',
+    'falling-pricing': 'Pricing power is eroding for producers',
   };
-}
 
-// ── Live commodity price fetching ─────────────────────────────────────────────
-// Tickers: Yahoo Finance futures/ETF proxies for key commodities
-const COMMODITY_TICKERS: Record<string, { ticker: string; unit: string }> = {
-  'Cocoa':           { ticker: 'CC=F',   unit: '$/tonne' },
-  'Crude Oil (WTI)': { ticker: 'CL=F',   unit: '$/barrel' },
-  'Natural Gas':     { ticker: 'NG=F',   unit: '$/MMBtu' },
-  'Copper':          { ticker: 'HG=F',   unit: '$/lb' },
-  'Aluminium':       { ticker: 'ALI=F',  unit: '$/lb' },
-  'Gold':            { ticker: 'GC=F',   unit: '$/oz' },
-  'Wheat':           { ticker: 'ZW=F',   unit: '¢/bushel' },
-  'Soybean':         { ticker: 'ZS=F',   unit: '¢/bushel' },
-  'Sugar':           { ticker: 'SB=F',   unit: '¢/lb' },
-  'Cotton':          { ticker: 'CT=F',   unit: '¢/lb' },
-  'Palm Oil':        { ticker: 'FCPO.BMD', unit: 'MYR/tonne' },
-  'NVDA (AI proxy)': { ticker: 'NVDA',   unit: '$/share' },
-  'Micron (DRAM proxy)': { ticker: 'MU', unit: '$/share' },
-  'Lithium ETF':     { ticker: 'LIT',    unit: '$/share' },
-};
-
-async function fetchLivePrices(): Promise<Record<string, LivePrice>> {
-  const results: Record<string, LivePrice> = {};
-  await Promise.allSettled(
-    Object.entries(COMMODITY_TICKERS).map(async ([name, { ticker, unit }]) => {
-      try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
-        const res = await fetch(url, {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          // @ts-ignore
-          cache: 'no-store',
-          signal: AbortSignal.timeout(6_000),
-        });
-        if (!res.ok) return;
-        const json = await res.json() as { chart?: { result?: Array<{ indicators: { quote: Array<{ close: number[] }> } }> } };
-        const closes = (json.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter((v): v is number => v != null && !isNaN(v));
-        if (closes.length >= 2) {
-          results[name] = {
-            price:    Math.round(closes[closes.length - 1] * 100) / 100,
-            change1d: Math.round((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2] * 1000) / 10,
-            unit,
-          };
-        }
-      } catch { /* skip unavailable tickers */ }
-    })
+  return (
+    `${catPhrase[category]}. ${name} trades at ${current.toLocaleString()} ${unit} (${chg1d >= 0 ? '+' : ''}${chg1d}% today), ${dir3m} ${Math.abs(chg3m)}% over three months and ${posLabel}. ` +
+    `Momentum is ${momentum} on a one-month basis (${chg1m >= 0 ? '+' : ''}${chg1m}%), with six-month change at ${chg6m >= 0 ? '+' : ''}${chg6m}%. ` +
+    `Pricing power for producers is ${pricingPower === 'rising' ? 'strengthening' : pricingPower === 'collapsing' ? 'deteriorating rapidly' : 'broadly stable'}.`
   );
-  return results;
 }
 
-function formatPricesForPrompt(prices: Record<string, LivePrice>): string {
-  if (Object.keys(prices).length === 0) return '';
-  const lines = Object.entries(prices).map(([name, p]) => {
-    const sign = p.change1d >= 0 ? '+' : '';
-    return `  ${name}: ${p.price} ${p.unit} (${sign}${p.change1d}% today)`;
-  });
-  return `\nLIVE MARKET PRICES fetched right now (use these actual prices in your analysis — do NOT use prices from your training data):\n${lines.join('\n')}\n`;
-}
-
-const SYSTEM_MESSAGE = `You are a senior institutional commodity research analyst. You write for equity investors who need to act on TODAY's supply-demand reality, not historical situations.
-
-Critical rule: Your training data may be months or years old. Live market prices are provided in the prompt — use them as ground truth. If a commodity's current price differs significantly from what you learned in training, your training data is stale — trust the live price.
-
-You identify NSE/BSE listed companies that benefit from or are harmed by current supply-demand dynamics. You cite specific current data points in every description.`;
-
-function buildUserPrompt(today: string, prices: Record<string, LivePrice>): string {
-  const priceBlock = formatPricesForPrompt(prices);
-
-  return `Today's date is ${today}.${priceBlock}
-Analyze CURRENT global supply-demand dynamics relevant to Indian equity investors. Generate a JSON array of exactly 12 themes.
-
-IMPORTANT: Base your analysis on the live prices above. If a commodity shows a price significantly different from what you expected from training data, reflect the CURRENT situation accurately. For example, if cocoa is trading at $6,000/tonne (down from the 2024 peak of ~$10,000), describe the CURRENT situation, not the 2024 peak.
-
-MANDATORY commodities to cover:
-1. Cocoa — use current price above; describe whether shortage/easing/recovery vs the 2024 peak
-2. AI compute hardware — NVDA price above reflects demand; GPU/HBM supply chain
-3. Thermal coal — current import price, India dependency
-4. Crude Oil — use current WTI price; OPEC policy, refining margins
-5. Copper — green energy demand vs mining supply; use current price
-6. DRAM / NAND — Micron price above reflects memory cycle; current oversupply or recovery
-7. Urea / Fertilisers — natural gas feedstock cost at current NG price
-8. Palm Oil / Edible oils — use current price; India import exposure
-9. Steel — China overcapacity vs India expansion; use current indicators
-10. Lithium — EV demand vs supply glut; LIT ETF price reflects sentiment
-11. Rare Earths — China export controls, current geopolitical tension
-12. Your choice: natural gas, aluminium, sugar, caustic soda, or solar glass
-
-Distribution: at least 3 shortage, 3 oversupply, 3 emerging, remainder balanced.
-
-Schema for each theme:
-{
-  "commodity": string,
-  "category": "shortage" | "oversupply" | "emerging" | "balanced",
-  "pricingPower": "rising" | "collapsing" | "stable",
-  "description": string,   // MUST cite the current price from the live data above
-  "confidence": number,    // Lower confidence (40-55) if uncertain about recency
-  "timeHorizon": "near-term" | "medium-term" | "long-term",
-  "beneficiaries": [{"symbol": string, "company": string, "rationale": string, "impact": "high"|"medium"|"low"}],
-  "adverselyAffected": [{"symbol": string, "company": string, "rationale": string, "impact": "high"|"medium"|"low"}],
-  "historicalAnalog": string,
-  "sources": string[]
-}
-
-NSE tickers: NESTLEIND, ITC, HINDUNILVR, BRITANNIA (FMCG/cocoa) | INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON (IT/electronics) | COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy) | TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals) | TATAMOTORS, MOTHERSON, ADANIGREEN, TATAPOWER (EV/renewables) | COROMANDEL, CHAMBAL, UPL, DEEPAKNITRIT (agri)
-
-Rules: description MUST use the live price cited above. confidence 40-95. beneficiaries and adverselyAffected: 2-4 each.
-Return ONLY a valid JSON array. No markdown, no prose.`;
-}
-
-
-function stripMarkdownFences(raw: string): string {
-  // Strip ```json ... ``` or ``` ... ``` wrappers the model may add despite format:json
-  return raw
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/, '')
-    .trim();
-}
-
+// ── Main handler ───────────────────────────────────────────────────────────────
 export async function GET() {
   const startMs = Date.now();
 
-  const provider = resolveProvider();
+  // Fetch all tickers in parallel (same pattern as btst-screen)
+  const bars = await Promise.all(
+    COMMODITIES.map(c => fetchBars(c.ticker))
+  );
 
-  // Fast-fail on Vercel when no provider is configured (saves a 55s timeout)
-  if (!provider.apiKey && !process.env.OLLAMA_BASE_URL && process.env.VERCEL) {
-    return NextResponse.json(
-      { error: 'No LLM provider configured. Add GROQ_API_KEY to your Vercel environment variables (free at console.groq.com).' },
-      { status: 503 }
-    );
-  }
+  const themes: SupplyDemandTheme[] = [];
 
-  // IST date for prompt context
-  const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-  const todayISO = nowIST.toISOString().slice(0, 10);
+  for (let i = 0; i < COMMODITIES.length; i++) {
+    const def = COMMODITIES[i];
+    const b   = bars[i];
+    if (!b || b.length < 20) continue;
 
-  // Fetch live commodity prices to ground the analysis in current reality
-  const [priceData] = await Promise.allSettled([fetchLivePrices()]);
-  const prices = priceData.status === 'fulfilled' ? priceData.value : {};
-  const pricesAsOf = new Date().toISOString();
+    const current = b[b.length - 1].close;
+    const prev1d  = b[b.length - 2]?.close ?? current;
+    const prev1m  = b[b.length - 22]?.close ?? b[0].close;
+    const prev3m  = b[b.length - 66]?.close ?? b[0].close;
+    const prev6m  = b[b.length - 132]?.close ?? b[0].close;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 55_000);
+    const chg1d = pctChange(prev1d, current);
+    const chg1m = pctChange(prev1m, current);
+    const chg3m = pctChange(prev3m, current);
+    const chg6m = pctChange(prev6m, current);
+    const pct52 = percentile52w(b);
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+    const category     = deriveCategory(chg1m, chg3m, chg6m, pct52);
+    const pricingPower = derivePricingPower(chg1m, chg3m);
+    const confidence   = deriveConfidence(chg1m, chg3m, chg6m, pct52);
 
-  let llmRes: Response;
-  try {
-    llmRes = await fetch(`${provider.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: provider.model,
-        stream: false,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_MESSAGE },
-          { role: 'user', content: buildUserPrompt(todayISO, prices) },
-        ],
-      }),
-      signal: controller.signal,
-      // @ts-ignore — Next.js fetch cache option
-      cache: 'no-store',
+    themes.push({
+      id: slugify(def.name) + '-' + i,
+      commodity:        def.name,
+      category,
+      pricingPower,
+      description: buildDescription(
+        def.name, current, def.unit,
+        chg1d, chg1m, chg3m, chg6m, pct52, category, pricingPower
+      ),
+      confidence,
+      timeHorizon:      def.timeHorizon,
+      beneficiaries:    category === 'shortage' || pricingPower === 'rising'
+        ? def.beneficiaries
+        : def.adverselyAffected,          // flip when prices are falling
+      adverselyAffected: category === 'shortage' || pricingPower === 'rising'
+        ? def.adverselyAffected
+        : def.beneficiaries,
+      historicalAnalog: def.historicalAnalog,
+      sources:          def.sources,
     });
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    const isConnRefused =
-      err instanceof Error &&
-      (err.message.includes('ECONNREFUSED') ||
-        err.message.includes('fetch failed') ||
-        err.name === 'AbortError');
-    if (isConnRefused) {
-      return NextResponse.json(
-        { error: provider.apiKey
-            ? `Could not reach ${provider.baseUrl}. Check your API key and network.`
-            : `Ollama not reachable at ${provider.baseUrl}. Run: ollama serve && ollama pull ${provider.model}` },
-        { status: 503 }
-      );
-    }
-    return NextResponse.json(
-      { error: `Unexpected error: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 }
-    );
-  } finally {
-    clearTimeout(timeoutId);
   }
 
-  if (!llmRes.ok) {
-    const body = await llmRes.text().catch(() => '');
-    if (llmRes.status === 401) {
-      return NextResponse.json(
-        { error: `Invalid API key for provider. Check your environment variable.` },
-        { status: 401 }
-      );
-    }
-    if (llmRes.status === 404 || llmRes.status === 400) {
-      return NextResponse.json(
-        { error: `Model "${provider.model}" not found. Check GROQ_MODEL / OLLAMA_MODEL env var.` },
-        { status: 503 }
-      );
-    }
-    return NextResponse.json(
-      { error: `LLM provider returned HTTP ${llmRes.status}: ${body.slice(0, 200)}` },
-      { status: 500 }
-    );
-  }
-
-  let responseBody: unknown;
-  try {
-    responseBody = await llmRes.json();
-  } catch {
-    return NextResponse.json({ error: 'Failed to parse LLM response as JSON.' }, { status: 500 });
-  }
-
-  // Extract the text content from OpenAI-compatible response shape
-  const rawContent: string =
-    (responseBody as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message
-      ?.content ?? '';
-
-  if (!rawContent) {
-    return NextResponse.json(
-      { error: 'Ollama returned an empty response. The model may have run out of context or VRAM.' },
-      { status: 500 }
-    );
-  }
-
-  // Parse JSON — handle model wrapping output in markdown fences
-  let parsed: unknown;
-  try {
-    const cleaned = stripMarkdownFences(rawContent);
-    parsed = JSON.parse(cleaned);
-  } catch {
-    // Second attempt: find the first '[' and last ']'
-    const start = rawContent.indexOf('[');
-    const end = rawContent.lastIndexOf(']');
-    if (start !== -1 && end !== -1 && end > start) {
-      try {
-        parsed = JSON.parse(rawContent.slice(start, end + 1));
-      } catch {
-        return NextResponse.json(
-          { error: 'Could not parse model output as a JSON array. Raw excerpt: ' + rawContent.slice(0, 300) },
-          { status: 500 }
-        );
-      }
-    } else {
-      // Try unwrapping a { themes: [...] } or similar wrapper that json_object mode may produce
-      try {
-        const obj = JSON.parse(stripMarkdownFences(rawContent)) as Record<string, unknown>;
-        const keys = Object.keys(obj);
-        if (keys.length === 1 && Array.isArray(obj[keys[0]])) {
-          parsed = obj[keys[0]];
-        } else {
-          return NextResponse.json(
-            { error: 'Model returned a JSON object instead of an array. Keys: ' + keys.join(', ') },
-            { status: 500 }
-          );
-        }
-      } catch {
-        return NextResponse.json(
-          { error: 'Could not parse model output as JSON. Raw excerpt: ' + rawContent.slice(0, 300) },
-          { status: 500 }
-        );
-      }
-    }
-  }
-
-  // If json_object mode wrapped the array in an object, unwrap it
-  if (!Array.isArray(parsed) && parsed !== null && typeof parsed === 'object') {
-    const obj = parsed as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    for (const k of keys) {
-      if (Array.isArray(obj[k])) {
-        parsed = obj[k];
-        break;
-      }
-    }
-  }
-
-  if (!Array.isArray(parsed) || parsed.length < 4) {
-    return NextResponse.json(
-      { error: `Expected a JSON array with at least 4 themes, got: ${JSON.stringify(parsed).slice(0, 200)}` },
-      { status: 500 }
-    );
-  }
-
-  // Assign server-side ids and light validation
-  const themes: SupplyDemandTheme[] = (parsed as Record<string, unknown>[]).map((item, index) => ({
-    id: `${slugify(String(item.commodity ?? 'theme'))}-${index}`,
-    commodity: String(item.commodity ?? ''),
-    category: (item.category as SupplyDemandTheme['category']) ?? 'balanced',
-    pricingPower: (item.pricingPower as SupplyDemandTheme['pricingPower']) ?? 'stable',
-    description: String(item.description ?? ''),
-    confidence: Math.min(100, Math.max(0, Number(item.confidence ?? 50))),
-    timeHorizon: (item.timeHorizon as SupplyDemandTheme['timeHorizon']) ?? 'medium-term',
-    beneficiaries: Array.isArray(item.beneficiaries) ? item.beneficiaries : [],
-    adverselyAffected: Array.isArray(item.adverselyAffected) ? item.adverselyAffected : [],
-    historicalAnalog: String(item.historicalAnalog ?? ''),
-    sources: Array.isArray(item.sources) ? item.sources : [],
-  }));
+  // Sort: most extreme moves first (shortages and oversupply before balanced)
+  themes.sort((a, b) => {
+    const order: Record<Category, number> = { shortage: 0, oversupply: 1, emerging: 2, 'rising-pricing': 3, 'falling-pricing': 4, balanced: 5 };
+    if (order[a.category] !== order[b.category]) return order[a.category] - order[b.category];
+    return b.confidence - a.confidence;
+  });
 
   const snapshot: SupplyDemandSnapshot = {
     themes,
     generatedAt: new Date().toISOString(),
-    elapsedMs: Date.now() - startMs,
-    priceData: Object.keys(prices).length > 0 ? prices : undefined,
-    pricesAsOf,
+    elapsedMs:   Date.now() - startMs,
+    pricesAsOf:  new Date().toISOString(),
   };
 
   return NextResponse.json(snapshot);
