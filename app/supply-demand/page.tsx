@@ -464,14 +464,17 @@ export default function SupplyDemandPage() {
           {/* Controls */}
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2">
+              {/* Cloud run — only useful when GROQ_API_KEY is configured on Vercel */}
               <Button
                 onClick={runAnalysis}
                 disabled={loading || !canRun}
                 size="sm"
+                variant="outline"
                 className="h-8 text-xs font-medium gap-1.5"
+                title="Runs analysis via Groq cloud API. Requires GROQ_API_KEY in Vercel env vars."
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-                {loading ? 'Analysing...' : 'Update Analysis'}
+                {loading ? 'Analysing...' : 'Run via Cloud'}
               </Button>
               <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleFileLoad} />
               <Button variant="outline" size="sm" className="h-8 text-xs font-medium gap-1.5"
@@ -480,6 +483,11 @@ export default function SupplyDemandPage() {
                 Load file
               </Button>
             </div>
+            {/* Local Ollama instruction */}
+            <p className="text-[10px] text-muted-foreground text-right">
+              Local Ollama:{' '}
+              <code className="font-mono bg-muted px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>
+            </p>
 
             {!canRefreshNow() && !forceMode && (
               <div className="flex items-center gap-1.5 text-[11px] text-amber-600">
@@ -504,22 +512,35 @@ export default function SupplyDemandPage() {
         </div>
 
         {/* ── Error ── */}
-        {error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold">Error: </span>{error}
-              {(error.includes('refused') || error.includes('ollama') || error.includes('Ollama')) && (
-                <p className="mt-1 text-[11px] text-red-500/80">
-                  Run locally:{' '}
-                  <code className="font-mono bg-red-500/10 px-1 rounded">ollama serve</code>
-                  {' '}then{' '}
-                  <code className="font-mono bg-red-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>
-                </p>
-              )}
+        {error && (() => {
+          const isNoProvider = error.toLowerCase().includes('no llm provider') || error.toLowerCase().includes('groq_api_key');
+          // If tracker already has data and it's just a missing cloud key, show softer notice
+          if (isNoProvider && tracker && tracker.stories.length > 0) {
+            return (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  Cloud analysis unavailable (no GROQ_API_KEY). To update, run locally:{' '}
+                  <code className="font-mono bg-amber-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>
+                </span>
+              </div>
+            );
+          }
+          return (
+            <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold">Error: </span>{error}
+                {isNoProvider && (
+                  <p className="mt-1 text-[11px] text-red-500/80">
+                    Add <code className="font-mono bg-red-500/10 px-1 rounded">GROQ_API_KEY</code> to Vercel env vars (free at console.groq.com),
+                    or run locally: <code className="font-mono bg-red-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code>
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── Summary tiles ── */}
         {tracker && tracker.stories.length > 0 && (
