@@ -382,7 +382,7 @@ export default function StbtPage() {
 
   const filtered: StbtResult[] = (data?.results ?? [])
     .filter(r => {
-      if (fnoOnly && !r.isFnO) return false;
+      if (fnoOnly && r.fnoSignal === 'None') return false;
       if (conviction !== 'Any' && CONVICTION_ORDER[r.conviction] < CONVICTION_ORDER[conviction as StbtResult['conviction']]) return false;
       return true;
     })
@@ -520,7 +520,7 @@ export default function StbtPage() {
                   : 'bg-background border-input text-muted-foreground hover:text-foreground'
               )}
             >
-              F&O only
+              F&O Signal
             </button>
 
             <span className="ml-auto text-xs text-muted-foreground">
