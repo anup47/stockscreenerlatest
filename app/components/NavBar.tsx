@@ -9,6 +9,7 @@ const tabs = [
   { label: 'Supply-Demand', href: '/supply-demand' },
   { label: 'Global Leaders', href: '/global-leaders' },
   { label: 'BTST',         href: '/btst' },
+  { label: 'STBT',         href: '/stbt' },
   { label: 'Screener',     href: '/' },
   { label: 'Analysis',     href: '/analyse' },
   { label: 'Very Short Term', href: '/options' },
