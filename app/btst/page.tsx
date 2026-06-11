@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { BTST_WEIGHTS, type BtstResult } from '@/lib/btst-engine';
-import type { BtstScreenData } from '@/lib/btst-types';
+import type { BtstScreenData, BacktestStats } from '@/lib/btst-types';
 import { useLivePrices, type LiveQuote } from '@/app/hooks/useLivePrices';
+import { BacktestPanel } from '@/app/components/BacktestPanel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -14,9 +15,10 @@ import {
 } from 'lucide-react';
 
 // ── localStorage persistence ──────────────────────────────────────────────────
-const STORAGE_PREFIX  = 'btst-scan-';
-const STORAGE_INDEX   = 'btst-scan-index';
-const MAX_STORED_DAYS = 90;
+const STORAGE_PREFIX   = 'btst-scan-';
+const STORAGE_INDEX    = 'btst-scan-index';
+const BACKTEST_KEY     = 'btst-backtest';
+const MAX_STORED_DAYS  = 90;
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
@@ -297,6 +299,7 @@ export default function BtstPage() {
   const [sortKey,      setSortKey]   = useState<SortKey>('score');
   const [dateIndex,    setDateIndex] = useState<string[]>([]);
   const [selectedDate, setSelected]  = useState<string>('');
+  const [backtest,     setBacktest]  = useState<BacktestStats | null>(null);
 
   useEffect(() => {
     try {
@@ -308,6 +311,8 @@ export default function BtstPage() {
         const saved = loadByDate(latest);
         if (saved) setData(saved);
       }
+      const bt = localStorage.getItem(BACKTEST_KEY);
+      if (bt) setBacktest(JSON.parse(bt) as BacktestStats);
     } catch {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
@@ -341,6 +346,10 @@ export default function BtstPage() {
         }
         allKeys.sort().reverse();
         localStorage.setItem(STORAGE_INDEX, JSON.stringify(allKeys.slice(0, MAX_STORED_DAYS)));
+      }
+      if (json.backtest) {
+        setBacktest(json.backtest);
+        try { localStorage.setItem(BACKTEST_KEY, JSON.stringify(json.backtest)); } catch { /* full */ }
       }
       setData(json);
       setSelected(todayKey());
@@ -545,8 +554,15 @@ export default function BtstPage() {
           </div>
         ) : null}
 
+        {/* ── Backtest panel ── */}
+        {backtest && (
+          <div className="mt-8">
+            <BacktestPanel stats={backtest} />
+          </div>
+        )}
+
         {/* ── Footer weights ── */}
-        <div className="mt-10 p-3 bg-muted/30 border border-border rounded-xl text-xs text-muted-foreground text-center leading-relaxed">
+        <div className="mt-6 p-3 bg-muted/30 border border-border rounded-xl text-xs text-muted-foreground text-center leading-relaxed">
           Weights — Breakout {BTST_WEIGHTS.breakoutQuality} · Candle {BTST_WEIGHTS.candleCloseStr} · Volume {BTST_WEIGHTS.volumeConfirm} · Trend {BTST_WEIGHTS.trendAlignment} · VolExp {BTST_WEIGHTS.volatilityExpansion} · RS {BTST_WEIGHTS.relativeStrength} · F&O {BTST_WEIGHTS.fnoConfirmation} · Risk {BTST_WEIGHTS.riskQuality} · Liq {BTST_WEIGHTS.liquidity}
         </div>
       </div>

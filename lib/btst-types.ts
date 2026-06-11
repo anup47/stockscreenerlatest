@@ -1,4 +1,7 @@
 import type { BtstResult } from './btst-engine';
+import type { BacktestStats } from './backtest-engine';
+
+export type { BacktestStats };
 
 export interface HistoryScan {
   results:     BtstResult[];
@@ -16,4 +19,5 @@ export interface BtstScreenData {
   error?:       string;
   history?:     Record<string, HistoryScan>;
   historyDates?: string[];
+  backtest?:    BacktestStats;
 }

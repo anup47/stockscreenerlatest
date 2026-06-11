@@ -1,4 +1,7 @@
 import type { StbtResult } from './stbt-engine';
+import type { BacktestStats } from './backtest-engine';
+
+export type { BacktestStats };
 
 export interface StbtHistoryScan {
   results:     StbtResult[];
@@ -16,4 +19,5 @@ export interface StbtScreenData {
   error?:        string;
   history?:      Record<string, StbtHistoryScan>;
   historyDates?: string[];
+  backtest?:     BacktestStats;
 }

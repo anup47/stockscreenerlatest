@@ -3,6 +3,7 @@ import { UNIVERSE } from '@/lib/universe';
 import { buildBtstScan, calcBtstScore, type BtstResult } from '@/lib/btst-engine';
 import type { OHLCVRow } from '@/lib/indicators';
 import type { HistoryScan, BtstScreenData } from '@/lib/btst-types';
+import { computeBacktestStats, type BacktestTrade } from '@/lib/backtest-engine';
 
 // Re-export for any server-side consumers that previously imported from this route
 export type { HistoryScan, BtstScreenData };
@@ -115,6 +116,7 @@ export async function GET() {
 
   const history: Record<string, HistoryScan> = {};
   const historyDates: string[] = [];
+  const btTrades: BacktestTrade[] = [];
 
   // Use Nifty rows for trading calendar + RS; fall back to first stock's rows when Nifty fetch fails
   const calendarRows = (niftyRows && niftyRows.length >= HISTORY_DAYS + 2)
@@ -145,13 +147,28 @@ export async function GET() {
         const idx = dateIdx.get(date);
         if (idx === undefined || idx < 64) continue;
         const r = calcBtstScore(symbol, company, rows.slice(0, idx + 1), niftyChange, undefined, false);
-        if (r && r.score >= 30) dayResults.push(r);
+        if (r && r.score >= 30) {
+          dayResults.push(r);
+          // Backtest: buy at close on signal day d, sell at close of d+1 (no look-ahead)
+          const nextClose = rows[idx + 1]?.close;
+          if (nextClose && nextClose > 0 && !isNaN(nextClose)) {
+            btTrades.push({
+              date, symbol: r.symbol, company: r.company,
+              score: r.score, conviction: r.conviction,
+              entryClose: r.close, nextClose,
+              returnPct: (nextClose - r.close) / r.close * 100,
+              isWin:     nextClose > r.close,
+            });
+          }
+        }
       }
       dayResults.sort((a, b) => b.score - a.score);
       history[date] = { results: dayResults.slice(0, 10), total: dayResults.length, niftyChange };
       historyDates.push(date);
     }
   }
+
+  const backtest = computeBacktestStats(btTrades);
 
   return NextResponse.json({
     results:      allResults.slice(0, 10),
@@ -162,5 +179,6 @@ export async function GET() {
     elapsedMs:    Date.now() - start,
     history,
     historyDates,
+    backtest,
   } satisfies BtstScreenData);
 }
