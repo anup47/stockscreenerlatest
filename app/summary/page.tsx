@@ -14,6 +14,8 @@ import type { OptionsResult } from '@/lib/options-screener';
 import type { TriangleResult } from '@/lib/triangle-screener';
 import type { OIBuildupData } from '@/app/api/dhan/oi-buildup/route';
 import type { OIScreenerRow } from '@/lib/oi-screener';
+import type { BtstScreenData } from '@/lib/btst-types';
+import type { StbtScreenData } from '@/lib/stbt-types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,6 +30,8 @@ const BADGE_STYLE: Record<string, string> = {
   'Short Covering':      'bg-sky-500/20     text-sky-300     ring-1 ring-sky-500/40',
   'Fresh Short Buildup': 'bg-red-500/20     text-red-300     ring-1 ring-red-500/40',
   'Long Unwinding':      'bg-orange-500/20  text-orange-300  ring-1 ring-orange-500/40',
+  'BTST Setup':          'bg-teal-500/20    text-teal-300    ring-1 ring-teal-500/40',
+  'STBT Breakdown':      'bg-rose-500/20    text-rose-300    ring-1 ring-rose-500/40',
   'Multi-Tab Confirmed': 'bg-violet-500/20  text-violet-300  ring-1 ring-violet-500/40',
   'Mixed Signals':       'bg-amber-500/20   text-amber-300   ring-1 ring-amber-500/40',
   'High Conflict':       'bg-rose-500/20    text-rose-400    ring-1 ring-rose-500/40',
@@ -255,6 +259,7 @@ export default function SummaryPage() {
 
   const [sourceStatus, setSourceStatus] = useState<Record<string, SourceStatus>>({
     screener: 'idle', options: 'idle', triangle: 'idle', oiBuildup: 'idle', oiScreen: 'idle',
+    btst: 'idle', stbt: 'idle',
   });
 
   const [filterType, setFilterType] = useState<FilterType>('all');
@@ -266,9 +271,62 @@ export default function SummaryPage() {
 
   const runAnalysis = useCallback(async () => {
     setAnalyzing(true);
-    setSourceStatus({ screener: 'loading', options: 'loading', triangle: 'loading', oiBuildup: 'loading', oiScreen: hasDhan ? 'loading' : 'idle' });
+    setSourceStatus({
+      screener: 'loading', options: 'loading', triangle: 'loading',
+      oiBuildup: 'loading', oiScreen: hasDhan ? 'loading' : 'idle',
+      btst: 'loading', stbt: 'loading',
+    });
 
-    const inputs: SummaryInputs = { screener: [], options: [], triangle: [], oiBuildup: [], oiScreen: [] };
+    const inputs: SummaryInputs = {
+      screener: [], options: [], triangle: [], oiBuildup: [], oiScreen: [],
+      btst: [], stbt: [],
+    };
+
+    // ── BTST: read from localStorage (cached when user runs BTST tab scan) ──
+    try {
+      const btstIdx = JSON.parse(localStorage.getItem('btst-scan-index') ?? '[]') as string[];
+      const latestBtst = btstIdx[0];
+      if (latestBtst) {
+        const raw = localStorage.getItem(`btst-scan-${latestBtst}`);
+        if (raw) {
+          const d = JSON.parse(raw) as BtstScreenData;
+          inputs.btst = d.results.map(r => ({
+            symbol:      r.symbol,
+            company:     r.company,
+            price:       r.close,
+            score:       r.score,
+            conviction:  r.conviction,
+            volumeRatio: r.volumeRatio,
+            changePct:   r.changePct,
+            fnoSignal:   r.fnoSignal,
+          }));
+          setStatus('btst', 'ok');
+        } else { setStatus('btst', 'idle'); }
+      } else { setStatus('btst', 'idle'); }
+    } catch { setStatus('btst', 'idle'); }
+
+    // ── STBT: read from localStorage ────────────────────────────────────────
+    try {
+      const stbtIdx = JSON.parse(localStorage.getItem('stbt-scan-index') ?? '[]') as string[];
+      const latestStbt = stbtIdx[0];
+      if (latestStbt) {
+        const raw = localStorage.getItem(`stbt-scan-${latestStbt}`);
+        if (raw) {
+          const d = JSON.parse(raw) as StbtScreenData;
+          inputs.stbt = d.results.map(r => ({
+            symbol:      r.symbol,
+            company:     r.company,
+            price:       r.close,
+            score:       r.score,
+            conviction:  r.conviction,
+            volumeRatio: r.volumeRatio,
+            changePct:   r.changePct,
+            fnoSignal:   r.fnoSignal,
+          }));
+          setStatus('stbt', 'ok');
+        } else { setStatus('stbt', 'idle'); }
+      } else { setStatus('stbt', 'idle'); }
+    } catch { setStatus('stbt', 'idle'); }
 
     const fetchers: Promise<void>[] = [
       // Screener
@@ -416,6 +474,14 @@ export default function SummaryPage() {
           <SourceDot status={sourceStatus.oiBuildup} label="OI Buildup" />
           {hasDhan && <SourceDot status={sourceStatus.oiScreen} label="OI Screen" />}
           {!hasDhan && <span className="text-[10px] text-slate-600">OI Screen: no Dhan creds</span>}
+          <SourceDot status={sourceStatus.btst} label="BTST" />
+          <SourceDot status={sourceStatus.stbt} label="STBT" />
+          {sourceStatus.btst === 'idle' && (
+            <span className="text-[10px] text-slate-600">BTST: run BTST scan first</span>
+          )}
+          {sourceStatus.stbt === 'idle' && (
+            <span className="text-[10px] text-slate-600">STBT: run STBT scan first</span>
+          )}
         </div>
       </div>
 
@@ -495,6 +561,10 @@ export default function SummaryPage() {
             <span>Options PUT Strong: <strong className="text-slate-300">{SUMMARY_WEIGHTS.optionsPutStrong}</strong></span>
             <span>Triangle breakout: <strong className="text-slate-300">{SUMMARY_WEIGHTS.triangleBreakout}</strong></span>
             <span>Screener BUY (high): <strong className="text-slate-300">{SUMMARY_WEIGHTS.screenerBuyHigh}</strong></span>
+            <span>BTST Very High: <strong className="text-slate-300">{SUMMARY_WEIGHTS.btstVeryHigh}</strong></span>
+            <span>BTST High: <strong className="text-slate-300">{SUMMARY_WEIGHTS.btstHigh}</strong></span>
+            <span>STBT Very High: <strong className="text-slate-300">{SUMMARY_WEIGHTS.stbtVeryHigh}</strong></span>
+            <span>STBT High: <strong className="text-slate-300">{SUMMARY_WEIGHTS.stbtHigh}</strong></span>
             <span>OI Screen bull: <strong className="text-slate-300">{SUMMARY_WEIGHTS.oiScreenBull}</strong></span>
             <span>Conflict penalty: <strong className="text-slate-300">−{SUMMARY_WEIGHTS.penaltyStrongBoth}</strong></span>
           </div>

@@ -51,12 +51,38 @@ export interface OIScreenInput {
   totalOI:      number;
 }
 
+// BTST — closing-breakout engine (9 components, bullish next-day signal)
+export interface BtstInput {
+  symbol:      string;
+  company:     string;
+  price:       number;
+  score:       number;          // 0-100
+  conviction:  'Very High' | 'High' | 'Medium' | 'Low';
+  volumeRatio: number;
+  changePct:   number;
+  fnoSignal:   string;
+}
+
+// STBT — closing-breakdown engine (9 components, bearish next-day signal)
+export interface StbtInput {
+  symbol:      string;
+  company:     string;
+  price:       number;
+  score:       number;
+  conviction:  'Very High' | 'High' | 'Medium' | 'Low';
+  volumeRatio: number;
+  changePct:   number;
+  fnoSignal:   string;
+}
+
 export interface SummaryInputs {
   screener:   ScreenerInput[];
   options:    OptionsInput[];
   triangle:   TriangleInput[];
   oiBuildup:  OIBuildupInput[];
   oiScreen:   OIScreenInput[];  // empty if no Dhan creds
+  btst:       BtstInput[];      // empty if user hasn't run BTST scan today
+  stbt:       StbtInput[];      // empty if user hasn't run STBT scan today
 }
 
 // ── Weight configuration — tune all scoring here ──────────────────────────────
@@ -74,6 +100,9 @@ export const SUMMARY_WEIGHTS = {
   oiLB:                 3.0,   // Long Buildup
   oiSC:                 1.5,   // Short Covering
   oiScreenBull:         2.0,   // netOIChgPct > 3
+  btstVeryHigh:         3.0,   // BTST score ≥ 80
+  btstHigh:             2.0,   // BTST score 65-79
+  btstMedium:           1.0,   // BTST score 50-64
 
   // Short contributors
   optionsPutStrong:     3.0,
@@ -82,6 +111,9 @@ export const SUMMARY_WEIGHTS = {
   oiSB:                 3.0,   // Short Buildup
   oiLU:                 2.0,   // Long Unwinding
   oiScreenBear:         2.0,   // netOIChgPct < -3
+  stbtVeryHigh:         3.0,   // STBT score ≥ 80
+  stbtHigh:             2.0,   // STBT score 65-79
+  stbtMedium:           1.0,   // STBT score 50-64
 
   // Conflict penalties
   penaltyOIvsPrice:     1.5,
@@ -92,9 +124,9 @@ export const SUMMARY_WEIGHTS = {
   optionsScoreBonus:    0.5,   // up to +0.5 based on options score/100
 } as const;
 
-// Max possible long score (sum of all long contributors + bonuses)
-const MAX_LONG  = 2.5 + 3.0 + 2.5 + 3.0 + 1.5 + 2.0 + 1.0 + 0.5;
-const MAX_SHORT = 3.0 + 3.0 + 2.0 + 2.0 + 0.5;
+// Max possible scores (sum of all contributors + bonuses per direction)
+const MAX_LONG  = 2.5 + 3.0 + 2.5 + 3.0 + 1.5 + 2.0 + 1.0 + 0.5 + 3.0; // = 19.0
+const MAX_SHORT = 3.0 + 3.0 + 2.0 + 2.0 + 0.5 + 3.0;                     // = 15.5
 
 // ── Per-symbol evidence bag ───────────────────────────────────────────────────
 
@@ -103,11 +135,13 @@ interface Evidence {
   company:  string;
   isIndex:  boolean;
 
-  screener?: ScreenerInput;
-  options?:  OptionsInput;
-  triangle?: TriangleInput;
+  screener?:  ScreenerInput;
+  options?:   OptionsInput;
+  triangle?:  TriangleInput;
   oiBuildup?: OIBuildupInput;
-  oiScreen?: OIScreenInput;
+  oiScreen?:  OIScreenInput;
+  btst?:      BtstInput;
+  stbt?:      StbtInput;
 }
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -127,7 +161,7 @@ export interface SummaryPick {
   company:          string;
   direction:        'LONG' | 'SHORT';
   isIndex:          boolean;
-  rawScore:         number;       // internal score
+  rawScore:         number;
   displayScore:     number;       // 0.0-10.0
   confidence:       ConfidenceBand;
   supportingTabs:   number;
@@ -147,16 +181,16 @@ const NSE_INDEX_SET = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
 // ── Core scoring function ─────────────────────────────────────────────────────
 
 function scoreEvidence(ev: Evidence, allOIBuildupChanges: number[]): {
-  longRaw:  number;
-  shortRaw: number;
-  contribs: TabContribution[];
+  longRaw:   number;
+  shortRaw:  number;
+  contribs:  TabContribution[];
   positives: string[];
   negatives: string[];
 } {
   const W = SUMMARY_WEIGHTS;
   let longRaw  = 0;
   let shortRaw = 0;
-  const contribs: TabContribution[] = [];
+  const contribs:  TabContribution[] = [];
   const positives: string[] = [];
   const negatives: string[] = [];
 
@@ -179,8 +213,8 @@ function scoreEvidence(ev: Evidence, allOIBuildupChanges: number[]): {
   if (ev.options) {
     const o = ev.options;
     if (o.direction === 'CALL') {
-      const w = o.confidence === 'Strong' ? W.optionsCallStrong
-              : o.confidence === 'Moderate' ? W.optionsCallModerate
+      const w = o.confidence === 'Strong'    ? W.optionsCallStrong
+              : o.confidence === 'Moderate'  ? W.optionsCallModerate
               : W.optionsCallWatchlist;
       const bonus = (o.score / 100) * W.optionsScoreBonus;
       longRaw += w + bonus;
@@ -188,8 +222,8 @@ function scoreEvidence(ev: Evidence, allOIBuildupChanges: number[]): {
       positives.push(`Options: ${o.confidence} CALL signal — ${o.reasons.slice(0, 2).join('; ')}`);
       if (o.riskFlags.length) negatives.push(`Options risk flags: ${o.riskFlags.slice(0, 2).join('; ')}`);
     } else {
-      const w = o.confidence === 'Strong' ? W.optionsPutStrong
-              : o.confidence === 'Moderate' ? W.optionsPutModerate
+      const w = o.confidence === 'Strong'    ? W.optionsPutStrong
+              : o.confidence === 'Moderate'  ? W.optionsPutModerate
               : W.optionsPutWatchlist;
       const bonus = (o.score / 100) * W.optionsScoreBonus;
       shortRaw += w + bonus;
@@ -216,9 +250,8 @@ function scoreEvidence(ev: Evidence, allOIBuildupChanges: number[]): {
   // ── OI Buildup ──────────────────────────────────────────────────────────────
   if (ev.oiBuildup) {
     const oi = ev.oiBuildup;
-    // Magnitude bonus: where does this symbol's |oiChangePct| sit vs peers?
-    const allAbs = allOIBuildupChanges.filter(v => v > 0);
-    const maxAbs = allAbs.length ? Math.max(...allAbs) : 1;
+    const allAbs   = allOIBuildupChanges.filter(v => v > 0);
+    const maxAbs   = allAbs.length ? Math.max(...allAbs) : 1;
     const magnitudeBonus = (Math.abs(oi.oiChangePct) / maxAbs) * W.oiMagnitudeMax;
 
     if (oi.category === 'lb') {
@@ -258,6 +291,48 @@ function scoreEvidence(ev: Evidence, allOIBuildupChanges: number[]): {
     }
   }
 
+  // ── BTST — closing breakout engine (next-day long signal) ───────────────────
+  if (ev.btst) {
+    const b = ev.btst;
+    const w = b.conviction === 'Very High' ? W.btstVeryHigh
+            : b.conviction === 'High'      ? W.btstHigh
+            : b.conviction === 'Medium'    ? W.btstMedium
+            : 0;
+    if (w > 0) {
+      longRaw += w;
+      contribs.push({
+        tab: 'BTST', direction: 'LONG',
+        metric: `${b.conviction} conviction, score ${b.score}/100, vol ${b.volumeRatio.toFixed(1)}x`,
+        weight: w,
+      });
+      positives.push(
+        `BTST breakout — ${b.conviction} conviction (score ${b.score}), volume ${b.volumeRatio.toFixed(1)}x avg` +
+        (b.fnoSignal !== 'None' ? `, F&O: ${b.fnoSignal}` : ''),
+      );
+    }
+  }
+
+  // ── STBT — closing breakdown engine (next-day short signal) ─────────────────
+  if (ev.stbt) {
+    const s = ev.stbt;
+    const w = s.conviction === 'Very High' ? W.stbtVeryHigh
+            : s.conviction === 'High'      ? W.stbtHigh
+            : s.conviction === 'Medium'    ? W.stbtMedium
+            : 0;
+    if (w > 0) {
+      shortRaw += w;
+      contribs.push({
+        tab: 'STBT', direction: 'SHORT',
+        metric: `${s.conviction} conviction, score ${s.score}/100, vol ${s.volumeRatio.toFixed(1)}x`,
+        weight: w,
+      });
+      negatives.push(
+        `STBT breakdown — ${s.conviction} conviction (score ${s.score}), volume ${s.volumeRatio.toFixed(1)}x avg` +
+        (s.fnoSignal !== 'None' ? `, F&O: ${s.fnoSignal}` : ''),
+      );
+    }
+  }
+
   // ── Conflict penalties ───────────────────────────────────────────────────────
   const hasStrongLong  = longRaw  >= 3.0;
   const hasStrongShort = shortRaw >= 3.0;
@@ -284,9 +359,13 @@ function inferBadges(ev: Evidence, longRaw: number, shortRaw: number, supporting
   if (ev.oiBuildup?.category === 'sc') badges.push('Short Covering');
   if (ev.oiBuildup?.category === 'sb') badges.push('Fresh Short Buildup');
   if (ev.oiBuildup?.category === 'lu') badges.push('Long Unwinding');
-  if (supportingTabs >= 3)             badges.push('Multi-Tab Confirmed');
+  if (ev.btst && (ev.btst.conviction === 'Very High' || ev.btst.conviction === 'High'))
+    badges.push('BTST Setup');
+  if (ev.stbt && (ev.stbt.conviction === 'Very High' || ev.stbt.conviction === 'High'))
+    badges.push('STBT Breakdown');
+  if (supportingTabs >= 3) badges.push('Multi-Tab Confirmed');
   const isHighConflict = longRaw > MAX_LONG * 0.4 && shortRaw > MAX_SHORT * 0.4;
-  if (isHighConflict)                  badges.push('High Conflict');
+  if (isHighConflict)                   badges.push('High Conflict');
   else if (longRaw > 0 && shortRaw > 0) badges.push('Mixed Signals');
   return badges;
 }
@@ -305,28 +384,44 @@ function calcConfidence(supportingTabs: number, totalTabsWithData: number, isHig
 function generateExplanation(ev: Evidence, direction: 'LONG' | 'SHORT', positives: string[], negatives: string[]): string {
   const parts: string[] = [];
   if (direction === 'LONG') {
-    if (ev.screener?.tradeSetup.action === 'BUY') parts.push(`${ev.symbol} is in a Stage 2 uptrend with a ${ev.screener.score}/12 screener score`);
-    if (ev.triangle?.isAboveResistance) parts.push(`confirmed triangle breakout`);
-    else if (ev.triangle && ev.triangle.breakoutDistPct <= 3) parts.push(`approaching triangle resistance (${ev.triangle.breakoutDistPct.toFixed(1)}% away)`);
-    if (ev.oiBuildup?.category === 'lb') parts.push(`fresh long buildup in futures (OI +${ev.oiBuildup.oiChangePct.toFixed(1)}%)`);
-    if (ev.oiBuildup?.category === 'sc') parts.push(`short covering underway in futures`);
-    if (ev.options?.direction === 'CALL') parts.push(`${ev.options.confidence.toLowerCase()} call signal from options screener`);
-    if (ev.oiScreen && ev.oiScreen.netOIChgPct > 3) parts.push(`PE OI building faster than CE in option chain`);
+    if (ev.screener?.tradeSetup.action === 'BUY')
+      parts.push(`${ev.symbol} is in a Stage 2 uptrend with a ${ev.screener.score}/12 screener score`);
+    if (ev.triangle?.isAboveResistance)
+      parts.push(`confirmed triangle breakout`);
+    else if (ev.triangle && ev.triangle.breakoutDistPct <= 3)
+      parts.push(`approaching triangle resistance (${ev.triangle.breakoutDistPct.toFixed(1)}% away)`);
+    if (ev.btst && ev.btst.conviction !== 'Low')
+      parts.push(`${ev.btst.conviction.toLowerCase()} BTST breakout setup (score ${ev.btst.score}, vol ${ev.btst.volumeRatio.toFixed(1)}x)`);
+    if (ev.oiBuildup?.category === 'lb')
+      parts.push(`fresh long buildup in futures (OI +${ev.oiBuildup.oiChangePct.toFixed(1)}%)`);
+    if (ev.oiBuildup?.category === 'sc')
+      parts.push(`short covering underway in futures`);
+    if (ev.options?.direction === 'CALL')
+      parts.push(`${ev.options.confidence.toLowerCase()} call signal from options screener`);
+    if (ev.oiScreen && ev.oiScreen.netOIChgPct > 3)
+      parts.push(`PE OI building faster than CE in option chain`);
   } else {
-    if (ev.oiBuildup?.category === 'sb') parts.push(`fresh short buildup in futures (OI +${ev.oiBuildup.oiChangePct.toFixed(1)}%)`);
-    if (ev.oiBuildup?.category === 'lu') parts.push(`long unwinding in futures`);
-    if (ev.options?.direction === 'PUT') parts.push(`${ev.options.confidence.toLowerCase()} put signal from options screener`);
-    if (ev.oiScreen && ev.oiScreen.netOIChgPct < -3) parts.push(`CE OI building faster than PE — resistance signal`);
+    if (ev.stbt && ev.stbt.conviction !== 'Low')
+      parts.push(`${ev.stbt.conviction.toLowerCase()} STBT breakdown setup (score ${ev.stbt.score}, vol ${ev.stbt.volumeRatio.toFixed(1)}x)`);
+    if (ev.oiBuildup?.category === 'sb')
+      parts.push(`fresh short buildup in futures (OI +${ev.oiBuildup.oiChangePct.toFixed(1)}%)`);
+    if (ev.oiBuildup?.category === 'lu')
+      parts.push(`long unwinding in futures`);
+    if (ev.options?.direction === 'PUT')
+      parts.push(`${ev.options.confidence.toLowerCase()} put signal from options screener`);
+    if (ev.oiScreen && ev.oiScreen.netOIChgPct < -3)
+      parts.push(`CE OI building faster than PE — resistance signal`);
   }
   const pos = parts.join(', ');
   const neg = negatives.length ? ` Caution: ${negatives[0].toLowerCase()}.` : '';
-  return pos ? `${pos.charAt(0).toUpperCase()}${pos.slice(1)}.${neg}` : `${ev.symbol} has moderate ${direction.toLowerCase()} evidence from ${positives.length} signal(s).${neg}`;
+  return pos
+    ? `${pos.charAt(0).toUpperCase()}${pos.slice(1)}.${neg}`
+    : `${ev.symbol} has moderate ${direction.toLowerCase()} evidence from ${positives.length} signal(s).${neg}`;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; shorts: SummaryPick[] } {
-  // Build evidence map
   const evMap = new Map<string, Evidence>();
 
   const ensure = (sym: string, company = '', isIndex = NSE_INDEX_SET.has(sym)) => {
@@ -334,9 +429,9 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
     return evMap.get(sym)!;
   };
 
-  for (const s of inputs.screener)   ensure(s.symbol, s.company).screener  = s;
-  for (const o of inputs.options)    ensure(o.symbol, o.company).options   = o;
-  for (const t of inputs.triangle)   ensure(t.symbol, t.company).triangle  = t;
+  for (const s of inputs.screener)  ensure(s.symbol, s.company).screener  = s;
+  for (const o of inputs.options)   ensure(o.symbol, o.company).options   = o;
+  for (const t of inputs.triangle)  ensure(t.symbol, t.company).triangle  = t;
   for (const b of inputs.oiBuildup) {
     const ev = ensure(b.symbol, evMap.get(b.symbol)?.company ?? b.symbol);
     ev.oiBuildup = b;
@@ -345,8 +440,15 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
     const ev = ensure(os.symbol, evMap.get(os.symbol)?.company ?? os.symbol);
     ev.oiScreen = os;
   }
+  for (const b of inputs.btst) {
+    const ev = ensure(b.symbol, b.company);
+    ev.btst = b;
+  }
+  for (const s of inputs.stbt) {
+    const ev = ensure(s.symbol, s.company);
+    ev.stbt = s;
+  }
 
-  // Collect all |oiChangePct| values for magnitude normalisation
   const allOIChanges = inputs.oiBuildup.map(b => Math.abs(b.oiChangePct));
 
   const longs:  SummaryPick[] = [];
@@ -356,19 +458,19 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
     const { longRaw, shortRaw, contribs, positives, negatives } = scoreEvidence(ev, allOIChanges);
     if (longRaw === 0 && shortRaw === 0) continue;
 
-    const tabsWithData = [ev.screener, ev.options, ev.triangle, ev.oiBuildup, ev.oiScreen].filter(Boolean).length;
+    const tabsWithData = [
+      ev.screener, ev.options, ev.triangle, ev.oiBuildup, ev.oiScreen, ev.btst, ev.stbt,
+    ].filter(Boolean).length;
 
     const buildPick = (direction: 'LONG' | 'SHORT', rawScore: number): SummaryPick => {
-      const otherRaw = direction === 'LONG' ? shortRaw : longRaw;
       const supporting = contribs.filter(c => c.direction === direction || c.direction === 'NEUTRAL').length;
       const opposing   = contribs.filter(c => (direction === 'LONG' ? c.direction === 'SHORT' : c.direction === 'LONG')).length;
       const isHighConflict = longRaw > MAX_LONG * 0.4 && shortRaw > MAX_SHORT * 0.4;
-      const hasStrong = rawScore >= 3.0;
-      const badges = inferBadges(ev, longRaw, shortRaw, supporting);
+      const hasStrong  = rawScore >= 3.0;
+      const badges     = inferBadges(ev, longRaw, shortRaw, supporting);
       const confidence = calcConfidence(supporting, tabsWithData, isHighConflict, hasStrong);
       const displayScore = Math.min(10, +(rawScore / (direction === 'LONG' ? MAX_LONG : MAX_SHORT) * 10).toFixed(1));
-      const price = ev.screener?.price ?? ev.options?.price ?? ev.triangle?.price ?? ev.oiBuildup?.oi ? 0 : 0;
-      const explanation = generateExplanation(ev, direction, positives, negatives);
+      const explanation  = generateExplanation(ev, direction, positives, negatives);
       return {
         rank: 0, symbol: ev.symbol, company: ev.company, direction, isIndex: ev.isIndex,
         rawScore: +rawScore.toFixed(3), displayScore,
@@ -376,7 +478,7 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
         badges, explanation, contributions: contribs,
         positives: direction === 'LONG' ? positives : negatives,
         negatives: direction === 'LONG' ? negatives : positives,
-        price: ev.screener?.price ?? ev.options?.price ?? ev.triangle?.price ?? 0,
+        price: ev.screener?.price ?? ev.options?.price ?? ev.triangle?.price ?? ev.btst?.price ?? ev.stbt?.price ?? 0,
       };
     };
 
@@ -384,7 +486,6 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
     if (shortRaw > 0) shorts.push(buildPick('SHORT', shortRaw));
   }
 
-  // Sort by rawScore descending, then assign ranks
   const rank = (arr: SummaryPick[]) => {
     arr.sort((a, b) => b.rawScore - a.rawScore);
     arr.forEach((p, i) => { p.rank = i + 1; });
