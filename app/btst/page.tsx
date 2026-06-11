@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { BTST_WEIGHTS, type BtstResult } from '@/lib/btst-engine';
 import type { BtstScreenData } from '@/lib/btst-types';
+import { useLivePrices, type LiveQuote } from '@/app/hooks/useLivePrices';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -136,7 +137,7 @@ function ScoreBreakdown({ pts }: { pts: BtstResult['pts'] }) {
   );
 }
 
-function ResultCard({ result, rank }: { result: BtstResult; rank: number }) {
+function ResultCard({ result, rank, liveQuote }: { result: BtstResult; rank: number; liveQuote?: LiveQuote }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -151,6 +152,17 @@ function ResultCard({ result, rank }: { result: BtstResult; rank: number }) {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-foreground font-bold text-lg tracking-wide">{result.symbol}</span>
+                {liveQuote && (
+                  <span className="flex items-center gap-1 font-mono text-sm">
+                    <span className="text-foreground font-semibold">
+                      ₹{liveQuote.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span className={cn('text-xs font-medium', liveQuote.changePct >= 0 ? 'text-emerald-600' : 'text-rose-500')}>
+                      {liveQuote.changePct >= 0 ? '+' : ''}{liveQuote.changePct.toFixed(2)}%
+                    </span>
+                    <span className="text-[9px] text-muted-foreground">●live</span>
+                  </span>
+                )}
                 {result.isFnO && (
                   <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-700 border border-violet-500/30 font-semibold">
                     F&O
@@ -356,6 +368,9 @@ export default function BtstPage() {
     setData(null);
   }
 
+  const allSymbols = useMemo(() => (data?.results ?? []).map(r => r.symbol), [data]);
+  const livePrices = useLivePrices(allSymbols);
+
   const filtered: BtstResult[] = (data?.results ?? [])
     .filter(r => {
       if (fnoOnly && !r.isFnO) return false;
@@ -509,7 +524,7 @@ export default function BtstPage() {
         {filtered.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filtered.map((r, i) => (
-              <ResultCard key={r.symbol} result={r} rank={i + 1} />
+              <ResultCard key={r.symbol} result={r} rank={i + 1} liveQuote={livePrices.get(r.symbol)} />
             ))}
           </div>
         ) : data && !loading ? (

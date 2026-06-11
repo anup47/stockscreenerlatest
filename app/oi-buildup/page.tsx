@@ -1,6 +1,7 @@
 'use client';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { OIBuildupData, OIBuildupRow } from '@/app/api/dhan/oi-buildup/route';
+import { useLivePrices } from '@/app/hooks/useLivePrices';
 
 function fmtOI(n: number) {
   const abs = Math.abs(n);
@@ -20,10 +21,11 @@ function fmtExpiry(iso: string) {
 }
 
 function Panel({
-  title, subtitle, rows, borderColor, priceColor, oiColor, loading,
+  title, subtitle, rows, borderColor, priceColor, oiColor, loading, spotPrices,
 }: {
   title: string; subtitle: string; rows: OIBuildupRow[];
-  borderColor: string; priceColor: string; oiColor: string; loading: boolean;
+  borderColor: string; priceColor: string; oiColor: string;
+  loading: boolean; spotPrices: Map<string, number>;
 }) {
   const [search, setSearch] = useState('');
   const visible = rows.filter(r =>
@@ -60,6 +62,7 @@ function Panel({
             <thead className="sticky top-0 bg-slate-950 border-b border-slate-700 z-10">
               <tr>
                 <th className="px-3 py-2 text-left  text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Symbol</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Spot</th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Fut Price</th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Chg%</th>
                 <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Fut OI</th>
@@ -69,13 +72,16 @@ function Panel({
             <tbody className="divide-y divide-slate-800/50">
               {visible.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-slate-500 text-xs">
+                  <td colSpan={6} className="px-3 py-6 text-center text-slate-500 text-xs">
                     {search ? 'No results' : 'No data'}
                   </td>
                 </tr>
               ) : visible.map(r => (
                 <tr key={r.symbol} className="hover:bg-slate-800/40 transition-colors">
                   <td className="px-3 py-1.5 font-mono font-bold text-slate-100">{r.symbol}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-slate-400 tabular-nums text-[11px]">
+                    {spotPrices.has(r.symbol) ? fmt2(spotPrices.get(r.symbol)!) : <span className="text-slate-600">—</span>}
+                  </td>
                   <td className="px-3 py-1.5 text-right font-mono text-slate-300 tabular-nums">{fmt2(r.price)}</td>
                   <td className={`px-3 py-1.5 text-right font-mono tabular-nums font-semibold ${priceColor}`}>
                     {r.changePct >= 0 ? '+' : ''}{r.changePct.toFixed(2)}%
@@ -122,6 +128,19 @@ export default function OIBuildupPage() {
   }, []);
 
   useEffect(() => { runScreen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allSymbols = useMemo(() => {
+    if (!data) return [];
+    const set = new Set<string>();
+    for (const r of [...data.lb, ...data.sb, ...data.sc, ...data.lu]) set.add(r.symbol);
+    return [...set];
+  }, [data]);
+  const liveQuotes = useLivePrices(allSymbols);
+  const spotPrices = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [sym, q] of liveQuotes) m.set(sym, q.price);
+    return m;
+  }, [liveQuotes]);
 
   const total     = data ? data.lb.length + data.sb.length + data.sc.length + data.lu.length : 0;
   const fetchedAt = data
@@ -208,25 +227,25 @@ export default function OIBuildupPage() {
           title="Long Buildup"   subtitle="Price ↑  OI ↑"
           rows={data?.lb ?? []}  borderColor="border-t-emerald-500"
           priceColor="text-emerald-400" oiColor="text-emerald-400"
-          loading={loading}
+          loading={loading} spotPrices={spotPrices}
         />
         <Panel
           title="Short Buildup"  subtitle="Price ↓  OI ↑"
           rows={data?.sb ?? []}  borderColor="border-t-red-500"
           priceColor="text-red-400"     oiColor="text-emerald-400"
-          loading={loading}
+          loading={loading} spotPrices={spotPrices}
         />
         <Panel
           title="Short Covering" subtitle="Price ↑  OI ↓"
           rows={data?.sc ?? []}  borderColor="border-t-sky-500"
           priceColor="text-emerald-400" oiColor="text-red-400"
-          loading={loading}
+          loading={loading} spotPrices={spotPrices}
         />
         <Panel
           title="Long Unwinding" subtitle="Price ↓  OI ↓"
           rows={data?.lu ?? []}  borderColor="border-t-orange-500"
           priceColor="text-red-400"     oiColor="text-red-400"
-          loading={loading}
+          loading={loading} spotPrices={spotPrices}
         />
       </div>
 

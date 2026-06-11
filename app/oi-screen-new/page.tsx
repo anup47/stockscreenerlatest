@@ -115,9 +115,14 @@ function StockCard({ row, rank, side }: { row: EnrichedRow; rank: number; side: 
           {rank}
         </span>
         <div className="flex-1 min-w-0">
-          {/* Symbol + expiry + badge */}
+          {/* Symbol + live fut price + expiry + badge */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2.5">
             <span className="font-black text-gray-900 font-mono text-base leading-none tracking-tight">{row.symbol}</span>
+            {row.source?.price != null && row.source.price > 0 && (
+              <span className="font-mono text-sm font-bold text-gray-700">
+                ₹{row.source.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            )}
             <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">{row.expiry}</span>
             <CategoryBadge category={row.source?.category} />
           </div>

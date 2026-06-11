@@ -1,5 +1,6 @@
 'use client';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useLivePrices, type LiveQuote } from '@/app/hooks/useLivePrices';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import {
   buildSummary,
@@ -134,17 +135,19 @@ function Drilldown({ pick }: { pick: SummaryPick }) {
 
 // ── Pick card ─────────────────────────────────────────────────────────────────
 
-function PickCard({ pick }: { pick: SummaryPick }) {
+function PickCard({ pick, liveQuote }: { pick: SummaryPick; liveQuote?: LiveQuote }) {
   const [open, setOpen] = useState(false);
   const isLong  = pick.direction === 'LONG';
   const border  = isLong ? 'border-t-emerald-500' : 'border-t-red-500';
   const rankBg  = isLong ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400';
 
+  const priceDisplay = liveQuote ?? (pick.price > 0 ? { price: pick.price, change: 0, changePct: 0 } : null);
+
   return (
     <div className={`bg-slate-900 border border-slate-700 border-t-2 ${border} rounded-xl px-4 py-3`}>
       {/* Header row */}
       <div className="flex items-start justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${rankBg}`}>
             {pick.rank}
           </span>
@@ -152,8 +155,16 @@ function PickCard({ pick }: { pick: SummaryPick }) {
           {pick.isIndex && (
             <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-sky-900/50 text-sky-300 border border-sky-800">IDX</span>
           )}
-          {pick.price > 0 && (
-            <span className="text-xs text-slate-500 font-mono">₹{fmt2(pick.price)}</span>
+          {priceDisplay && (
+            <span className="flex items-center gap-1 font-mono text-xs">
+              <span className="text-slate-200 font-bold">₹{fmt2(priceDisplay.price)}</span>
+              {liveQuote && (
+                <span className={`text-[10px] font-semibold ${liveQuote.changePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {liveQuote.changePct >= 0 ? '+' : ''}{liveQuote.changePct.toFixed(2)}%
+                </span>
+              )}
+              {liveQuote && <span className="text-[9px] text-slate-600">●live</span>}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -203,9 +214,10 @@ function PickCard({ pick }: { pick: SummaryPick }) {
 // ── Top picks panel ───────────────────────────────────────────────────────────
 
 function TopPanel({
-  title, picks, direction, loading, empty,
+  title, picks, direction, loading, empty, priceMap,
 }: {
-  title: string; picks: SummaryPick[]; direction: 'LONG' | 'SHORT'; loading: boolean; empty: boolean;
+  title: string; picks: SummaryPick[]; direction: 'LONG' | 'SHORT';
+  loading: boolean; empty: boolean; priceMap: Map<string, LiveQuote>;
 }) {
   const borderColor = direction === 'LONG' ? 'text-emerald-400' : 'text-red-400';
   return (
@@ -220,7 +232,9 @@ function TopPanel({
           No {direction.toLowerCase()} picks yet — run analysis
         </div>
       ) : (
-        picks.slice(0, 5).map(p => <PickCard key={p.symbol} pick={p} />)
+        picks.slice(0, 5).map(p => (
+          <PickCard key={p.symbol} pick={p} liveQuote={priceMap.get(p.symbol)} />
+        ))
       )}
     </div>
   );
@@ -436,6 +450,13 @@ export default function SummaryPage() {
   const filteredShorts = applyFilters(shorts);
   const hasData = longs.length > 0 || shorts.length > 0;
 
+  // Live prices — batch-fetched from Yahoo Finance, refreshed every 30s
+  const allSymbols = useMemo(
+    () => [...new Set([...longs, ...shorts].map(p => p.symbol))],
+    [longs, shorts],
+  );
+  const livePrices = useLivePrices(allSymbols);
+
   const fetchedAtStr = fetchedAt
     ? new Date(fetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : null;
@@ -540,6 +561,7 @@ export default function SummaryPage() {
           direction="LONG"
           loading={analyzing && longs.length === 0}
           empty={!analyzing && filteredLongs.length === 0}
+          priceMap={livePrices}
         />
         <TopPanel
           title="Top 5 Short"
@@ -547,6 +569,7 @@ export default function SummaryPage() {
           direction="SHORT"
           loading={analyzing && shorts.length === 0}
           empty={!analyzing && filteredShorts.length === 0}
+          priceMap={livePrices}
         />
       </div>
 
