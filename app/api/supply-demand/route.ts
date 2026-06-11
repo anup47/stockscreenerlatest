@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { put, list } from '@vercel/blob';
 import type { SupplyDemandTheme, SupplyDemandSnapshot, LivePrice, Category, PricingPower } from '@/lib/supply-demand-types';
-import { slugify } from '@/lib/supply-demand-tracker';
+import { slugify, mergeIntoTracker, EMPTY_TRACKER } from '@/lib/supply-demand-tracker';
+import type { SupplyDemandTracker } from '@/lib/supply-demand-tracker';
 
 export const maxDuration = 55;
 
@@ -324,6 +326,7 @@ export async function GET() {
   );
 
   const themes: SupplyDemandTheme[] = [];
+  const priceData: Record<string, LivePrice> = {};
 
   for (let i = 0; i < COMMODITIES.length; i++) {
     const def = COMMODITIES[i];
@@ -345,6 +348,8 @@ export async function GET() {
     const category     = deriveCategory(chg1m, chg3m, chg6m, pct52);
     const pricingPower = derivePricingPower(chg1m, chg3m);
     const confidence   = deriveConfidence(chg1m, chg3m, chg6m, pct52);
+
+    priceData[def.name] = { price: Math.round(current * 100) / 100, change1d: chg1d, unit: def.unit };
 
     themes.push({
       id: slugify(def.name) + '-' + i,
@@ -379,8 +384,26 @@ export async function GET() {
     themes,
     generatedAt: new Date().toISOString(),
     elapsedMs:   Date.now() - startMs,
+    priceData:   Object.keys(priceData).length > 0 ? priceData : undefined,
     pricesAsOf:  new Date().toISOString(),
   };
+
+  // Update the tracker blob so "Run via Cloud" refreshes the persistent tracker
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const BLOB_OPTS = { access: 'public', contentType: 'application/json', allowOverwrite: true } as const;
+      const { blobs } = await list({ prefix: 'sd-tracker.json', limit: 1 });
+      let currentTracker: SupplyDemandTracker = { ...EMPTY_TRACKER };
+      if (blobs.length > 0) {
+        try {
+          const r = await fetch(blobs[0].url, { cache: 'no-store' });
+          if (r.ok) currentTracker = await r.json() as SupplyDemandTracker;
+        } catch { /* start fresh */ }
+      }
+      const updatedTracker = mergeIntoTracker(currentTracker, themes, priceData);
+      await put('sd-tracker.json', JSON.stringify(updatedTracker), BLOB_OPTS);
+    } catch { /* blob unavailable — still return snapshot */ }
+  }
 
   return NextResponse.json(snapshot);
 }

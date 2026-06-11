@@ -480,7 +480,7 @@ export default function SupplyDemandPage() {
                 size="sm"
                 variant="outline"
                 className="h-8 text-xs font-medium gap-1.5"
-                title="Runs analysis via Groq cloud API. Requires GROQ_API_KEY in Vercel env vars."
+                title="Fetches live commodity prices from Yahoo Finance and updates the tracker."
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
                 {loading ? 'Analysing...' : 'Run via Cloud'}
@@ -550,13 +550,13 @@ export default function SupplyDemandPage() {
           );
         })()}
 
-        {/* ── Staleness warning — shown when stories have no live price data ── */}
-        {tracker && tracker.stories.length > 0 && !tracker.stories.some(s => s.updates[0]?.livePrice) && !error && (
+        {/* ── Staleness warning — shown only when tracker has old data with no live prices and is more than 2 days old ── */}
+        {tracker && tracker.stories.length > 0 && !tracker.stories.some(s => s.updates[0]?.livePrice) &&
+          tracker.lastRun && (new Date().getTime() - new Date(tracker.lastRun).getTime()) > 2 * 86400000 && !error && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
             <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
-              This analysis was generated without live market prices — descriptions may reflect data from the model&apos;s training period, not today&apos;s market.
-              Re-run with <code className="font-mono bg-amber-500/10 px-1 rounded">node scripts/run-supply-demand.mjs --upload</code> to ground analysis in current prices.
+              Tracker data is more than 2 days old. Click <strong>Run via Cloud</strong> to refresh with current market prices.
             </span>
           </div>
         )}
