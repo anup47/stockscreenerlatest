@@ -141,30 +141,34 @@ export async function GET() {
 
     for (const date of tradingDates) {
       const niftyChange = niftyChgMap.get(date) ?? 0;
-      const dayResults: BtstResult[] = [];
+      const daySignals: Array<{ r: BtstResult; nextClose: number | null }> = [];
 
       for (const { symbol, company, rows, dateIdx } of stockMaps) {
         const idx = dateIdx.get(date);
         if (idx === undefined || idx < 64) continue;
         const r = calcBtstScore(symbol, company, rows.slice(0, idx + 1), niftyChange, undefined, false);
-        if (r && r.score >= 30) {
-          dayResults.push(r);
-          // Backtest: buy at close on signal day d, sell at close of d+1 (no look-ahead)
-          const nextClose = rows[idx + 1]?.close;
-          if (nextClose && nextClose > 0 && !isNaN(nextClose)) {
-            btTrades.push({
-              date, symbol: r.symbol, company: r.company,
-              score: r.score, conviction: r.conviction,
-              entryClose: r.close, nextClose,
-              returnPct: (nextClose - r.close) / r.close * 100,
-              isWin:     nextClose > r.close,
-            });
-          }
-        }
+        if (!r || r.score < 30) continue;
+        const nc = rows[idx + 1]?.close;
+        daySignals.push({ r, nextClose: nc && nc > 0 && !isNaN(nc) ? nc : null });
       }
-      dayResults.sort((a, b) => b.score - a.score);
-      history[date] = { results: dayResults.slice(0, 10), total: dayResults.length, niftyChange };
+
+      daySignals.sort((a, b) => b.r.score - a.r.score);
+      const top10 = daySignals.slice(0, 10);
+
+      history[date] = { results: top10.map(s => s.r), total: daySignals.length, niftyChange };
       historyDates.push(date);
+
+      // Backtest: only top 10 per day — matches what the screener shows
+      for (const { r, nextClose } of top10) {
+        if (!nextClose) continue;
+        btTrades.push({
+          date, symbol: r.symbol, company: r.company,
+          score: r.score, conviction: r.conviction,
+          entryClose: r.close, nextClose,
+          returnPct: (nextClose - r.close) / r.close * 100,
+          isWin:     nextClose > r.close,
+        });
+      }
     }
   }
 
