@@ -74,7 +74,7 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
-    name: 'Aluminium', ticker: 'ALI=F', unit: '$/lb', sector: 'Base Metals',
+    name: 'Aluminium', ticker: 'AA', unit: '$/sh (Alcoa proxy)', sector: 'Base Metals',
     timeHorizon: 'medium-term',
     historicalAnalog: '2018 US sanctions on Rusal triggered 30% price spike in weeks',
     sources: ['LME Daily Report', 'International Aluminium Institute', 'Reuters Metals'],
@@ -90,7 +90,7 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
-    name: 'Steel (HRC Futures)', ticker: 'HRC=F', unit: '$/tonne', sector: 'Steel',
+    name: 'Steel', ticker: 'X', unit: '$/sh (US Steel proxy)', sector: 'Steel',
     timeHorizon: 'medium-term',
     historicalAnalog: '2015-16 China steel dumping cycle that crushed global mills and spurred anti-dumping duties',
     sources: ['World Steel Association', 'SteelMint India', 'Platts Steel Markets Daily'],
@@ -147,7 +147,7 @@ const COMMODITIES: CommodityDef[] = [
     adverselyAffected: [
       { symbol: 'HINDUNILVR', company: 'HUL',           rationale: 'Edible oil is key input for soaps, cooking oils and processed foods', impact: 'high' },
       { symbol: 'MARICO',     company: 'Marico',        rationale: 'Saffola edible oils business faces direct input cost pressure', impact: 'high' },
-      { symbol: 'VIMTA',      company: 'Adani Wilmar',  rationale: 'Fortune brand edible oil volumes and margins squeezed', impact: 'high' },
+      { symbol: 'AWL',        company: 'Adani Wilmar',  rationale: 'Fortune brand edible oil volumes and margins squeezed', impact: 'high' },
     ],
   },
   {
@@ -156,8 +156,7 @@ const COMMODITIES: CommodityDef[] = [
     historicalAnalog: '2007-08 global food crisis when wheat prices doubled and India imposed export bans',
     sources: ['USDA WASDE', 'FCI Procurement Data', 'IGC Grain Report'],
     beneficiaries: [
-      { symbol: 'RATHI',    company: 'Rathi Steel',     rationale: 'Indirect; flour milling capex cycle', impact: 'low' },
-      { symbol: 'LT',       company: 'Triveni Engineering', rationale: 'Sugar-wheat crop rotation, farm income rises', impact: 'low' },
+      { symbol: 'TRIVENI',  company: 'Triveni Engineering', rationale: 'Sugar-wheat crop rotation — higher wheat farm income lifts agri capex spending', impact: 'low' },
     ],
     adverselyAffected: [
       { symbol: 'BRITANNIA', company: 'Britannia Industries', rationale: 'Wheat flour is primary input for biscuits — cost headwind', impact: 'high' },
@@ -166,7 +165,7 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
-    name: 'Urea', ticker: 'CF', unit: '$/share', sector: 'Fertilisers',
+    name: 'Urea', ticker: 'CF', unit: '$/sh (CF Inds proxy)', sector: 'Fertilisers',
     timeHorizon: 'near-term',
     historicalAnalog: '2021-22 energy crisis when European gas-to-urea spread collapsed, forcing plant shutdowns and India scrambling for imports',
     sources: ['FAI India Fertiliser Review', 'PPAC Natural Gas Data', 'Fertecon Urea Price Assessment'],
@@ -365,6 +364,8 @@ export async function GET() {
     const category     = deriveCategory(chg1m, chg3m, chg6m, pct52);
     const pricingPower = derivePricingPower(chg1m, chg3m);
     const confidence   = deriveConfidence(chg1m, chg3m, chg6m, pct52);
+    // Only flip beneficiaries/adverselyAffected when prices are actively falling
+    const falling      = category === 'oversupply' || pricingPower === 'collapsing';
 
     priceData[def.name] = { price: Math.round(current * 100) / 100, change1d: chg1d, unit: def.unit };
 
@@ -379,12 +380,8 @@ export async function GET() {
       ),
       confidence,
       timeHorizon:      def.timeHorizon,
-      beneficiaries:    category === 'shortage' || pricingPower === 'rising'
-        ? def.beneficiaries
-        : def.adverselyAffected,          // flip when prices are falling
-      adverselyAffected: category === 'shortage' || pricingPower === 'rising'
-        ? def.adverselyAffected
-        : def.beneficiaries,
+      beneficiaries:     falling ? def.adverselyAffected : def.beneficiaries,
+      adverselyAffected: falling ? def.beneficiaries     : def.adverselyAffected,
       historicalAnalog: def.historicalAnalog,
       sources:          def.sources,
     });
