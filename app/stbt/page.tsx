@@ -107,7 +107,7 @@ function ScoreBreakdown({ pts }: { pts: StbtResult['pts'] }) {
     ['Candle Weakness',   pts.candle,     STBT_WEIGHTS.candleCloseWeak],
     ['Volume Confirm',    pts.volume,     STBT_WEIGHTS.volumeConfirm],
     ['Trend Alignment',   pts.trend,      STBT_WEIGHTS.trendAlignment],
-    ['Volatility Exp.',   pts.volatility, STBT_WEIGHTS.volatilityExpansion],
+    ['RSI Momentum',      pts.rsi,        STBT_WEIGHTS.rsiMomentum],
     ['Relative Weakness', pts.rw,         STBT_WEIGHTS.relativeWeakness],
     ['F&O Confirmation',  pts.fno,        STBT_WEIGHTS.fnoConfirmation],
     ['Risk Quality',      pts.risk,       STBT_WEIGHTS.riskQuality],
@@ -226,6 +226,16 @@ function ResultCard({ result, rank, liveQuote }: { result: StbtResult; rank: num
               {label}
             </span>
           ))}
+          <span className={cn(
+            'text-xs px-2 py-0.5 rounded-full font-medium border',
+            result.rsi >= 25 && result.rsi <= 37
+              ? 'border-rose-500/30 bg-rose-500/10 text-rose-700'
+              : result.rsi < 20 || result.rsi > 52
+              ? 'border-slate-400/30 bg-slate-500/10 text-slate-600'
+              : 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+          )}>
+            RSI {result.rsi}
+          </span>
           {result.isFnO && result.fnoSignal !== 'None' && (
             <span className={cn(
               'text-xs px-2 py-0.5 rounded-full font-medium border',
@@ -563,7 +573,7 @@ export default function StbtPage() {
 
         {/* ── Footer weights ── */}
         <div className="mt-6 p-3 bg-muted/30 border border-border rounded-xl text-xs text-muted-foreground text-center leading-relaxed">
-          Weights — Breakdown {STBT_WEIGHTS.breakdownQuality} · Candle {STBT_WEIGHTS.candleCloseWeak} · Volume {STBT_WEIGHTS.volumeConfirm} · Trend {STBT_WEIGHTS.trendAlignment} · VolExp {STBT_WEIGHTS.volatilityExpansion} · RW {STBT_WEIGHTS.relativeWeakness} · F&O {STBT_WEIGHTS.fnoConfirmation} · Risk {STBT_WEIGHTS.riskQuality} · Liq {STBT_WEIGHTS.liquidity}
+          Weights — Breakdown {STBT_WEIGHTS.breakdownQuality} · Candle {STBT_WEIGHTS.candleCloseWeak} · Volume {STBT_WEIGHTS.volumeConfirm} · Trend {STBT_WEIGHTS.trendAlignment} · RSI {STBT_WEIGHTS.rsiMomentum} · RW {STBT_WEIGHTS.relativeWeakness} · F&O {STBT_WEIGHTS.fnoConfirmation} · Risk {STBT_WEIGHTS.riskQuality} · Liq {STBT_WEIGHTS.liquidity}
         </div>
       </div>
     </div>

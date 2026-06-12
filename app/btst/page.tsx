@@ -107,7 +107,7 @@ function ScoreBreakdown({ pts }: { pts: BtstResult['pts'] }) {
     ['Candle Close Str.', pts.candle,     BTST_WEIGHTS.candleCloseStr],
     ['Volume Confirm',    pts.volume,     BTST_WEIGHTS.volumeConfirm],
     ['Trend Alignment',   pts.trend,      BTST_WEIGHTS.trendAlignment],
-    ['Volatility Exp.',   pts.volatility, BTST_WEIGHTS.volatilityExpansion],
+    ['RSI Momentum',      pts.rsi,        BTST_WEIGHTS.rsiMomentum],
     ['Relative Strength', pts.rs,         BTST_WEIGHTS.relativeStrength],
     ['F&O Confirmation',  pts.fno,        BTST_WEIGHTS.fnoConfirmation],
     ['Risk Quality',      pts.risk,       BTST_WEIGHTS.riskQuality],
@@ -226,6 +226,16 @@ function ResultCard({ result, rank, liveQuote }: { result: BtstResult; rank: num
               {label}
             </span>
           ))}
+          <span className={cn(
+            'text-xs px-2 py-0.5 rounded-full font-medium border',
+            result.rsi >= 63 && result.rsi <= 75
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+              : result.rsi > 80 || result.rsi < 48
+              ? 'border-red-500/30 bg-red-500/10 text-red-600'
+              : 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+          )}>
+            RSI {result.rsi}
+          </span>
           {result.isFnO && result.fnoSignal !== 'None' && (
             <span className={cn(
               'text-xs px-2 py-0.5 rounded-full font-medium border',
@@ -563,7 +573,7 @@ export default function BtstPage() {
 
         {/* ── Footer weights ── */}
         <div className="mt-6 p-3 bg-muted/30 border border-border rounded-xl text-xs text-muted-foreground text-center leading-relaxed">
-          Weights — Breakout {BTST_WEIGHTS.breakoutQuality} · Candle {BTST_WEIGHTS.candleCloseStr} · Volume {BTST_WEIGHTS.volumeConfirm} · Trend {BTST_WEIGHTS.trendAlignment} · VolExp {BTST_WEIGHTS.volatilityExpansion} · RS {BTST_WEIGHTS.relativeStrength} · F&O {BTST_WEIGHTS.fnoConfirmation} · Risk {BTST_WEIGHTS.riskQuality} · Liq {BTST_WEIGHTS.liquidity}
+          Weights — Breakout {BTST_WEIGHTS.breakoutQuality} · Candle {BTST_WEIGHTS.candleCloseStr} · Volume {BTST_WEIGHTS.volumeConfirm} · Trend {BTST_WEIGHTS.trendAlignment} · RSI {BTST_WEIGHTS.rsiMomentum} · RS {BTST_WEIGHTS.relativeStrength} · F&O {BTST_WEIGHTS.fnoConfirmation} · Risk {BTST_WEIGHTS.riskQuality} · Liq {BTST_WEIGHTS.liquidity}
         </div>
       </div>
     </div>
