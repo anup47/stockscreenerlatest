@@ -166,6 +166,23 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
+    name: 'Urea', ticker: 'CF', unit: '$/share', sector: 'Fertilisers',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021-22 energy crisis when European gas-to-urea spread collapsed, forcing plant shutdowns and India scrambling for imports',
+    sources: ['FAI India Fertiliser Review', 'PPAC Natural Gas Data', 'Fertecon Urea Price Assessment'],
+    beneficiaries: [
+      { symbol: 'CHAMBAL',    company: 'Chambal Fertilisers',          rationale: 'Domestic urea producer — higher realisations expand operating margins', impact: 'high' },
+      { symbol: 'GNFC',       company: 'Gujarat Narmada Valley Ferts', rationale: 'Gas-based urea capacity benefits from improved price environment', impact: 'high' },
+      { symbol: 'GSFC',       company: 'Gujarat State Fertilizers',    rationale: 'Multi-product fertilizer company with urea exposure', impact: 'medium' },
+      { symbol: 'COROMANDEL', company: 'Coromandel International',     rationale: 'Complex fertilizer margins improve with higher agri-input pricing', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'UPL',     company: 'UPL Ltd',       rationale: 'Higher input costs for crop protection linked to fertilizer cycle; farmer spending squeezes', impact: 'medium' },
+      { symbol: 'PIIND',   company: 'PI Industries', rationale: 'Agri input cost environment pressures farm spending on agrochemicals', impact: 'low' },
+      { symbol: 'RALLIS',  company: 'Rallis India',  rationale: 'Higher urea costs reduce farmer disposable income for other agri inputs', impact: 'low' },
+    ],
+  },
+  {
     name: 'Lithium ETF', ticker: 'LIT', unit: '$/share', sector: 'Battery Materials',
     timeHorizon: 'long-term',
     historicalAnalog: '2022-23 EV demand surge when lithium carbonate prices rose 10x, then crashed on Chinese supply surge',
