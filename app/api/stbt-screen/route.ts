@@ -67,6 +67,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 
 function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
 
+// Simulate a 5-day STBT hold with cover-stop.
+// Checks each day's HIGH — if it touches or exceeds the cover stop, exit at stopLoss price.
+// Returns null if insufficient forward data.
+function simulate5dStbt(
+  rows: OHLCVRow[],
+  idx: number,
+  stopLoss: number,
+): { exitPrice: number } | null {
+  if (idx + 5 >= rows.length) return null;
+  for (let k = 1; k <= 5; k++) {
+    const row = rows[idx + k];
+    if (!row || !row.close || isNaN(row.close) || row.high == null) return null;
+    if (row.high >= stopLoss) return { exitPrice: stopLoss }; // cover stop triggered
+  }
+  const exitRow = rows[idx + 5];
+  if (!exitRow?.close || isNaN(exitRow.close)) return null;
+  return { exitPrice: exitRow.close };
+}
+
 export async function GET() {
   const start = Date.now();
 
@@ -113,7 +132,8 @@ export async function GET() {
 
   const history: Record<string, StbtHistoryScan> = {};
   const historyDates: string[] = [];
-  const btTrades: BacktestTrade[] = [];
+  const btTrades: BacktestTrade[]    = [];
+  const bt5dTrades: BacktestTrade[] = [];
 
   const calendarRows = (niftyRows && niftyRows.length >= HISTORY_DAYS + 2)
     ? niftyRows
@@ -137,7 +157,7 @@ export async function GET() {
 
     for (const date of tradingDates) {
       const niftyChange = niftyChgMap.get(date) ?? 0;
-      const daySignals: Array<{ r: StbtResult; nextClose: number | null }> = [];
+      const daySignals: Array<{ r: StbtResult; nextClose: number | null; rows: OHLCVRow[]; idx: number }> = [];
 
       for (const { symbol, company, rows, dateIdx } of stockMaps) {
         const idx = dateIdx.get(date);
@@ -145,7 +165,7 @@ export async function GET() {
         const r = calcStbtScore(symbol, company, rows.slice(0, idx + 1), niftyChange, undefined, false);
         if (!r || r.score < 30) continue;
         const nc = rows[idx + 1]?.close;
-        daySignals.push({ r, nextClose: nc && nc > 0 && !isNaN(nc) ? nc : null });
+        daySignals.push({ r, nextClose: nc && nc > 0 && !isNaN(nc) ? nc : null, rows, idx });
       }
 
       daySignals.sort((a, b) => b.r.score - a.r.score);
@@ -154,21 +174,35 @@ export async function GET() {
       history[date] = { results: top10.map(s => s.r), total: daySignals.length, niftyChange };
       historyDates.push(date);
 
-      // Backtest: only top 10 per day — matches what the screener shows
-      for (const { r, nextClose } of top10) {
-        if (!nextClose) continue;
-        btTrades.push({
-          date, symbol: r.symbol, company: r.company,
-          score: r.score, conviction: r.conviction,
-          entryClose: r.close, nextClose,
-          returnPct: (r.close - nextClose) / r.close * 100, // profit when price falls
-          isWin:     nextClose < r.close,
-        });
+      // Backtest — top 10 per day matches what the screener shows
+      for (const { r, nextClose, rows: stockRows, idx } of top10) {
+        // 1-day exit
+        if (nextClose) {
+          btTrades.push({
+            date, symbol: r.symbol, company: r.company,
+            score: r.score, conviction: r.conviction,
+            entryClose: r.close, nextClose,
+            returnPct: (r.close - nextClose) / r.close * 100, // profit when price falls
+            isWin:     nextClose < r.close,
+          });
+        }
+        // 5-day exit with cover-stop applied intraday
+        const exit5d = simulate5dStbt(stockRows, idx, r.stopLoss);
+        if (exit5d) {
+          bt5dTrades.push({
+            date, symbol: r.symbol, company: r.company,
+            score: r.score, conviction: r.conviction,
+            entryClose: r.close, nextClose: exit5d.exitPrice,
+            returnPct: (r.close - exit5d.exitPrice) / r.close * 100,
+            isWin:     exit5d.exitPrice < r.close,
+          });
+        }
       }
     }
   }
 
-  const backtest = computeBacktestStats(btTrades);
+  const backtest    = computeBacktestStats(btTrades);
+  const backtest5d  = computeBacktestStats(bt5dTrades);
 
   return NextResponse.json({
     results:      allResults.slice(0, 10),
@@ -180,5 +214,6 @@ export async function GET() {
     history,
     historyDates,
     backtest,
+    backtest5d,
   } satisfies StbtScreenData);
 }

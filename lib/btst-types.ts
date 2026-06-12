@@ -20,4 +20,5 @@ export interface BtstScreenData {
   history?:     Record<string, HistoryScan>;
   historyDates?: string[];
   backtest?:    BacktestStats;
+  backtest5d?:  BacktestStats;
 }

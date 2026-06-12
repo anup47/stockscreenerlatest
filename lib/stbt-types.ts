@@ -20,4 +20,5 @@ export interface StbtScreenData {
   history?:      Record<string, StbtHistoryScan>;
   historyDates?: string[];
   backtest?:     BacktestStats;
+  backtest5d?:   BacktestStats;
 }

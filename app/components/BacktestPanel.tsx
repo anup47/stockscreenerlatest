@@ -39,7 +39,7 @@ function ReliabilityBar({ winRate }: { winRate: number }) {
   );
 }
 
-export function BacktestPanel({ stats }: { stats: BacktestStats }) {
+export function BacktestPanel({ stats, title = 'Backtest (90D)' }: { stats: BacktestStats; title?: string }) {
   const [open,        setOpen]        = useState(false);
   const [showTrades,  setShowTrades]  = useState(false);
 
@@ -59,7 +59,7 @@ export function BacktestPanel({ stats }: { stats: BacktestStats }) {
       >
         <div className="flex items-center gap-2.5 flex-wrap min-w-0">
           <BarChart2 className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="text-xs font-bold text-foreground whitespace-nowrap">Backtest (90D)</span>
+          <span className="text-xs font-bold text-foreground whitespace-nowrap">{title}</span>
           <span className="text-[10px] text-muted-foreground">{stats.totalTrades} trades</span>
           <span className={cn('text-[10px] font-semibold whitespace-nowrap', winRateColor)}>
             Win {stats.winRate.toFixed(1)}%

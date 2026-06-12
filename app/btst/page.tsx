@@ -18,6 +18,7 @@ import {
 const STORAGE_PREFIX   = 'btst-scan-';
 const STORAGE_INDEX    = 'btst-scan-index';
 const BACKTEST_KEY     = 'btst-backtest';
+const BACKTEST_5D_KEY  = 'btst-backtest5d';
 const MAX_STORED_DAYS  = 90;
 
 function todayKey(): string {
@@ -309,7 +310,8 @@ export default function BtstPage() {
   const [sortKey,      setSortKey]   = useState<SortKey>('score');
   const [dateIndex,    setDateIndex] = useState<string[]>([]);
   const [selectedDate, setSelected]  = useState<string>('');
-  const [backtest,     setBacktest]  = useState<BacktestStats | null>(null);
+  const [backtest,     setBacktest]   = useState<BacktestStats | null>(null);
+  const [backtest5d,   setBacktest5d] = useState<BacktestStats | null>(null);
 
   useEffect(() => {
     try {
@@ -323,6 +325,8 @@ export default function BtstPage() {
       }
       const bt = localStorage.getItem(BACKTEST_KEY);
       if (bt) setBacktest(JSON.parse(bt) as BacktestStats);
+      const bt5 = localStorage.getItem(BACKTEST_5D_KEY);
+      if (bt5) setBacktest5d(JSON.parse(bt5) as BacktestStats);
     } catch {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
@@ -360,6 +364,10 @@ export default function BtstPage() {
       if (json.backtest) {
         setBacktest(json.backtest);
         try { localStorage.setItem(BACKTEST_KEY, JSON.stringify(json.backtest)); } catch { /* full */ }
+      }
+      if (json.backtest5d) {
+        setBacktest5d(json.backtest5d);
+        try { localStorage.setItem(BACKTEST_5D_KEY, JSON.stringify(json.backtest5d)); } catch { /* full */ }
       }
       setData(json);
       setSelected(todayKey());
@@ -564,10 +572,15 @@ export default function BtstPage() {
           </div>
         ) : null}
 
-        {/* ── Backtest panel ── */}
+        {/* ── Backtest panels ── */}
         {backtest && (
           <div className="mt-8">
-            <BacktestPanel stats={backtest} />
+            <BacktestPanel stats={backtest} title="Backtest (90D) · 1-Day Exit" />
+          </div>
+        )}
+        {backtest5d && (
+          <div className="mt-3">
+            <BacktestPanel stats={backtest5d} title="Backtest (90D) · 5-Day Exit · SL Applied" />
           </div>
         )}
 
