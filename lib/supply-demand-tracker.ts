@@ -53,15 +53,16 @@ function deriveStatus(updates: StoryUpdate[]): StoryStatus {
 }
 
 // Fuzzy commodity match — handles "Thermal Coal" vs "Coal (Thermal)" etc.
-// Substring match requires shorter string ≥ 6 chars AND ≥ 60% of longer string's length
-// to prevent short tokens like "coal" matching both "Thermal Coal" and "Coking Coal".
 function sameStory(existing: string, incoming: string): boolean {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const a = norm(existing);
   const b = norm(incoming);
   if (a === b) return true;
   const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  // Substring match (≥6 chars, ≥60% length ratio) — "Crude Oil" in "Crude Oil (WTI)"
   if (shorter.length >= 6 && shorter.length / longer.length >= 0.6 && longer.includes(shorter)) return true;
+  // Prefix match (≥4 chars) — handles "Urea" vs "Urea or Palm Oil" from old LLM runs
+  if (shorter.length >= 4 && longer.startsWith(shorter)) return true;
   // Share a significant word (≥6 chars)
   const wordsA = existing.toLowerCase().split(/\s+/).filter(w => w.length >= 6);
   const wordsB = incoming.toLowerCase().split(/\s+/).filter(w => w.length >= 6);
@@ -111,6 +112,7 @@ export function mergeIntoTracker(
       const capped = freshUpdates.slice(0, 60);
       updatedStories[existingIdx] = {
         ...story,
+        commodity:        theme.commodity,   // normalise name (e.g. "Urea or palm oil" → "Urea")
         lastUpdated:      today,
         status:           deriveStatus(capped),
         updates:          capped,
