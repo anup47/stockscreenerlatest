@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp,
   Search, Clock, AlertCircle, Zap, Shield, Upload, ArrowUp,
-  ArrowDown, Minus, Activity,
+  ArrowDown, Minus, Activity, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SupplyDemandSnapshot } from '@/lib/supply-demand-types';
@@ -357,6 +357,15 @@ export default function SupplyDemandPage() {
 
   const canRun = forceMode || canRefreshNow();
 
+  const resetTracker = useCallback(async () => {
+    if (!confirm('Clear all tracker data? The next "Run via Cloud" will rebuild it fresh.')) return;
+    try {
+      const res = await fetch('/api/supply-demand/tracker', { method: 'DELETE' });
+      if (res.ok) { setTracker(null); setError(null); }
+      else setError('Reset failed — check Vercel Blob is configured.');
+    } catch { setError('Reset request failed.'); }
+  }, []);
+
   const runAnalysis = useCallback(async () => {
     if (!canRun) return;
     setLoading(true);
@@ -490,6 +499,11 @@ export default function SupplyDemandPage() {
                 onClick={() => fileInputRef.current?.click()} disabled={loading}>
                 <Upload className="h-3.5 w-3.5" />
                 Load file
+              </Button>
+              <Button variant="ghost" size="sm" className="h-8 text-xs font-medium gap-1.5 text-muted-foreground hover:text-red-600"
+                onClick={resetTracker} disabled={loading} title="Clear all tracker data and rebuild from scratch">
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset
               </Button>
             </div>
             {/* Local Ollama instruction */}
