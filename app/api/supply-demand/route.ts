@@ -182,6 +182,86 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
+    name: 'Optical Fiber', ticker: 'VIAV', unit: '$/sh (Viavi proxy)', sector: 'Technology Infrastructure',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2000-01 telecom bubble when fiber was massively over-built; now data-center-driven demand is creating a genuine structural shortage',
+    sources: ['Dell\'Oro Group Fiber Forecast', 'CRU Optical Fibre & Cable Report', 'Corning Investor Presentations'],
+    beneficiaries: [
+      { symbol: 'HFCL',    company: 'HFCL Ltd',               rationale: 'India\'s largest fiber manufacturer — order book surges with telecom and data centre buildout', impact: 'high' },
+      { symbol: 'STLTECH', company: 'Sterlite Technologies',   rationale: 'Optical fiber and cable supplier to global hyperscalers and telecom operators', impact: 'high' },
+      { symbol: 'BIRLA',   company: 'Birla Cable',             rationale: 'Optical fiber cable manufacturer benefits from rising realisations', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'BHARTIARTL', company: 'Bharti Airtel',  rationale: 'Higher fiber and cable costs raise network capex for 5G and broadband rollout', impact: 'medium' },
+      { symbol: 'RELIANCE',   company: 'Reliance Jio',   rationale: 'Jio\'s aggressive fiber-to-home expansion faces higher per-km network cost', impact: 'medium' },
+      { symbol: 'TATACOMM',   company: 'Tata Communications', rationale: 'Undersea and terrestrial cable network upgrades become more expensive', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Shipping Freight', ticker: 'ZIM', unit: '$/sh (ZIM proxy)', sector: 'Logistics',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021-22 container shipping supercycle when freight rates rose 10x and Maersk/ZIM printed record profits; reversed sharply in 2023',
+    sources: ['Drewry World Container Index', 'Baltic Dry Index', 'Clarksons Shipping Intelligence'],
+    beneficiaries: [
+      { symbol: 'GESHIP',  company: 'Great Eastern Shipping', rationale: 'Tanker and dry bulk operator — freight rate spike directly lifts EBITDA', impact: 'high' },
+      { symbol: 'SCI',     company: 'Shipping Corp of India', rationale: 'State-owned fleet benefits from higher spot voyage rates', impact: 'high' },
+      { symbol: 'ESABINDIA', company: 'Esab India',          rationale: 'Indirect: port and logistics services demand rises with shipping volumes', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'TATAMOTORS', company: 'Tata Motors',  rationale: 'JLR imports CKD kits — higher freight inflates landed cost', impact: 'medium' },
+      { symbol: 'DIXON',      company: 'Dixon Technologies', rationale: 'Component imports for consumer electronics become costlier', impact: 'medium' },
+      { symbol: 'APOLLOTYRE', company: 'Apollo Tyres', rationale: 'Natural rubber and chemical imports face higher logistics cost', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Silver', ticker: 'SLV', unit: '$/sh (SLV ETF)', sector: 'Precious Metals',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2010-11 silver ran from $18 to $49/oz driven by solar boom and safe-haven demand before reversing on speculative unwind',
+    sources: ['Silver Institute World Silver Survey', 'LBMA Silver Price', 'BloombergNEF Solar Demand Tracker'],
+    beneficiaries: [
+      { symbol: 'HINDALCO',  company: 'Hindalco Industries', rationale: 'Recovers silver as a by-product from copper smelting — higher prices boost margins', impact: 'medium' },
+      { symbol: 'VEDL',      company: 'Vedanta',             rationale: 'Zinc and lead smelting yields silver — price rise adds to realisations', impact: 'medium' },
+      { symbol: 'TITAN',     company: 'Titan Company',       rationale: 'Silver jewellery and watches segment benefits from inventory revaluation', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'WAAREEENS', company: 'Waaree Energies',     rationale: 'Silver paste is ~8% of solar cell cost — higher silver inflates panel BOM', impact: 'high' },
+      { symbol: 'PREMIER',   company: 'Premier Energies',    rationale: 'Solar cell manufacturer faces direct silver input cost headwind', impact: 'high' },
+      { symbol: 'KAYNES',    company: 'Kaynes Technology',   rationale: 'Electronics PCB assembly uses silver solder — BOM cost rises', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Iron Ore', ticker: 'VALE', unit: '$/sh (Vale proxy)', sector: 'Steel Raw Material',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021 iron ore hit $230/tonne on Chinese post-COVID steel demand; crashed to $80 when China curbed output and real estate slowed',
+    sources: ['Steel Index Iron Ore Price', 'Vale Quarterly Production Report', 'China Steel PMI'],
+    beneficiaries: [
+      { symbol: 'NMDC',    company: 'NMDC',          rationale: 'India\'s largest iron ore producer — realisations rise directly with global ore prices', impact: 'high' },
+      { symbol: 'KIOCL',   company: 'KIOCL',         rationale: 'State iron ore pellet producer benefits from higher feedstock demand', impact: 'high' },
+      { symbol: 'VEDL',    company: 'Vedanta',        rationale: 'Iron ore mining in Goa/Karnataka contributes to revenue uplift', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'TATASTEEL', company: 'Tata Steel',  rationale: 'Higher ore input cost compresses integrated steelmaker margins if HRC prices lag', impact: 'high' },
+      { symbol: 'JSWSTEEL',  company: 'JSW Steel',   rationale: 'Ore-dependent capacity expansion becomes more expensive at peak ore prices', impact: 'high' },
+      { symbol: 'SAIL',      company: 'SAIL',         rationale: 'Captive ore mines partially offset, but ore cost still a margin driver', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Sugar & Ethanol', ticker: 'SB=F', unit: '¢/lb', sector: 'Agri Commodities',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2010-11 Brazilian drought and India export ban sent sugar to 30¢/lb; mills that had pivoted to ethanol blending held margins better',
+    sources: ['ISMA India Sugar Production Data', 'CANE India Ethanol Blending Report', 'USDA Sugar & Sweeteners Outlook'],
+    beneficiaries: [
+      { symbol: 'BALRAMCHI', company: 'Balrampur Chini',       rationale: 'Integrated sugar+ethanol mill — high cane realisation and ethanol offtake to OMCs', impact: 'high' },
+      { symbol: 'DHAMPUR',   company: 'Dhampur Sugar Mills',   rationale: 'North India mill with ethanol distillery — benefits from OMC blending mandates', impact: 'high' },
+      { symbol: 'TRIVENI',   company: 'Triveni Engineering',   rationale: 'Sugar and power cogeneration — higher sugar price lifts overall realisation', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'BPCL',  company: 'BPCL',  rationale: 'OMC must procure ethanol at higher cost to meet 20% blending target — margin headwind', impact: 'medium' },
+      { symbol: 'IOC',   company: 'Indian Oil Corp', rationale: 'Largest ethanol buyer under the blending programme — procurement cost rises', impact: 'medium' },
+      { symbol: 'ITC',   company: 'ITC',   rationale: 'FMCG segment uses sugar as key input in confectionery and beverages', impact: 'low' },
+    ],
+  },
+  {
     name: 'Lithium ETF', ticker: 'LIT', unit: '$/share', sector: 'Battery Materials',
     timeHorizon: 'long-term',
     historicalAnalog: '2022-23 EV demand surge when lithium carbonate prices rose 10x, then crashed on Chinese supply surge',
