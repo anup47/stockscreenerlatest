@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp,
   Search, Clock, AlertCircle, Zap, Shield, Upload, ArrowUp,
-  ArrowDown, Minus, Activity, RotateCcw,
+  ArrowDown, Minus, Activity, RotateCcw, Globe, Link2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SupplyDemandSnapshot } from '@/lib/supply-demand-types';
@@ -105,12 +105,26 @@ function UpdateTimeline({ updates }: { updates: StoryUpdate[] }) {
   );
 }
 
+// OI signal config
+const OI_SIGNAL: Record<string, { label: string; color: string }> = {
+  LB: { label: 'Long Buildup',  color: 'text-emerald-700 bg-emerald-500/10 border-emerald-500/20' },
+  SB: { label: 'Short Buildup', color: 'text-red-700 bg-red-500/10 border-red-500/20' },
+  SC: { label: 'Short Covering',color: 'text-blue-700 bg-blue-500/10 border-blue-500/20' },
+  LU: { label: 'Long Unwinding',color: 'text-amber-700 bg-amber-500/10 border-amber-500/20' },
+};
+
 // ── Story card ────────────────────────────────────────────────────────────────
-function StoryCard({ story }: { story: TrackedStory }) {
+function StoryCard({ story, oiMap }: { story: TrackedStory; oiMap: Record<string, string> }) {
   const [expanded, setExpanded] = useState(false);
+  const [cascadeOpen, setCascadeOpen] = useState(false);
   const latest = story.updates[0];
   const statusCfg = STATUS_CONFIG[story.status];
   const age = daysSince(story.firstSeen);
+
+  // Sparkline trend direction (last bar vs first bar)
+  const sparkUp = story.sparkline && story.sparkline.length > 1
+    ? story.sparkline[story.sparkline.length - 1] >= story.sparkline[0]
+    : null;
 
   return (
     <Card className="border border-border bg-card shadow-sm hover:shadow-md transition-shadow duration-200">
@@ -178,14 +192,65 @@ function StoryCard({ story }: { story: TrackedStory }) {
       </CardHeader>
 
       <CardContent className="px-4 pb-4 space-y-3">
-        {/* Live price badge */}
-        {latest?.livePrice && (
-          <div className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-emerald-700">
-            <Zap className="h-2.5 w-2.5" />
-            Live: {latest.livePrice.value} {latest.livePrice.unit}
-            <span className={cn(latest.livePrice.change1d >= 0 ? 'text-emerald-600' : 'text-red-500')}>
-              ({latest.livePrice.change1d >= 0 ? '+' : ''}{latest.livePrice.change1d}%)
-            </span>
+        {/* Live price badge + sparkline */}
+        <div className="flex items-center gap-3">
+          {latest?.livePrice && (
+            <div className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/5 text-emerald-700 shrink-0">
+              <Zap className="h-2.5 w-2.5" />
+              Live: {latest.livePrice.value} {latest.livePrice.unit}
+              <span className={cn(latest.livePrice.change1d >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                ({latest.livePrice.change1d >= 0 ? '+' : ''}{latest.livePrice.change1d}%)
+              </span>
+            </div>
+          )}
+          {/* Price change chips */}
+          {story.chg1m !== undefined && (
+            <div className="flex items-center gap-1">
+              {[{ label: '1M', v: story.chg1m }, { label: '3M', v: story.chg3m }, { label: '6M', v: story.chg6m }].map(c =>
+                c.v !== undefined ? (
+                  <span key={c.label} className={cn('text-[9px] font-semibold px-1.5 py-0.5 rounded',
+                    c.v >= 0 ? 'text-emerald-700 bg-emerald-500/10' : 'text-red-700 bg-red-500/10'
+                  )}>
+                    {c.label} {c.v >= 0 ? '+' : ''}{c.v}%
+                  </span>
+                ) : null
+              )}
+            </div>
+          )}
+          {/* Sparkline */}
+          {story.sparkline && story.sparkline.length > 0 && (
+            <div className="flex items-end gap-px h-7 ml-auto" title="30-day price trend">
+              {story.sparkline.map((v, idx) => (
+                <div key={idx}
+                  style={{ height: `${Math.max(8, v)}%` }}
+                  className={cn('w-1 rounded-sm opacity-70',
+                    sparkUp ? 'bg-emerald-500' : 'bg-red-500'
+                  )}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 52-week range meter */}
+        {story.pct52 !== undefined && (
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>52W Low</span>
+              <span className={cn('font-semibold',
+                story.pct52 > 75 ? 'text-red-600' : story.pct52 < 25 ? 'text-emerald-600' : 'text-amber-600'
+              )}>
+                {story.pct52}th pct
+              </span>
+              <span>52W High</span>
+            </div>
+            <div className="relative h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div style={{ width: `${story.pct52}%` }}
+                className={cn('h-full rounded-full transition-all',
+                  story.pct52 > 75 ? 'bg-red-500' : story.pct52 < 25 ? 'bg-emerald-500' : 'bg-amber-500'
+                )}
+              />
+            </div>
           </div>
         )}
 
@@ -199,6 +264,14 @@ function StoryCard({ story }: { story: TrackedStory }) {
           </blockquote>
         )}
 
+        {/* Trade dependency */}
+        {story.tradeDependency && (
+          <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground bg-muted/30 rounded-md px-2.5 py-1.5 border border-border/40">
+            <Globe className="h-2.5 w-2.5 shrink-0 mt-0.5 text-blue-500" />
+            <span>{story.tradeDependency}</span>
+          </div>
+        )}
+
         {/* Beneficiaries + Risks */}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <div>
@@ -207,17 +280,37 @@ function StoryCard({ story }: { story: TrackedStory }) {
               <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Beneficiaries</span>
             </div>
             <div className="space-y-1.5">
-              {story.beneficiaries.map(s => (
-                <div key={s.symbol} className="rounded-md border border-emerald-500/15 bg-emerald-500/5 px-2 py-1.5">
-                  <div className="flex items-center gap-1">
-                    <span className={cn('h-1.5 w-1.5 rounded-full shrink-0',
-                      s.impact === 'high' ? 'bg-red-500' : s.impact === 'medium' ? 'bg-amber-400' : 'bg-slate-400'
-                    )} />
-                    <span className="text-[11px] font-bold text-emerald-700">{s.symbol}</span>
+              {story.beneficiaries.map(s => {
+                const oi = oiMap[s.symbol];
+                const oiCfg = oi ? OI_SIGNAL[oi] : null;
+                return (
+                  <div key={s.symbol} className="rounded-md border border-emerald-500/15 bg-emerald-500/5 px-2 py-1.5">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className={cn('h-1.5 w-1.5 rounded-full shrink-0',
+                        s.impact === 'high' ? 'bg-red-500' : s.impact === 'medium' ? 'bg-amber-400' : 'bg-slate-400'
+                      )} />
+                      <span className="text-[11px] font-bold text-emerald-700">{s.symbol}</span>
+                      {s.stockChange30d != null && (
+                        <span className={cn('text-[9px] font-semibold px-1 rounded',
+                          s.stockChange30d >= 0 ? 'text-emerald-600 bg-emerald-500/10' : 'text-red-600 bg-red-500/10'
+                        )}>
+                          {s.stockChange30d >= 0 ? '+' : ''}{s.stockChange30d}%
+                        </span>
+                      )}
+                      {oiCfg && (
+                        <span className={cn('text-[9px] font-semibold px-1 rounded border', oiCfg.color)}
+                          title={oiCfg.label}>
+                          {oi}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight line-clamp-2">{s.rationale}</p>
+                    {s.marginSensitivity && (
+                      <p className="text-[9px] text-amber-600/80 mt-0.5 leading-tight font-medium">{s.marginSensitivity}</p>
+                    )}
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight line-clamp-2">{s.rationale}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div>
@@ -226,20 +319,63 @@ function StoryCard({ story }: { story: TrackedStory }) {
               <span className="text-[10px] font-semibold uppercase tracking-wide text-red-600">At Risk</span>
             </div>
             <div className="space-y-1.5">
-              {story.adverselyAffected.map(s => (
-                <div key={s.symbol} className="rounded-md border border-red-500/15 bg-red-500/5 px-2 py-1.5">
-                  <div className="flex items-center gap-1">
-                    <span className={cn('h-1.5 w-1.5 rounded-full shrink-0',
-                      s.impact === 'high' ? 'bg-red-500' : s.impact === 'medium' ? 'bg-amber-400' : 'bg-slate-400'
-                    )} />
-                    <span className="text-[11px] font-bold text-red-700">{s.symbol}</span>
+              {story.adverselyAffected.map(s => {
+                const oi = oiMap[s.symbol];
+                const oiCfg = oi ? OI_SIGNAL[oi] : null;
+                return (
+                  <div key={s.symbol} className="rounded-md border border-red-500/15 bg-red-500/5 px-2 py-1.5">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className={cn('h-1.5 w-1.5 rounded-full shrink-0',
+                        s.impact === 'high' ? 'bg-red-500' : s.impact === 'medium' ? 'bg-amber-400' : 'bg-slate-400'
+                      )} />
+                      <span className="text-[11px] font-bold text-red-700">{s.symbol}</span>
+                      {s.stockChange30d != null && (
+                        <span className={cn('text-[9px] font-semibold px-1 rounded',
+                          s.stockChange30d >= 0 ? 'text-emerald-600 bg-emerald-500/10' : 'text-red-600 bg-red-500/10'
+                        )}>
+                          {s.stockChange30d >= 0 ? '+' : ''}{s.stockChange30d}%
+                        </span>
+                      )}
+                      {oiCfg && (
+                        <span className={cn('text-[9px] font-semibold px-1 rounded border', oiCfg.color)}
+                          title={oiCfg.label}>
+                          {oi}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight line-clamp-2">{s.rationale}</p>
+                    {s.marginSensitivity && (
+                      <p className="text-[9px] text-amber-600/80 mt-0.5 leading-tight font-medium">{s.marginSensitivity}</p>
+                    )}
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight line-clamp-2">{s.rationale}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
+
+        {/* Second-order cascade effects */}
+        {story.cascadeEffects && story.cascadeEffects.length > 0 && (
+          <div>
+            <button
+              onClick={() => setCascadeOpen(p => !p)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Link2 className="h-2.5 w-2.5" />
+              {cascadeOpen ? 'Hide' : 'Show'} second-order effects ({story.cascadeEffects.length})
+              {cascadeOpen ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+            </button>
+            {cascadeOpen && (
+              <div className="mt-1.5 space-y-1 pl-3 border-l-2 border-border/50">
+                {story.cascadeEffects.map((effect, idx) => (
+                  <p key={idx} className="text-[10px] text-muted-foreground leading-relaxed">
+                    <span className="text-muted-foreground/40 mr-1">→</span>{effect}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Update history toggle */}
         {story.updates.length > 1 && (
@@ -290,6 +426,7 @@ export default function SupplyDemandPage() {
   const [search,     setSearch]    = useState('');
   const [forceMode,  setForceMode] = useState(false);
   const [countdown,  setCountdown] = useState(minutesUntil1PM());
+  const [oiMap,      setOiMap]     = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -302,6 +439,22 @@ export default function SupplyDemandPage() {
       if (m === 0 && timerRef.current) clearInterval(timerRef.current);
     }, 30000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  // Load OI buildup signals in background (non-blocking)
+  useEffect(() => {
+    fetch('/api/dhan/oi-buildup', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { lb: Array<{symbol:string}>; sb: Array<{symbol:string}>; sc: Array<{symbol:string}>; lu: Array<{symbol:string}> } | null) => {
+        if (!data) return;
+        const map: Record<string, string> = {};
+        data.lb?.forEach(r => { map[r.symbol] = 'LB'; });
+        data.sb?.forEach(r => { map[r.symbol] = 'SB'; });
+        data.sc?.forEach(r => { map[r.symbol] = 'SC'; });
+        data.lu?.forEach(r => { map[r.symbol] = 'LU'; });
+        setOiMap(map);
+      })
+      .catch(() => {});
   }, []);
 
   // Load tracker on mount
@@ -343,6 +496,15 @@ export default function SupplyDemandPage() {
                   pricingPower: t.pricingPower,
                   sources: t.sources,
                 }],
+                sparkline:       t.sparkline,
+                chg1d:           t.chg1d,
+                chg1m:           t.chg1m,
+                chg3m:           t.chg3m,
+                chg6m:           t.chg6m,
+                pct52:           t.pct52,
+                currentPrice:    t.currentPrice,
+                tradeDependency: t.tradeDependency,
+                cascadeEffects:  t.cascadeEffects,
               })),
               lastRun: data.generatedAt,
               totalRuns: 1,
@@ -679,7 +841,7 @@ export default function SupplyDemandPage() {
         {/* ── Story grid ── */}
         {!loading && !hydrating && filteredStories.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredStories.map(story => <StoryCard key={story.id} story={story} />)}
+            {filteredStories.map(story => <StoryCard key={story.id} story={story} oiMap={oiMap} />)}
           </div>
         )}
 

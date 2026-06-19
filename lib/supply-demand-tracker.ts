@@ -25,6 +25,16 @@ export interface TrackedStory {
   lastUpdated: string;     // YYYY-MM-DD IST
   status: StoryStatus;
   updates: StoryUpdate[];  // newest first, capped at 60
+  // Enrichment fields refreshed on each run
+  sparkline?:       number[];
+  chg1d?:           number;
+  chg1m?:           number;
+  chg3m?:           number;
+  chg6m?:           number;
+  pct52?:           number;
+  currentPrice?:    number;
+  tradeDependency?: string;
+  cascadeEffects?:  string[];
 }
 
 export interface SupplyDemandTracker {
@@ -121,6 +131,16 @@ export function mergeIntoTracker(
         adverselyAffected:theme.adverselyAffected,
         historicalAnalog: theme.historicalAnalog,
         timeHorizon:      theme.timeHorizon,
+        // Enrichment fields
+        ...(theme.sparkline       !== undefined ? { sparkline:       theme.sparkline       } : {}),
+        ...(theme.chg1d           !== undefined ? { chg1d:           theme.chg1d           } : {}),
+        ...(theme.chg1m           !== undefined ? { chg1m:           theme.chg1m           } : {}),
+        ...(theme.chg3m           !== undefined ? { chg3m:           theme.chg3m           } : {}),
+        ...(theme.chg6m           !== undefined ? { chg6m:           theme.chg6m           } : {}),
+        ...(theme.pct52           !== undefined ? { pct52:           theme.pct52           } : {}),
+        ...(theme.currentPrice    !== undefined ? { currentPrice:    theme.currentPrice    } : {}),
+        ...(theme.tradeDependency !== undefined ? { tradeDependency: theme.tradeDependency } : {}),
+        ...(theme.cascadeEffects  !== undefined ? { cascadeEffects:  theme.cascadeEffects  } : {}),
       };
     } else {
       // New story
@@ -135,6 +155,15 @@ export function mergeIntoTracker(
         lastUpdated:      today,
         status:           'new',
         updates:          [newUpdate],
+        sparkline:        theme.sparkline,
+        chg1d:            theme.chg1d,
+        chg1m:            theme.chg1m,
+        chg3m:            theme.chg3m,
+        chg6m:            theme.chg6m,
+        pct52:            theme.pct52,
+        currentPrice:     theme.currentPrice,
+        tradeDependency:  theme.tradeDependency,
+        cascadeEffects:   theme.cascadeEffects,
       });
     }
   }
