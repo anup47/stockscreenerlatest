@@ -292,6 +292,23 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
+    name: 'Refrigerant Gases (HFC)', ticker: 'CC', unit: '$/sh (Chemours proxy)', sector: 'Fluorochemicals',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2022-23 China refrigerant quota cuts when R-32 and R-125 prices doubled in 12 months, directly lifting SRF and Gujarat Fluoro margins',
+    sources: ['ICIS Refrigerant Price Report', 'China MOFCOM HFC Quota Data', 'JRAIA Japan Refrigerant Consumption Survey', 'Chemours Investor Presentations'],
+    beneficiaries: [
+      { symbol: 'SRF',         company: 'SRF Ltd',                    rationale: 'India\'s #1 HFC producer — R-32, R-125, R-134a export realisations surge with China price rise; 40%+ of revenue from fluorochemicals', impact: 'high' },
+      { symbol: 'FLUOROCHEM',  company: 'Gujarat Fluorochemicals',    rationale: 'Second-largest Indian HFC producer — captive PTFE and refrigerant gas output directly benefits from global supply squeeze', impact: 'high' },
+      { symbol: 'NAVINFLUOR',  company: 'Navin Fluorine International', rationale: 'Specialty fluorochemicals with CDMO and HFC exposure — higher refrigerant prices support realisations', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'BLUESTAR',  company: 'Blue Star',       rationale: 'AC manufacturer imports R-32 and R-410A — higher refrigerant cost squeezes assembly margins unless passed through', impact: 'high' },
+      { symbol: 'VOLTAS',    company: 'Voltas',           rationale: 'Tata Group AC brand relies on refrigerant procurement — input cost headwind in peak summer season', impact: 'medium' },
+      { symbol: 'AMBER',     company: 'Amber Enterprises', rationale: 'India\'s largest RAC ODM — refrigerant is a variable cost input; rising prices compress unhedged margins', impact: 'medium' },
+      { symbol: 'WHIRLPOOL', company: 'Whirlpool India', rationale: 'Refrigerator and AC lines both use HFCs — cost pressure on white goods BOM', impact: 'low' },
+    ],
+  },
+  {
     name: 'Micron (DRAM/NAND Proxy)', ticker: 'MU', unit: '$/share', sector: 'Semiconductors',
     timeHorizon: 'medium-term',
     historicalAnalog: '2019 DRAM oversupply cycle when memory prices fell 50% and Samsung/SK Hynix cut capex',
