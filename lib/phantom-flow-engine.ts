@@ -51,6 +51,15 @@ export interface EqualLevel {
   type:   'High' | 'Low';
 }
 
+export interface VolumeNode {
+  priceFrom: number;
+  priceTo:   number;
+  volume:    number;
+  pct:       number;   // % of total volume in this node
+  isHVN:     boolean;  // High Volume Node (top 20%)
+  isLVN:     boolean;  // Low Volume Node (bottom 20%)
+}
+
 export interface SetupSide {
   valid:       boolean;
   conditions:  { label: string; met: boolean }[];
@@ -118,6 +127,13 @@ export interface PhantomFlowResult {
     keyZones:   string[];
     tradeIdea:  string | null;
     warnings:   string[];
+  };
+
+  volumeProfile: {
+    nodes: VolumeNode[];
+    poc:   number;   // Point of Control — price with highest volume
+    vah:   number;   // Value Area High (70% of volume)
+    val:   number;   // Value Area Low (70% of volume)
   };
 }
 
@@ -591,6 +607,65 @@ function buildSummary(
   return { bias, keyZones, tradeIdea, warnings };
 }
 
+// ── Volume Profile ────────────────────────────────────────────────────────────
+
+function computeVolumeProfile(bars: OHLCVRow[], numBuckets = 24): PhantomFlowResult['volumeProfile'] {
+  const slice = bars.slice(-120); // use last 120 bars
+  if (slice.length < 5) {
+    return { nodes: [], poc: 0, vah: 0, val: 0 };
+  }
+
+  const lo  = Math.min(...slice.map(b => b.low));
+  const hi  = Math.max(...slice.map(b => b.high));
+  const rng = hi - lo;
+  if (rng <= 0) return { nodes: [], poc: 0, vah: 0, val: 0 };
+
+  const bucketSize = rng / numBuckets;
+  const buckets    = new Array<number>(numBuckets).fill(0);
+
+  for (const bar of slice) {
+    const typical = (bar.high + bar.low + bar.close) / 3;
+    const idx     = clamp(Math.floor((typical - lo) / bucketSize), 0, numBuckets - 1);
+    buckets[idx] += bar.volume;
+  }
+
+  const totalVol = buckets.reduce((s, v) => s + v, 0);
+  const maxVol   = Math.max(...buckets);
+  const p20      = maxVol * 0.20;
+  const p80      = maxVol * 0.80;
+
+  const nodes: VolumeNode[] = buckets.map((vol, i) => ({
+    priceFrom: +(lo + i * bucketSize).toFixed(2),
+    priceTo:   +(lo + (i + 1) * bucketSize).toFixed(2),
+    volume:    vol,
+    pct:       totalVol > 0 ? +((vol / totalVol) * 100).toFixed(2) : 0,
+    isHVN:     vol >= p80,
+    isLVN:     vol > 0 && vol <= p20,
+  }));
+
+  // Point of Control
+  const pocIdx = buckets.indexOf(maxVol);
+  const poc    = +(lo + (pocIdx + 0.5) * bucketSize).toFixed(2);
+
+  // Value Area — 70% of total volume around POC
+  const targetVol = totalVol * 0.70;
+  let   vaVol     = buckets[pocIdx];
+  let   vaLo      = pocIdx, vaHi = pocIdx;
+
+  while (vaVol < targetVol && (vaLo > 0 || vaHi < numBuckets - 1)) {
+    const addLo = vaLo > 0           ? buckets[vaLo - 1] : 0;
+    const addHi = vaHi < numBuckets - 1 ? buckets[vaHi + 1] : 0;
+    if (addHi >= addLo && vaHi < numBuckets - 1) { vaHi++; vaVol += buckets[vaHi]; }
+    else if (vaLo > 0)                             { vaLo--; vaVol += buckets[vaLo]; }
+    else                                           { vaHi++; vaVol += buckets[vaHi]; }
+  }
+
+  const val = +(lo + vaLo * bucketSize).toFixed(2);
+  const vah = +(lo + (vaHi + 1) * bucketSize).toFixed(2);
+
+  return { nodes, poc, vah, val };
+}
+
 // ── Main Entry ────────────────────────────────────────────────────────────────
 
 export function runPhantomFlow(symbol: string, bars: OHLCVRow[]): PhantomFlowResult {
@@ -647,8 +722,9 @@ export function runPhantomFlow(symbol: string, bars: OHLCVRow[]): PhantomFlowRes
     stopHuntZones: stopHunts,
   };
 
-  const tradeSetup = buildTradeSetup(mktStruct, liquidity, obs, momPartial, close);
-  const summary    = buildSummary(mktStruct, tradeSetup, momPartial, fvgs, obs);
+  const tradeSetup    = buildTradeSetup(mktStruct, liquidity, obs, momPartial, close);
+  const summary       = buildSummary(mktStruct, tradeSetup, momPartial, fvgs, obs);
+  const volumeProfile = computeVolumeProfile(bars);
 
   return {
     symbol,
@@ -661,5 +737,6 @@ export function runPhantomFlow(symbol: string, bars: OHLCVRow[]): PhantomFlowRes
     momentum,
     tradeSetup,
     summary,
+    volumeProfile,
   };
 }

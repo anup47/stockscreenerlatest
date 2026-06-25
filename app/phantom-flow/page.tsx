@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
   Search, AlertTriangle, CheckCircle2, XCircle, RefreshCw,
-  Target, ShieldAlert, Zap, BarChart2, Activity,
+  Target, ShieldAlert, Zap, BarChart2, Activity, LayoutGrid,
+  Clock, Layers,
 } from 'lucide-react';
-import type { PhantomFlowResult, FVG, OrderBlock, EqualLevel } from '@/lib/phantom-flow-engine';
+import type { PhantomFlowResult, FVG, OrderBlock, EqualLevel, VolumeNode } from '@/lib/phantom-flow-engine';
 
 // ── Quick symbol chips ────────────────────────────────────────────────────────
 const QUICK_SYMBOLS = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK', 'AXISBANK'];
@@ -23,20 +24,32 @@ function fmtDate(iso: string): string {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
 }
 
+// ── Market hours (IST 9:15–15:30, Mon–Fri) ───────────────────────────────────
+function isMarketOpen(): boolean {
+  const now = new Date();
+  // Convert to IST (UTC+5:30)
+  const utc     = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const ist     = new Date(utc + 5.5 * 3_600_000);
+  const day     = ist.getDay(); // 0=Sun,6=Sat
+  if (day === 0 || day === 6) return false;
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  return mins >= 555 && mins <= 930; // 9:15=555, 15:30=930
+}
+
 // ── Color helpers ─────────────────────────────────────────────────────────────
 function trendColor(t: string) {
-  if (t === 'Bullish')     return 'text-emerald-600';
-  if (t === 'Bearish')     return 'text-red-500';
+  if (t === 'Bullish')  return 'text-emerald-600';
+  if (t === 'Bearish')  return 'text-red-500';
   return 'text-amber-600';
 }
 function trendBg(t: string) {
-  if (t === 'Bullish')     return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30';
-  if (t === 'Bearish')     return 'bg-red-500/10 text-red-700 border-red-500/30';
+  if (t === 'Bullish')  return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30';
+  if (t === 'Bearish')  return 'bg-red-500/10 text-red-700 border-red-500/30';
   return 'bg-amber-500/10 text-amber-700 border-amber-500/30';
 }
 function zoneBg(z: string) {
-  if (z === 'Premium')     return 'bg-red-500/10 text-red-700 border-red-400/30';
-  if (z === 'Discount')    return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30';
+  if (z === 'Premium')  return 'bg-red-500/10 text-red-700 border-red-400/30';
+  if (z === 'Discount') return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30';
   return 'bg-amber-500/10 text-amber-700 border-amber-500/30';
 }
 function rsiColor(rsi: number) {
@@ -50,6 +63,12 @@ function scoreColor(s: number) {
   if (s >= 50) return 'bg-sky-500';
   if (s >= 30) return 'bg-amber-400';
   return 'bg-slate-400';
+}
+function scoreText(s: number) {
+  if (s >= 70) return 'text-emerald-600';
+  if (s >= 50) return 'text-sky-600';
+  if (s >= 30) return 'text-amber-500';
+  return 'text-slate-400';
 }
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
@@ -112,35 +131,322 @@ function Skeleton() {
   );
 }
 
+// ── Weekly structure badge ────────────────────────────────────────────────────
+interface WeeklyResult {
+  trend:           'Bullish' | 'Bearish' | 'Consolidating';
+  zone:            'Premium' | 'Equilibrium' | 'Discount';
+  confluenceScore: number;
+  recentEvent:     string | null;
+  poc:             number;
+  vah:             number;
+  val:             number;
+}
+
+function WeeklyPanel({ w }: { w: WeeklyResult }) {
+  const aligned =
+    (w.trend === 'Bullish' && w.zone === 'Discount') ||
+    (w.trend === 'Bearish' && w.zone === 'Premium');
+
+  return (
+    <div className="rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-violet-600 flex items-center gap-1.5">
+        <Layers className="size-3.5" /> Weekly (1W) Structure Context
+      </p>
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold', trendBg(w.trend))}>
+          {w.trend === 'Bullish' ? <TrendingUp className="size-3" /> : w.trend === 'Bearish' ? <TrendingDown className="size-3" /> : <Minus className="size-3" />}
+          {w.trend}
+        </span>
+        <span className={cn('inline-flex items-center px-2.5 py-1 rounded-lg border text-xs font-semibold', zoneBg(w.zone))}>
+          {w.zone}
+        </span>
+        <span className={cn('px-2.5 py-1 rounded-lg border text-xs font-semibold', scoreText(w.confluenceScore), 'border-border bg-background')}>
+          Score {w.confluenceScore}/100
+        </span>
+        {aligned && (
+          <span className="px-2.5 py-1 rounded-lg bg-violet-600 text-white text-xs font-bold border border-violet-700">
+            ✓ MTF Aligned
+          </span>
+        )}
+        {!aligned && (
+          <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-300">
+            ⚠ MTF Conflict
+          </span>
+        )}
+      </div>
+      {w.recentEvent && (
+        <p className="text-xs text-violet-700">Weekly event: <span className="font-semibold">{w.recentEvent}</span></p>
+      )}
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <span>Weekly POC: <span className="font-mono font-semibold text-foreground">₹{fmt(w.poc)}</span></span>
+        <span>VAH: <span className="font-mono font-semibold text-red-600">₹{fmt(w.vah)}</span></span>
+        <span>VAL: <span className="font-mono font-semibold text-emerald-600">₹{fmt(w.val)}</span></span>
+      </div>
+    </div>
+  );
+}
+
+// ── Volume Profile bar chart ──────────────────────────────────────────────────
+function VolumeProfileChart({ nodes, poc, currentPrice }: { nodes: VolumeNode[]; poc: number; currentPrice: number }) {
+  if (nodes.length === 0) return <p className="text-xs text-muted-foreground italic">No volume data</p>;
+
+  const maxPct = Math.max(...nodes.map(n => n.pct));
+  // Show in price order (low → high), flip so high is at top
+  const sorted = [...nodes].reverse();
+
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[10px] text-muted-foreground mb-2">
+        <span>Volume Distribution (last 120 bars)</span>
+        <span>POC: <span className="font-mono font-bold text-violet-600">₹{fmt(poc)}</span></span>
+      </div>
+      <div className="space-y-0.5 max-h-72 overflow-y-auto">
+        {sorted.map((node, i) => {
+          const isNearPrice = currentPrice >= node.priceFrom && currentPrice <= node.priceTo;
+          const isPOC       = node.priceFrom <= poc && poc <= node.priceTo;
+          const barW = maxPct > 0 ? (node.pct / maxPct) * 100 : 0;
+          return (
+            <div key={i} className="flex items-center gap-1.5 group">
+              <span className="text-[9px] text-muted-foreground font-mono w-16 text-right shrink-0">
+                {fmt(node.priceFrom, 0)}
+              </span>
+              <div className="flex-1 relative h-4 rounded-sm overflow-hidden bg-muted/30">
+                <div
+                  className={cn(
+                    'h-full rounded-sm transition-all',
+                    isPOC      ? 'bg-violet-500' :
+                    node.isHVN ? 'bg-sky-400/80' :
+                    node.isLVN ? 'bg-slate-200'  : 'bg-sky-300/50',
+                  )}
+                  style={{ width: `${barW}%` }}
+                />
+                {(isPOC || isNearPrice) && (
+                  <div className={cn(
+                    'absolute inset-y-0 left-0 right-0 flex items-center pl-1 text-[9px] font-bold pointer-events-none',
+                    isPOC ? 'text-white' : 'text-foreground',
+                  )}>
+                    {isPOC && 'POC'}
+                    {isNearPrice && !isPOC && '◄ CMP'}
+                  </div>
+                )}
+              </div>
+              <span className="text-[9px] text-muted-foreground w-8 shrink-0">
+                {node.pct.toFixed(1)}%
+              </span>
+              {node.isHVN && <span className="text-[9px] text-sky-600 font-bold shrink-0">HVN</span>}
+              {node.isLVN && <span className="text-[9px] text-slate-400 shrink-0">LVN</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-3 text-[10px] text-muted-foreground pt-1 flex-wrap">
+        <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-violet-500 inline-block" /> POC</span>
+        <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-sky-400/80 inline-block" /> HVN</span>
+        <span className="flex items-center gap-1"><span className="size-2 rounded-sm bg-slate-200 inline-block" /> LVN</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Batch scan types ──────────────────────────────────────────────────────────
+interface BatchItem {
+  symbol:          string;
+  company:         string;
+  currentPrice:    number;
+  bias:            'Bullish' | 'Bearish' | 'Neutral';
+  trend:           'Bullish' | 'Bearish' | 'Consolidating';
+  confluenceScore: number;
+  zone:            'Premium' | 'Equilibrium' | 'Discount';
+  rsi:             number;
+  recentEvent:     string | null;
+  poc:             number;
+}
+
+// ── Batch leaderboard ─────────────────────────────────────────────────────────
+function BatchLeaderboard({
+  items,
+  onSelect,
+}: {
+  items: BatchItem[];
+  onSelect: (sym: string) => void;
+}) {
+  const [filter, setFilter] = useState<'All' | 'Bullish' | 'Bearish'>('All');
+  const visible = items.filter(it => filter === 'All' || it.bias === filter);
+
+  return (
+    <div className="space-y-3">
+      {/* Filter tabs */}
+      <div className="flex gap-1.5 flex-wrap">
+        {(['All', 'Bullish', 'Bearish'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={cn(
+              'px-3 py-1 rounded-full text-xs font-semibold border transition-colors',
+              filter === f
+                ? f === 'Bullish' ? 'bg-emerald-600 text-white border-emerald-600'
+                  : f === 'Bearish' ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-violet-600 text-white border-violet-600'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >{f} {f !== 'All' && `(${items.filter(it => it.bias === f).length})`}</button>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-border overflow-hidden">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border bg-muted/40">
+              <th className="px-3 py-2 text-left font-semibold text-muted-foreground">#</th>
+              <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Symbol</th>
+              <th className="px-3 py-2 text-left font-semibold text-muted-foreground hidden sm:table-cell">Bias</th>
+              <th className="px-3 py-2 text-center font-semibold text-muted-foreground">Score</th>
+              <th className="px-3 py-2 text-center font-semibold text-muted-foreground hidden md:table-cell">RSI</th>
+              <th className="px-3 py-2 text-center font-semibold text-muted-foreground hidden md:table-cell">Zone</th>
+              <th className="px-3 py-2 text-right font-semibold text-muted-foreground hidden sm:table-cell">POC</th>
+              <th className="px-3 py-2 text-left font-semibold text-muted-foreground hidden lg:table-cell">Event</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((it, i) => (
+              <tr
+                key={it.symbol}
+                className="border-b border-border last:border-0 hover:bg-muted/30 cursor-pointer transition-colors"
+                onClick={() => onSelect(it.symbol)}
+              >
+                <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                <td className="px-3 py-2">
+                  <div className="font-bold text-violet-700">{it.symbol}</div>
+                  <div className="text-[10px] text-muted-foreground truncate max-w-[120px]">{it.company}</div>
+                </td>
+                <td className="px-3 py-2 hidden sm:table-cell">
+                  <span className={cn(
+                    'px-1.5 py-0.5 rounded-full text-[10px] font-bold border',
+                    it.bias === 'Bullish' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
+                    it.bias === 'Bearish' ? 'bg-red-50 text-red-700 border-red-300' :
+                    'bg-muted text-muted-foreground border-border',
+                  )}>{it.bias}</span>
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <span className={cn('font-bold tabular-nums', scoreText(it.confluenceScore))}>
+                    {it.confluenceScore}
+                  </span>
+                  <div className="h-1 w-full bg-muted rounded-full mt-0.5 overflow-hidden">
+                    <div className={cn('h-full rounded-full', scoreColor(it.confluenceScore))} style={{ width: `${it.confluenceScore}%` }} />
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-center hidden md:table-cell">
+                  <span className={cn(
+                    'px-1.5 py-0.5 rounded text-[10px] font-semibold',
+                    it.rsi > 70 ? 'text-red-600 bg-red-50' :
+                    it.rsi < 30 ? 'text-emerald-600 bg-emerald-50' : 'text-muted-foreground',
+                  )}>{it.rsi.toFixed(1)}</span>
+                </td>
+                <td className="px-3 py-2 text-center hidden md:table-cell">
+                  <span className={cn(
+                    'px-1.5 py-0.5 rounded text-[10px] font-semibold',
+                    it.zone === 'Discount' ? 'text-emerald-700 bg-emerald-50' :
+                    it.zone === 'Premium'  ? 'text-red-700 bg-red-50' :
+                    'text-amber-700 bg-amber-50',
+                  )}>{it.zone}</span>
+                </td>
+                <td className="px-3 py-2 text-right hidden sm:table-cell font-mono text-muted-foreground">
+                  {it.poc > 0 ? `₹${fmt(it.poc, 0)}` : '—'}
+                </td>
+                <td className="px-3 py-2 hidden lg:table-cell">
+                  {it.recentEvent
+                    ? <span className="text-[10px] text-violet-600 font-semibold">{it.recentEvent}</span>
+                    : <span className="text-[10px] text-muted-foreground">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {visible.length === 0 && (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground italic">No {filter} setups found</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PhantomFlowPage() {
-  const [symbol, setSymbol]   = useState('NIFTY');
-  const [tf, setTf]           = useState<'1d' | '1wk'>('1d');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<PhantomFlowResult | null>(null);
-  const [error, setError]     = useState<string | null>(null);
-  const [open, setOpen]       = useState<Set<string>>(new Set(['mkt', 'liq', 'obs', 'mom', 'setup']));
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [symbol, setSymbol]         = useState('NIFTY');
+  const [tf, setTf]                 = useState<'1d' | '1wk'>('1d');
+  const [loading, setLoading]       = useState(false);
+  const [result, setResult]         = useState<PhantomFlowResult | null>(null);
+  const [weeklyResult, setWeekly]   = useState<WeeklyResult | null>(null);
+  const [error, setError]           = useState<string | null>(null);
+  const [open, setOpen]             = useState<Set<string>>(new Set(['mkt', 'liq', 'obs', 'mom', 'setup', 'vp']));
+  const [batchMode, setBatchMode]   = useState(false);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
+  const [batchAt, setBatchAt]       = useState<string | null>(null);
+  const [autoRefreshOn, setAutoRefreshOn] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
+  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const symbolRef = useRef(symbol);
+  const tfRef     = useRef(tf);
 
   const toggle = (id: string) =>
     setOpen(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const analyze = useCallback(async (sym = symbol, timeframe = tf) => {
+  const analyze = useCallback(async (sym = symbolRef.current, timeframe = tfRef.current) => {
     if (!sym.trim()) return;
     setLoading(true);
     setError(null);
     setResult(null);
+    setWeekly(null);
     try {
       const res  = await fetch(`/api/phantom-flow?symbol=${encodeURIComponent(sym.trim())}&tf=${timeframe}`, { cache: 'no-store' });
       const json = await res.json();
       if (!res.ok || json.error) { setError(json.error ?? 'Analysis failed'); return; }
       setResult(json.result as PhantomFlowResult);
+      if (json.weeklyResult) setWeekly(json.weeklyResult as WeeklyResult);
+      setLastRefreshed(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');
     } finally {
       setLoading(false);
     }
-  }, [symbol, tf]);
+  }, []);
+
+  // Keep refs in sync so the interval callback always sees the latest values
+  useEffect(() => { symbolRef.current = symbol; }, [symbol]);
+  useEffect(() => { tfRef.current = tf; }, [tf]);
+
+  // Auto-refresh every 60s during market hours
+  useEffect(() => {
+    if (!autoRefreshOn) {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      return;
+    }
+    const tick = () => {
+      if (isMarketOpen() && !batchMode && symbolRef.current.trim()) {
+        analyze(symbolRef.current, tfRef.current);
+      }
+    };
+    timerRef.current = setInterval(tick, 60_000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [autoRefreshOn, analyze, batchMode]);
+
+  const runBatchScan = async () => {
+    setBatchLoading(true);
+    setBatchMode(true);
+    try {
+      const res  = await fetch('/api/phantom-flow?mode=batch', { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok) throw new Error('Batch scan failed');
+      setBatchItems(json.items as BatchItem[]);
+      setBatchAt(json.scannedAt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Batch scan error');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
 
   const r = result;
 
@@ -149,14 +455,43 @@ export default function PhantomFlowPage() {
 
       {/* ── Header ── */}
       <div className="space-y-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
-            <Activity className="size-5 text-violet-600" />
-            Phantom Flow
-          </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Smart Money Concepts — market structure, liquidity, order blocks & trade setup
-          </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+              <Activity className="size-5 text-violet-600" />
+              Phantom Flow
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Smart Money Concepts — market structure, liquidity, order blocks & trade setup
+            </p>
+          </div>
+
+          {/* Auto-refresh status */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAutoRefreshOn(v => !v)}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                autoRefreshOn
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                  : 'bg-muted text-muted-foreground border-border',
+              )}
+              title="Toggle 60s auto-refresh during market hours"
+            >
+              <Clock className="size-3" />
+              {autoRefreshOn ? 'Auto ✓' : 'Auto off'}
+            </button>
+            {lastRefreshed && (
+              <span className="text-[10px] text-muted-foreground">
+                {lastRefreshed.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+            {isMarketOpen() && autoRefreshOn && (
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
+                <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" /> Live
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Quick chips */}
@@ -164,10 +499,10 @@ export default function PhantomFlowPage() {
           {QUICK_SYMBOLS.map(s => (
             <button
               key={s}
-              onClick={() => { setSymbol(s); analyze(s, tf); }}
+              onClick={() => { setSymbol(s); setBatchMode(false); analyze(s, tf); }}
               className={cn(
                 'px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
-                symbol.toUpperCase() === s
+                symbol.toUpperCase() === s && !batchMode
                   ? 'bg-violet-600 text-white border-violet-600'
                   : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/40',
               )}
@@ -175,7 +510,7 @@ export default function PhantomFlowPage() {
           ))}
         </div>
 
-        {/* Input row */}
+        {/* Input + controls row */}
         <div className="flex gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
@@ -183,7 +518,7 @@ export default function PhantomFlowPage() {
               ref={inputRef}
               value={symbol}
               onChange={e => setSymbol(e.target.value.toUpperCase())}
-              onKeyDown={e => e.key === 'Enter' && analyze()}
+              onKeyDown={e => { if (e.key === 'Enter') { setBatchMode(false); analyze(); } }}
               placeholder="e.g. RELIANCE, TCS, NIFTY"
               className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/40"
             />
@@ -194,7 +529,7 @@ export default function PhantomFlowPage() {
             {(['1d', '1wk'] as const).map(t => (
               <button
                 key={t}
-                onClick={() => { setTf(t); if (result) analyze(symbol, t); }}
+                onClick={() => { setTf(t); setBatchMode(false); if (result) analyze(symbol, t); }}
                 className={cn(
                   'px-3 py-2 transition-colors',
                   tf === t ? 'bg-violet-600 text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
@@ -204,12 +539,23 @@ export default function PhantomFlowPage() {
           </div>
 
           <Button
-            onClick={() => analyze()}
+            onClick={() => { setBatchMode(false); analyze(); }}
             disabled={loading}
             className="bg-violet-600 hover:bg-violet-700 text-white gap-1.5"
           >
             {loading ? <RefreshCw className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
             {loading ? 'Analyzing…' : 'Analyze'}
+          </Button>
+
+          {/* Batch scan button */}
+          <Button
+            onClick={runBatchScan}
+            disabled={batchLoading}
+            variant="outline"
+            className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50"
+          >
+            {batchLoading ? <RefreshCw className="size-3.5 animate-spin" /> : <LayoutGrid className="size-3.5" />}
+            {batchLoading ? 'Scanning…' : 'Batch Scan'}
           </Button>
         </div>
       </div>
@@ -222,11 +568,42 @@ export default function PhantomFlowPage() {
         </div>
       )}
 
-      {/* ── Loading ── */}
-      {loading && <Skeleton />}
+      {/* ── Batch Mode ── */}
+      {batchMode && !batchLoading && batchItems.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-sm font-bold flex items-center gap-2">
+                <LayoutGrid className="size-4 text-violet-600" />
+                Batch Scan — {batchItems.length} stocks ranked by confluence
+              </h2>
+              {batchAt && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Scanned at {new Date(batchAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setBatchMode(false)}
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Back to single analysis
+            </button>
+          </div>
+          <BatchLeaderboard
+            items={batchItems}
+            onSelect={(sym) => { setSymbol(sym); setBatchMode(false); analyze(sym, tf); }}
+          />
+        </div>
+      )}
+
+      {batchLoading && <Skeleton />}
+
+      {/* ── Single symbol loading ── */}
+      {loading && !batchMode && <Skeleton />}
 
       {/* ── Results ── */}
-      {r && !loading && (
+      {r && !loading && !batchMode && (
         <div className="space-y-4">
 
           {/* ── Summary Card ── */}
@@ -252,7 +629,7 @@ export default function PhantomFlowPage() {
               </div>
               <div className="flex flex-col items-end gap-1">
                 <span className="text-xs text-muted-foreground">Confluence</span>
-                <span className={cn('text-xl font-bold', scoreColor(r.tradeSetup.confluenceScore).replace('bg-', 'text-').replace('-500', '-600').replace('-400', '-500'))}>
+                <span className={cn('text-xl font-bold', scoreText(r.tradeSetup.confluenceScore))}>
                   {r.tradeSetup.confluenceScore}/100
                 </span>
               </div>
@@ -268,6 +645,18 @@ export default function PhantomFlowPage() {
                 <span key={z} className="px-2 py-0.5 rounded-md bg-background/80 border border-border text-xs text-foreground font-mono">{z}</span>
               ))}
             </div>
+
+            {/* Volume POC */}
+            {r.volumeProfile.poc > 0 && (
+              <div className="flex flex-wrap gap-3 text-xs">
+                <span className="px-2 py-0.5 rounded-md bg-violet-100 border border-violet-300 text-violet-700 font-mono font-semibold">
+                  POC ₹{fmt(r.volumeProfile.poc)}
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-background/80 border border-border text-xs font-mono">
+                  VAH ₹{fmt(r.volumeProfile.vah)} / VAL ₹{fmt(r.volumeProfile.val)}
+                </span>
+              </div>
+            )}
 
             {/* Trade idea */}
             {r.summary.tradeIdea && (
@@ -296,10 +685,12 @@ export default function PhantomFlowPage() {
             </p>
           </div>
 
+          {/* ── Weekly MTF panel (only on 1D view) ── */}
+          {weeklyResult && tf === '1d' && <WeeklyPanel w={weeklyResult} />}
+
           {/* ── Section 1: Market Structure ── */}
           <Section id="mkt" title="1. Market Structure" icon={<BarChart2 className="size-4" />} open={open.has('mkt')} onToggle={() => toggle('mkt')}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Left: trend + structure events */}
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   <span className={cn('inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-semibold', trendBg(r.marketStructure.trend))}>
@@ -345,7 +736,6 @@ export default function PhantomFlowPage() {
                 )}
               </div>
 
-              {/* Right: Premium/Discount meter */}
               <div className="space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Position in Range</p>
                 <div className="space-y-2">
@@ -355,21 +745,17 @@ export default function PhantomFlowPage() {
                     <span className="text-right">Swing High<br /><span className="font-mono text-foreground">₹{fmt(r.marketStructure.rangeHigh)}</span></span>
                   </div>
 
-                  {/* Range bar */}
                   <div className="relative h-6 w-full rounded-full bg-muted overflow-hidden">
-                    {/* Zones */}
                     <div className="absolute inset-0 flex">
                       <div className="w-[40%] bg-emerald-100 opacity-60 rounded-l-full" />
                       <div className="w-[20%] bg-amber-100 opacity-60" />
                       <div className="w-[40%] bg-red-100 opacity-60 rounded-r-full" />
                     </div>
-                    {/* Zone labels */}
                     <div className="absolute inset-0 flex items-center text-[9px] font-bold pointer-events-none">
                       <span className="w-[40%] text-center text-emerald-700">DISCOUNT</span>
                       <span className="w-[20%] text-center text-amber-700">EQ</span>
                       <span className="w-[40%] text-center text-red-700">PREMIUM</span>
                     </div>
-                    {/* Current price marker */}
                     <div
                       className="absolute top-0 bottom-0 w-1.5 bg-foreground rounded-full shadow"
                       style={{ left: `calc(${r.marketStructure.pctInRange}% - 3px)` }}
@@ -389,10 +775,7 @@ export default function PhantomFlowPage() {
           {/* ── Section 2: Liquidity Analysis ── */}
           <Section id="liq" title="2. Liquidity Analysis" icon={<Activity className="size-4" />} open={open.has('liq')} onToggle={() => toggle('liq')}>
             <div className="space-y-4">
-
-              {/* Equal Highs + Lows */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Equal Highs */}
                 <div className="rounded-lg border border-red-200 overflow-hidden">
                   <div className="px-3 py-2 bg-red-50 border-b border-red-200">
                     <p className="text-xs font-semibold text-red-700">Equal Highs (Buy-Side Liquidity)</p>
@@ -423,7 +806,6 @@ export default function PhantomFlowPage() {
                   )}
                 </div>
 
-                {/* Equal Lows */}
                 <div className="rounded-lg border border-emerald-200 overflow-hidden">
                   <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200">
                     <p className="text-xs font-semibold text-emerald-700">Equal Lows (Sell-Side Liquidity)</p>
@@ -455,7 +837,6 @@ export default function PhantomFlowPage() {
                 </div>
               </div>
 
-              {/* FVGs */}
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Fair Value Gaps (Imbalances)</p>
                 {r.liquidity.fvgs.length === 0 ? (
@@ -487,7 +868,6 @@ export default function PhantomFlowPage() {
                 )}
               </div>
 
-              {/* Stop Hunt Zones */}
               {r.liquidity.stopHuntZones.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Stop-Hunt Zones</p>
@@ -510,7 +890,6 @@ export default function PhantomFlowPage() {
           {/* ── Section 3: Order Blocks ── */}
           <Section id="obs" title="3. Order Blocks" icon={<Target className="size-4" />} open={open.has('obs')} onToggle={() => toggle('obs')}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Bullish OBs */}
               <div className="rounded-lg border-l-4 border-l-emerald-500 border border-border overflow-hidden">
                 <div className="px-3 py-2 bg-emerald-50/60 border-b border-border">
                   <p className="text-xs font-semibold text-emerald-700">Bullish Order Blocks (Demand Zones)</p>
@@ -539,7 +918,6 @@ export default function PhantomFlowPage() {
                 )}
               </div>
 
-              {/* Bearish OBs */}
               <div className="rounded-lg border-l-4 border-l-red-500 border border-border overflow-hidden">
                 <div className="px-3 py-2 bg-red-50/60 border-b border-border">
                   <p className="text-xs font-semibold text-red-700">Bearish Order Blocks (Supply Zones)</p>
@@ -573,11 +951,8 @@ export default function PhantomFlowPage() {
           {/* ── Section 4: Trend + Momentum ── */}
           <Section id="mom" title="4. Trend + Momentum" icon={<TrendingUp className="size-4" />} open={open.has('mom')} onToggle={() => toggle('mom')}>
             <div className="space-y-4">
-
-              {/* Trend strength meter */}
               <ScoreBar score={r.momentum.trendStrength} label={`Trend Strength — ${r.momentum.trendLabel}`} />
 
-              {/* Reversal probability */}
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Reversal Probability</span>
@@ -594,23 +969,17 @@ export default function PhantomFlowPage() {
                 </div>
               </div>
 
-              {/* Chips row */}
               <div className="flex flex-wrap gap-2">
-                {/* RSI */}
                 <div className={cn('px-3 py-1.5 rounded-lg border text-xs font-semibold', rsiColor(r.momentum.rsi))}>
                   RSI {r.momentum.rsi.toFixed(1)}
                   {r.momentum.rsi > 70 && ' (Overbought)'}
                   {r.momentum.rsi < 30 && ' (Oversold)'}
                 </div>
-
-                {/* EMA alignment */}
                 <div className={cn('px-3 py-1.5 rounded-lg border text-xs font-semibold',
                   r.momentum.emaAlignment === 'Bullish' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' :
                   r.momentum.emaAlignment === 'Bearish' ? 'bg-red-50 text-red-700 border-red-300' :
                   'bg-muted text-muted-foreground border-border',
                 )}>EMA {r.momentum.emaAlignment}</div>
-
-                {/* Momentum shift */}
                 {r.momentum.momentumShift !== 'None' && (
                   <div className={cn('px-3 py-1.5 rounded-lg border text-xs font-semibold',
                     r.momentum.momentumShift === 'Bullish' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-red-50 text-red-700 border-red-300',
@@ -618,7 +987,6 @@ export default function PhantomFlowPage() {
                 )}
               </div>
 
-              {/* EMA levels */}
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { label: 'EMA 20', val: r.momentum.ema20 },
@@ -642,8 +1010,6 @@ export default function PhantomFlowPage() {
           {/* ── Section 5: Trade Setup Engine ── */}
           <Section id="setup" title="5. Trade Setup Engine" icon={<Zap className="size-4" />} open={open.has('setup')} onToggle={() => toggle('setup')}>
             <div className="space-y-4">
-
-              {/* Confluence score */}
               <div className="space-y-2">
                 <ScoreBar score={r.tradeSetup.confluenceScore} label="Overall Confluence Score" />
                 <div className="flex flex-wrap gap-1.5">
@@ -660,9 +1026,7 @@ export default function PhantomFlowPage() {
                 </div>
               </div>
 
-              {/* Long / Short side by side */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Long Setup */}
                 <div className={cn('rounded-xl border-2 p-4 space-y-3',
                   r.tradeSetup.longSetup.valid ? 'border-emerald-400 bg-emerald-50/50' : 'border-border bg-muted/20',
                 )}>
@@ -677,11 +1041,9 @@ export default function PhantomFlowPage() {
                         : 'bg-muted text-muted-foreground border-border',
                     )}>{r.tradeSetup.longSetup.valid ? 'VALID' : 'INVALID'}</span>
                   </div>
-
                   <div className="space-y-1">
                     {r.tradeSetup.longSetup.conditions.map(c => <CondRow key={c.label} {...c} />)}
                   </div>
-
                   {r.tradeSetup.longSetup.valid && (
                     <div className="grid grid-cols-2 gap-1.5 pt-1">
                       {[
@@ -697,21 +1059,18 @@ export default function PhantomFlowPage() {
                       ))}
                     </div>
                   )}
-
                   {r.tradeSetup.longSetup.rr1 && (
                     <p className="text-xs text-muted-foreground">
                       R:R → T1: <span className="font-bold text-foreground">{r.tradeSetup.longSetup.rr1}:1</span>
                       {r.tradeSetup.longSetup.rr2 && <> · T2: <span className="font-bold text-foreground">{r.tradeSetup.longSetup.rr2}:1</span></>}
                     </p>
                   )}
-
                   <div className="flex items-start gap-1.5 text-[10px] text-red-600">
                     <XCircle className="size-3 mt-0.5 shrink-0" />
                     <span>Invalidation: {r.tradeSetup.longSetup.invalidation}</span>
                   </div>
                 </div>
 
-                {/* Short Setup */}
                 <div className={cn('rounded-xl border-2 p-4 space-y-3',
                   r.tradeSetup.shortSetup.valid ? 'border-red-400 bg-red-50/50' : 'border-border bg-muted/20',
                 )}>
@@ -726,11 +1085,9 @@ export default function PhantomFlowPage() {
                         : 'bg-muted text-muted-foreground border-border',
                     )}>{r.tradeSetup.shortSetup.valid ? 'VALID' : 'INVALID'}</span>
                   </div>
-
                   <div className="space-y-1">
                     {r.tradeSetup.shortSetup.conditions.map(c => <CondRow key={c.label} {...c} />)}
                   </div>
-
                   {r.tradeSetup.shortSetup.valid && (
                     <div className="grid grid-cols-2 gap-1.5 pt-1">
                       {[
@@ -746,20 +1103,62 @@ export default function PhantomFlowPage() {
                       ))}
                     </div>
                   )}
-
                   {r.tradeSetup.shortSetup.rr1 && (
                     <p className="text-xs text-muted-foreground">
                       R:R → T1: <span className="font-bold text-foreground">{r.tradeSetup.shortSetup.rr1}:1</span>
                       {r.tradeSetup.shortSetup.rr2 && <> · T2: <span className="font-bold text-foreground">{r.tradeSetup.shortSetup.rr2}:1</span></>}
                     </p>
                   )}
-
                   <div className="flex items-start gap-1.5 text-[10px] text-red-600">
                     <XCircle className="size-3 mt-0.5 shrink-0" />
                     <span>Invalidation: {r.tradeSetup.shortSetup.invalidation}</span>
                   </div>
                 </div>
               </div>
+            </div>
+          </Section>
+
+          {/* ── Section 6: Volume Profile ── */}
+          <Section id="vp" title="6. Volume Profile" icon={<BarChart2 className="size-4" />} open={open.has('vp')} onToggle={() => toggle('vp')}>
+            <div className="space-y-3">
+              {/* Summary row */}
+              <div className="flex flex-wrap gap-3 text-xs">
+                <div className="rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 text-center">
+                  <p className="text-[10px] text-violet-600 uppercase tracking-wide font-semibold">POC</p>
+                  <p className="text-sm font-bold font-mono text-violet-700">₹{fmt(r.volumeProfile.poc)}</p>
+                  <p className="text-[10px] text-muted-foreground">Point of Control</p>
+                </div>
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-center">
+                  <p className="text-[10px] text-red-600 uppercase tracking-wide font-semibold">VAH</p>
+                  <p className="text-sm font-bold font-mono text-red-700">₹{fmt(r.volumeProfile.vah)}</p>
+                  <p className="text-[10px] text-muted-foreground">Value Area High</p>
+                </div>
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-center">
+                  <p className="text-[10px] text-emerald-600 uppercase tracking-wide font-semibold">VAL</p>
+                  <p className="text-sm font-bold font-mono text-emerald-700">₹{fmt(r.volumeProfile.val)}</p>
+                  <p className="text-[10px] text-muted-foreground">Value Area Low</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 border border-border px-3 py-2 text-center">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">CMP vs POC</p>
+                  <p className={cn('text-sm font-bold font-mono',
+                    r.currentPrice > r.volumeProfile.poc ? 'text-emerald-600' : 'text-red-600',
+                  )}>
+                    {r.volumeProfile.poc > 0
+                      ? `${r.currentPrice > r.volumeProfile.poc ? '+' : ''}${(((r.currentPrice - r.volumeProfile.poc) / r.volumeProfile.poc) * 100).toFixed(1)}%`
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {r.currentPrice > r.volumeProfile.poc ? 'Above POC' : 'Below POC'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Volume distribution chart */}
+              <VolumeProfileChart
+                nodes={r.volumeProfile.nodes}
+                poc={r.volumeProfile.poc}
+                currentPrice={r.currentPrice}
+              />
             </div>
           </Section>
 
@@ -771,10 +1170,10 @@ export default function PhantomFlowPage() {
       )}
 
       {/* ── Empty state ── */}
-      {!loading && !result && !error && (
+      {!loading && !result && !error && !batchMode && (
         <div className="text-center py-16 space-y-3">
           <Activity className="size-10 text-muted-foreground/40 mx-auto" />
-          <p className="text-sm text-muted-foreground">Select a symbol above and click <strong>Analyze</strong> to run the Phantom Flow engine.</p>
+          <p className="text-sm text-muted-foreground">Select a symbol above and click <strong>Analyze</strong>, or use <strong>Batch Scan</strong> to rank all stocks.</p>
         </div>
       )}
     </div>
