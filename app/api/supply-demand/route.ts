@@ -3,6 +3,7 @@ import { put, list } from '@vercel/blob';
 import type { SupplyDemandTheme, SupplyDemandSnapshot, LivePrice, Category, PricingPower } from '@/lib/supply-demand-types';
 import { slugify, mergeIntoTracker, EMPTY_TRACKER } from '@/lib/supply-demand-tracker';
 import type { SupplyDemandTracker } from '@/lib/supply-demand-tracker';
+import { getCommodityStatic } from '@/lib/supply-demand-static';
 
 export const maxDuration = 55;
 
@@ -292,6 +293,23 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
+    name: 'Refrigerant Gases (HFC)', ticker: 'CC', unit: '$/sh (Chemours proxy)', sector: 'Fluorochemicals',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2022-23 China refrigerant quota cuts when R-32 and R-125 prices doubled in 12 months, directly lifting SRF and Gujarat Fluoro margins',
+    sources: ['ICIS Refrigerant Price Report', 'China MOFCOM HFC Quota Data', 'JRAIA Japan Refrigerant Consumption Survey', 'Chemours Investor Presentations'],
+    beneficiaries: [
+      { symbol: 'SRF',         company: 'SRF Ltd',                    rationale: 'India\'s #1 HFC producer — R-32, R-125, R-134a export realisations surge with China price rise; 40%+ of revenue from fluorochemicals', impact: 'high' },
+      { symbol: 'FLUOROCHEM',  company: 'Gujarat Fluorochemicals',    rationale: 'Second-largest Indian HFC producer — captive PTFE and refrigerant gas output directly benefits from global supply squeeze', impact: 'high' },
+      { symbol: 'NAVINFLUOR',  company: 'Navin Fluorine International', rationale: 'Specialty fluorochemicals with CDMO and HFC exposure — higher refrigerant prices support realisations', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'BLUESTAR',  company: 'Blue Star',       rationale: 'AC manufacturer imports R-32 and R-410A — higher refrigerant cost squeezes assembly margins unless passed through', impact: 'high' },
+      { symbol: 'VOLTAS',    company: 'Voltas',           rationale: 'Tata Group AC brand relies on refrigerant procurement — input cost headwind in peak summer season', impact: 'medium' },
+      { symbol: 'AMBER',     company: 'Amber Enterprises', rationale: 'India\'s largest RAC ODM — refrigerant is a variable cost input; rising prices compress unhedged margins', impact: 'medium' },
+      { symbol: 'WHIRLPOOL', company: 'Whirlpool India', rationale: 'Refrigerator and AC lines both use HFCs — cost pressure on white goods BOM', impact: 'low' },
+    ],
+  },
+  {
     name: 'Micron (DRAM/NAND Proxy)', ticker: 'MU', unit: '$/share', sector: 'Semiconductors',
     timeHorizon: 'medium-term',
     historicalAnalog: '2019 DRAM oversupply cycle when memory prices fell 50% and Samsung/SK Hynix cut capex',
@@ -412,14 +430,62 @@ function buildDescription(
   );
 }
 
+// ── Sparkline helper ──────────────────────────────────────────────────────────
+function computeSparkline(bars: YFBar[]): number[] {
+  const last30 = bars.slice(-30).map(b => b.close);
+  const lo = Math.min(...last30), hi = Math.max(...last30);
+  if (hi === lo) return last30.map(() => 50);
+  return last30.map(c => Math.round((c - lo) / (hi - lo) * 100));
+}
+
+// ── Stock 30-day change fetcher (2-month range, lighter payload) ───────────────
+async function fetchStockChange(nseSymbol: string): Promise<number | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6_000);
+  try {
+    const ticker = encodeURIComponent(nseSymbol + '.NS');
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2mo`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      cache: 'no-store',
+      signal: ctrl.signal,
+    } as RequestInit);
+    if (!res.ok) return null;
+    const json = await res.json() as {
+      chart?: { result?: Array<{ indicators: { quote: Array<{ close: number[] }> } }> }
+    };
+    const closes = json.chart?.result?.[0]?.indicators.quote[0].close;
+    if (!closes) return null;
+    const valid = closes.filter((c): c is number => c != null && !isNaN(c));
+    if (valid.length < 22) return null;
+    return pctChange(valid[valid.length - 22] ?? valid[0], valid[valid.length - 1]);
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
 // ── Main handler ───────────────────────────────────────────────────────────────
 export async function GET() {
   const startMs = Date.now();
 
-  // Fetch all tickers in parallel (same pattern as btst-screen)
-  const bars = await Promise.all(
-    COMMODITIES.map(c => fetchBars(c.ticker))
-  );
+  // Collect all unique NSE symbols to fetch 30-day stock changes
+  const allNseSymbols = new Set<string>();
+  for (const c of COMMODITIES) {
+    for (const s of [...c.beneficiaries, ...c.adverselyAffected]) {
+      allNseSymbols.add(s.symbol);
+    }
+  }
+
+  // Fetch all commodity tickers and NSE stock prices in parallel
+  const [bars, stockResults] = await Promise.all([
+    Promise.all(COMMODITIES.map(c => fetchBars(c.ticker))),
+    Promise.all([...allNseSymbols].map(async sym => {
+      const change = await fetchStockChange(sym);
+      return { sym, change };
+    })),
+  ]);
+
+  const stockChangeMap: Record<string, number | null> = {};
+  for (const { sym, change } of stockResults) stockChangeMap[sym] = change;
 
   const themes: SupplyDemandTheme[] = [];
   const priceData: Record<string, LivePrice> = {};
@@ -449,6 +515,17 @@ export async function GET() {
 
     priceData[def.name] = { price: Math.round(current * 100) / 100, change1d: chg1d, unit: def.unit };
 
+    const staticData = getCommodityStatic(def.name);
+    const sparkline  = computeSparkline(b);
+
+    // Attach per-stock enrichment
+    const enrichStocks = (stocks: typeof def.beneficiaries) =>
+      stocks.map(s => ({
+        ...s,
+        marginSensitivity: staticData?.marginSensitivity?.[s.symbol],
+        stockChange30d:    stockChangeMap[s.symbol] ?? null,
+      }));
+
     themes.push({
       id: slugify(def.name) + '-' + i,
       commodity:        def.name,
@@ -460,10 +537,16 @@ export async function GET() {
       ),
       confidence,
       timeHorizon:      def.timeHorizon,
-      beneficiaries:     falling ? def.adverselyAffected : def.beneficiaries,
-      adverselyAffected: falling ? def.beneficiaries     : def.adverselyAffected,
+      beneficiaries:     enrichStocks(falling ? def.adverselyAffected : def.beneficiaries),
+      adverselyAffected: enrichStocks(falling ? def.beneficiaries     : def.adverselyAffected),
       historicalAnalog: def.historicalAnalog,
       sources:          def.sources,
+      // Enrichment
+      sparkline,
+      chg1d, chg1m, chg3m, chg6m, pct52,
+      currentPrice: Math.round(current * 100) / 100,
+      tradeDependency: staticData?.tradeDependency,
+      cascadeEffects:  staticData?.cascadeEffects,
     });
   }
 

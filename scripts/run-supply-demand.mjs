@@ -45,6 +45,7 @@ const COMMODITY_TICKERS = {
   'NVDA (AI proxy)':     { ticker: 'NVDA',    unit: '$/share' },
   'Micron (DRAM proxy)': { ticker: 'MU',      unit: '$/share' },
   'Lithium ETF':         { ticker: 'LIT',     unit: '$/share' },
+  'Refrigerant Gases (Chemours proxy)': { ticker: 'CC', unit: '$/share' },
 };
 
 async function fetchLivePrices() {
@@ -96,12 +97,13 @@ MANDATORY themes:
 5. DRAM/NAND — use Micron price as memory-cycle indicator; oversupply or recovery?
 6. Urea or Palm oil — use current prices; feedstock costs, India import dependency.
 7. Steel or Aluminium — use current price; China overcapacity vs India expansion.
-8. Your choice: natural gas, rare earths, sugar, or caustic soda.
+8. Refrigerant Gases (HFC) — use Chemours (CC) price as global proxy; cite China production quota / price moves; Indian impact on SRF, Gujarat Fluorochemicals (FLUOROCHEM), and AC makers (BLUESTAR, VOLTAS, AMBER).
+9. Your choice: natural gas, rare earths, or caustic soda.
 
 Each theme MUST have exactly these fields:
 {"commodity":"...","category":"shortage"|"oversupply"|"emerging"|"balanced","pricingPower":"rising"|"collapsing"|"stable","description":"2 sentences CITING the live price above","confidence":integer 40-90,"timeHorizon":"near-term"|"medium-term"|"long-term","beneficiaries":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"}],"adverselyAffected":[{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"},{"symbol":"NSE_TICKER","company":"Name","rationale":"one sentence","impact":"high"|"medium"|"low"}],"historicalAnalog":"one sentence","sources":["source 1","source 2"]}
 
-NSE tickers: NESTLEIND, ITC, HINDUNILVR, BRITANNIA (FMCG) | INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON (IT/tech) | COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy) | TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals) | TATAMOTORS, ADANIGREEN, TATAPOWER (EV/renewables) | COROMANDEL, CHAMBAL, UPL (agri)
+NSE tickers: NESTLEIND, ITC, HINDUNILVR, BRITANNIA (FMCG) | INFY, TCS, WIPRO, HCLTECH, LTIM, PERSISTENT, KAYNES, DIXON (IT/tech) | COALINDIA, ONGC, RELIANCE, BPCL, IOC, GAIL (energy) | TATASTEEL, JSWSTEEL, HINDALCO, VEDL, SAIL (metals) | TATAMOTORS, ADANIGREEN, TATAPOWER (EV/renewables) | COROMANDEL, CHAMBAL, UPL (agri) | SRF, FLUOROCHEM, NAVINFLUOR (fluorochemicals/refrigerants) | BLUESTAR, VOLTAS, AMBER, WHIRLPOOL (AC/white goods)
 
 Output ONLY a valid JSON array. No markdown, no wrapper object.`;
 }

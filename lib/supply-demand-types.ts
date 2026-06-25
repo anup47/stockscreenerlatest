@@ -32,6 +32,8 @@ export interface ThemeStock {
   company: string;
   rationale: string;
   impact: 'high' | 'medium' | 'low';
+  marginSensitivity?: string;     // e.g. "+$1/barrel GRM = ~Rs 1,400 Cr PAT uplift"
+  stockChange30d?:    number | null; // % change in last 30 trading days (NSE .NS price)
 }
 
 /** One supply-demand theme as returned by the AI model */
@@ -47,6 +49,16 @@ export interface SupplyDemandTheme {
   adverselyAffected: ThemeStock[];
   historicalAnalog: string;
   sources: string[];
+  // Enrichment fields (computed from Yahoo Finance price data)
+  sparkline?:       number[];     // last 30 closes, normalized 0-100
+  chg1d?:           number;       // % change vs previous close
+  chg1m?:           number;       // % change vs 1 month ago
+  chg3m?:           number;       // % change vs 3 months ago
+  chg6m?:           number;       // % change vs 6 months ago
+  pct52?:           number;       // position in 52-week range (0-100)
+  currentPrice?:    number;       // absolute current price
+  tradeDependency?: string;       // India's import/export dependency summary
+  cascadeEffects?:  string[];     // second-order effect chain
 }
 
 export interface SupplyDemandStory {
