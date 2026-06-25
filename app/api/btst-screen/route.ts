@@ -65,7 +65,7 @@ interface OIBuildupResponse {
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return Promise.race([promise, new Promise<null>(res => setTimeout(() => res(null), ms))]);
+  return Promise.race([promise.catch(() => null), new Promise<null>(res => setTimeout(() => res(null), ms))]);
 }
 
 function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
