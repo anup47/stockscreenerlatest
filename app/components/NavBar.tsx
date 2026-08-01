@@ -15,6 +15,7 @@ const tabs = [
   { label: 'Very Short Term', href: '/options' },
   { label: 'Triangle',     href: '/triangle' },
   { label: 'Market',        href: '/market' },
+  { label: 'Targets',       href: '/research-targets' },
   { label: 'Phantom Flow',  href: '/phantom-flow' },
   { label: 'OI Screen',     href: '/oi-screener' },
   { label: 'OI Screen New', href: '/oi-screen-new' },
