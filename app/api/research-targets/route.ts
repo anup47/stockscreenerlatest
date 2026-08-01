@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export const maxDuration = 30;
 
-export interface ResearchStock {
+interface ResearchStock {
   id: number;
   company: string;
   symbol: string;
@@ -17,7 +17,7 @@ export interface ResearchStock {
 }
 
 // All deep-dive stocks — target null means no explicit price target in research
-export const RESEARCH: ResearchStock[] = [
+const RESEARCH: ResearchStock[] = [
   // ── PHARMA ────────────────────────────────────────────────────────────────
   { id:  1, company: 'Kopran',               symbol: 'KOPRAN',      yfSymbol: 'KOPRAN.NS',      sector: 'Pharma',           stance: 'ACCUMULATE', researchCmp:   137.80, target:   270, horizon: '12M' },
   { id:  2, company: 'Alivus Life Sciences', symbol: 'ALIVUS',      yfSymbol: 'ALIVUS.NS',      sector: 'Pharma',           stance: 'ACCUMULATE', researchCmp:  1105,    target:  1820, horizon: '18M', note: 'Updated Q1 FY27' },
