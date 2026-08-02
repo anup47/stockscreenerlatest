@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, Clock, Circle, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
 interface ResearchRow {
   id: number;
@@ -24,6 +25,7 @@ interface ResearchRow {
 interface ApiResponse {
   rows: ResearchRow[];
   fetchedAt: string;
+  source?: 'dhan' | 'yahoo';
 }
 
 function isMarketOpen(): boolean {
@@ -107,8 +109,11 @@ const SECTORS = [
 ];
 
 export default function ResearchTargetsPage() {
+  const dhan = useDhanCredentials();
+
   const [data, setData]         = useState<ResearchRow[]>([]);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+  const [priceSource, setPriceSource] = useState<'dhan' | 'yahoo' | null>(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(false);
@@ -124,26 +129,31 @@ export default function ResearchTargetsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/research-targets', { cache: 'no-store' });
+      const res = await fetch('/api/research-targets', {
+        cache: 'no-store',
+        headers: dhan.isConfigured ? dhan.headers : {},
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: ApiResponse = await res.json();
       setData(json.rows);
       setFetchedAt(json.fetchedAt);
+      setPriceSource(json.source ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dhan.isConfigured, dhan.headers]);
 
   useEffect(() => {
+    if (!dhan.isHydrated) return; // wait for localStorage to load
     load();
     setMarketOpen(isMarketOpen());
     const tick = setInterval(() => setMarketOpen(isMarketOpen()), 60_000);
     // Auto-refresh every 5 min during market hours
     const refresh = setInterval(() => { if (isMarketOpen()) load(); }, 5 * 60_000);
     return () => { clearInterval(tick); clearInterval(refresh); };
-  }, [load]);
+  }, [load, dhan.isHydrated]);
 
   const sorted = useMemo(() => {
     let rows = [...data];
@@ -451,7 +461,10 @@ export default function ResearchTargetsPage() {
 
         {/* ── Footer ─────────────────────────────────────────────────────────── */}
         <div className="mt-4 text-xs text-muted-foreground space-y-1">
-          <p>Prices via Yahoo Finance · delayed ~15 min · sorted by expected return to base-case target · stocks without targets sorted to bottom.</p>
+          <p>
+            Prices via {priceSource === 'dhan' ? <span className="font-medium text-emerald-600">Dhan API</span> : 'Yahoo Finance (configure Dhan in Settings for live prices)'}
+            {' '}· sorted by expected return to base-case target · stocks without targets sorted to bottom.
+          </p>
           <p><span className="font-medium text-orange-500">vs Report</span> = % move since research was published (green = stock cheaper now, orange = stock has re-rated up).</p>
           <p>Expected Return = (Target - Live CMP) / Live CMP × 100. 18M / 3Y targets not annualised — shown as absolute return over the stated horizon.</p>
         </div>

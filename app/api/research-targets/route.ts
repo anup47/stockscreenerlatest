@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { fetchEquityQuotes } from '@/lib/dhan-api';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 interface ResearchStock {
   id: number;
@@ -93,7 +94,8 @@ const RESEARCH: ResearchStock[] = [
 
 interface LivePrice { price: number; changePct: number }
 
-async function fetchPriceV8(yfSymbol: string): Promise<LivePrice | null> {
+// Yahoo Finance fallback — BSE SME (.BO), NYSE (USD), and any Dhan-uncovered NSE stocks
+async function fetchPriceYahoo(yfSymbol: string): Promise<LivePrice | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yfSymbol)}?interval=1d&range=5d&includeAdjustedClose=false`;
     const res = await fetch(url, {
@@ -115,25 +117,54 @@ async function fetchPriceV8(yfSymbol: string): Promise<LivePrice | null> {
   } catch { return null; }
 }
 
-async function fetchAllPrices(stocks: ResearchStock[]): Promise<Map<string, LivePrice>> {
+async function fetchYahooBatch(yfSymbols: string[]): Promise<Map<string, LivePrice>> {
   const map = new Map<string, LivePrice>();
-  const unique = [...new Set(stocks.map(s => s.yfSymbol))];
   const CONCURRENCY = 8;
-  for (let i = 0; i < unique.length; i += CONCURRENCY) {
-    const batch = unique.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(batch.map(sym => fetchPriceV8(sym)));
+  for (let i = 0; i < yfSymbols.length; i += CONCURRENCY) {
+    const batch = yfSymbols.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(sym => fetchPriceYahoo(sym)));
     batch.forEach((sym, j) => { if (results[j]) map.set(sym, results[j]!); });
   }
   return map;
 }
 
-export async function GET() {
-  const prices = await fetchAllPrices(RESEARCH);
+export async function GET(req: NextRequest) {
+  const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
+  const accessToken = req.headers.get('x-dhan-access-token') ?? '';
+
+  // Dhan covers NSE equity stocks; BSE SME (.BO) and NYSE (USD) always via Yahoo
+  const nseStocks   = RESEARCH.filter(s => !s.yfSymbol.endsWith('.BO') && s.currency !== 'USD');
+  const nonNseStocks = RESEARCH.filter(s =>  s.yfSymbol.endsWith('.BO') || s.currency === 'USD');
+
+  // Parallel: Dhan for NSE (when creds provided) + Yahoo for BSE/NYSE
+  const [dhanQuotes, yahooNonNse] = await Promise.all([
+    (clientId && accessToken)
+      ? fetchEquityQuotes(nseStocks.map(s => s.symbol), clientId, accessToken)
+      : Promise.resolve(new Map<string, { ltp: number; changePct: number }>()),
+    fetchYahooBatch(nonNseStocks.map(s => s.yfSymbol)),
+  ]);
+
+  // Fallback to Yahoo Finance for any NSE stock Dhan didn't return
+  const dhanMisses    = nseStocks.filter(s => !dhanQuotes.has(s.symbol));
+  const yahooNseFall  = dhanMisses.length > 0
+    ? await fetchYahooBatch(dhanMisses.map(s => s.yfSymbol))
+    : new Map<string, LivePrice>();
+
+  // Merge into a single yfSymbol → LivePrice map
+  const nseBySymbol = new Map(nseStocks.map(s => [s.symbol, s]));
+  const prices      = new Map<string, LivePrice>();
+
+  for (const [yfSym, lp] of yahooNonNse)  prices.set(yfSym, lp);
+  for (const [sym,   q]  of dhanQuotes) {
+    const stock = nseBySymbol.get(sym);
+    if (stock) prices.set(stock.yfSymbol, { price: q.ltp, changePct: q.changePct });
+  }
+  for (const [yfSym, lp] of yahooNseFall) prices.set(yfSym, lp);
 
   const rows = RESEARCH.map(stock => {
-    const live = prices.get(stock.yfSymbol);
-    const livePrice = live?.price ?? null;
-    const changePct = live?.changePct ?? null;
+    const live          = prices.get(stock.yfSymbol);
+    const livePrice     = live?.price     ?? null;
+    const changePct     = live?.changePct ?? null;
     const expectedReturn = (livePrice != null && stock.target != null)
       ? ((stock.target - livePrice) / livePrice) * 100
       : null;
@@ -143,5 +174,6 @@ export async function GET() {
     return { ...stock, livePrice, changePct, expectedReturn, vsCmp };
   });
 
-  return NextResponse.json({ rows, fetchedAt: new Date().toISOString() });
+  const source = (clientId && accessToken) ? 'dhan' : 'yahoo';
+  return NextResponse.json({ rows, fetchedAt: new Date().toISOString(), source });
 }

@@ -1126,3 +1126,121 @@ export async function fetchPrevDayOIForChain(
 
   return result;
 }
+
+// ── NSE_EQ equity scrip master + market feed quotes ──────────────────────────
+
+let _eqMasterCache: Map<string, number> | null = null; // upper(tradingSymbol) → NSE_EQ secId
+let _eqMasterCacheTs = 0;
+
+async function loadNseEqMaster(): Promise<Map<string, number>> {
+  const now = Date.now();
+  if (_eqMasterCache && now - _eqMasterCacheTs < 4 * 3600_000) return _eqMasterCache;
+
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25_000);
+  try {
+    const res = await fetch('https://images.dhan.co/api-data/api-scrip-master.csv', {
+      cache: 'no-store', signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; stockscreener/1.0)' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) return _eqMasterCache ?? new Map();
+
+    const text  = await res.text();
+    const lines = text.split('\n');
+    // Strip BOM if present
+    const rawHdr = lines[0].replace(/^﻿/, '');
+    const hdrs   = rawHdr.split(',').map(h => h.trim().replace(/['"]/g, ''));
+
+    const iSecId   = hdrs.indexOf('SEM_SMST_SECURITY_ID');
+    const iSeg     = hdrs.indexOf('SEM_SEGMENT');
+    const iInstr   = hdrs.indexOf('SEM_INSTRUMENT_NAME');
+    const iTrading = hdrs.indexOf('SEM_TRADING_SYMBOL');
+
+    if ([iSecId, iSeg, iInstr, iTrading].some(i => i < 0)) return _eqMasterCache ?? new Map();
+
+    const map = new Map<string, number>();
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      const c = line.split(',');
+      if (c[iSeg]?.trim()   !== 'NSE_EQ')   continue;
+      if (c[iInstr]?.trim() !== 'EQUITY')   continue;
+      const sym   = c[iTrading]?.trim().replace(/['"]/g, '').toUpperCase();
+      const secId = parseInt(c[iSecId]?.trim().replace(/['"]/g, '') ?? '', 10);
+      if (!sym || !secId || isNaN(secId)) continue;
+      map.set(sym, secId);
+    }
+
+    _eqMasterCache    = map;
+    _eqMasterCacheTs  = now;
+    return map;
+  } catch {
+    clearTimeout(timer);
+    return _eqMasterCache ?? new Map();
+  }
+}
+
+export interface EquityQuote {
+  symbol:    string;
+  secId:     number;
+  ltp:       number;
+  prevClose: number;
+  change:    number;
+  changePct: number;
+}
+
+type DhanMfQuote = Record<string, number>;
+type DhanMfResponse = { data?: { NSE_EQ?: Record<string, DhanMfQuote> } };
+
+export async function fetchEquityQuotes(
+  symbols: string[],
+  clientId: string,
+  accessToken: string,
+): Promise<Map<string, EquityQuote>> {
+  const result = new Map<string, EquityQuote>();
+  if (!symbols.length || !clientId || !accessToken) return result;
+
+  const master     = await loadNseEqMaster();
+  const secIdToSym = new Map<number, string>();
+  const secIds: number[] = [];
+
+  for (const s of symbols) {
+    const sym   = s.toUpperCase();
+    const secId = master.get(sym);
+    if (!secId) continue;
+    secIds.push(secId);
+    secIdToSym.set(secId, sym);
+  }
+  if (!secIds.length) return result;
+
+  const BATCH = 100;
+  for (let i = 0; i < secIds.length; i += BATCH) {
+    const batch = secIds.slice(i, i + BATCH);
+    try {
+      const ctrl = new AbortController();
+      const t    = setTimeout(() => ctrl.abort(), 10_000);
+      const res  = await fetch(`${DHAN_BASE}/v2/marketfeed/quote`, {
+        method:  'POST',
+        headers: dhanHeaders(clientId, accessToken),
+        body:    JSON.stringify({ NSE_EQ: batch }),
+        signal:  ctrl.signal,
+      });
+      clearTimeout(t);
+      if (!res.ok) continue;
+      const json       = await res.json() as DhanMfResponse;
+      const eqData     = json?.data?.NSE_EQ ?? {};
+      for (const [idStr, q] of Object.entries(eqData)) {
+        const secId = parseInt(idStr, 10);
+        const sym   = secIdToSym.get(secId);
+        if (!sym) continue;
+        const ltp       = Number(q['last_price']        ?? q['ltp']         ?? 0);
+        const prevClose = Number(q['close']             ?? q['prev_close_price'] ?? q['previousClose'] ?? 0);
+        const change    = Number(q['ch']                ?? q['change']      ?? (prevClose > 0 ? ltp - prevClose : 0));
+        const changePct = Number(q['chp']               ?? q['change_percent'] ?? (prevClose > 0 ? change / prevClose * 100 : 0));
+        result.set(sym, { symbol: sym, secId, ltp, prevClose, change, changePct });
+      }
+    } catch { /* batch failed silently */ }
+  }
+  return result;
+}
