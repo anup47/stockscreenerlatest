@@ -62,9 +62,9 @@ export default function IndexTracker({
   const [hydrated, setHydrated]     = useState(false);
 
   // ── Hydrate from localStorage ─────────────────────────────────
-  // v4 key: forces fresh defaults — prevClose = 3:15 PM close, Price = blank
-  const LS_KEY   = `${storageKey}_v4_rowdata`;
-  const LS_LEVEL = `${storageKey}_v4_prev_level`;
+  // v5 key: Price = today's live price, Prev Close = yesterday's close
+  const LS_KEY   = `${storageKey}_v5_rowdata`;
+  const LS_LEVEL = `${storageKey}_v5_prev_level`;
 
   useEffect(() => {
     const saved      = localStorage.getItem(LS_KEY);
@@ -100,19 +100,23 @@ export default function IndexTracker({
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  const resetWeights = () =>
+  // clears only the Price column — Prev Close stays so next-day calc works
+  const clearPrice = () =>
     setRowData(prev => {
       const next = { ...prev };
-      constituents.forEach(c => { next[c.symbol] = { ...next[c.symbol], weight: String(c.defaultWeight) }; });
+      Object.keys(next).forEach(sym => { next[sym] = { ...next[sym], price: '' }; });
       return next;
     });
 
-  const clearPrices = () =>
-    setRowData(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(sym => { next[sym] = { ...next[sym], price: '', prevClose: '' }; });
-      return next;
+  // full reset — wipes price, prevClose, and restores default weights
+  const resetAll = () => {
+    setRowData(() => {
+      const d: Record<string, RowData> = {};
+      constituents.forEach(c => { d[c.symbol] = initRow(c); });
+      return d;
     });
+    setPrevStr(String(defaultPrevLevel));
+  };
 
   // ── Derived calculations ───────────────────────────────────────
   const prevLevel = toNum(prevLevelStr) ?? defaultPrevLevel;
@@ -188,20 +192,20 @@ export default function IndexTracker({
                          focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
             <button
-              onClick={resetWeights}
-              title="Restore default weights"
+              onClick={clearPrice}
+              title="Clear Price column only — Prev Close stays (use this each new day)"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
                          text-muted-foreground hover:text-foreground transition-colors"
             >
-              <RotateCcw className="size-3" /> Reset Weights
+              <X className="size-3" /> Clear Price
             </button>
             <button
-              onClick={clearPrices}
-              title="Clear all price and prev-close inputs"
+              onClick={resetAll}
+              title="Reset everything — weights, prices, prev closes back to defaults"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
                          text-muted-foreground hover:text-foreground transition-colors"
             >
-              <X className="size-3" /> Clear Prices
+              <RotateCcw className="size-3" /> Reset All
             </button>
           </div>
         </div>
