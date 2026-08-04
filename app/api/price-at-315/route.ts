@@ -4,15 +4,16 @@ import { fetchEquityIntraday315 }         from '@/lib/dhan-api';
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 55;
 
-// Returns the close price of the 1-minute candle at 3:15 PM IST for each symbol.
-// This is the ACTUAL traded price at 3:15 PM -- not the official closing price
-// set by the closing-session auction at 3:30-3:40 PM.
+// Returns the last continuously-traded price before the NSE closing session
+// (i.e. the price at ~3:13-3:14 PM IST, NOT the official close from the auction).
+//
+// Yahoo Finance backfills the official closing price (set by the 3:15-3:30 PM
+// closing auction) into its 3:14 PM 1-minute candle, so we look in the window
+// [3:10 PM, 3:13 PM] IST only.
 //
 // Source priority:
-//   1. Dhan /v2/charts/intraday (if x-dhan-* headers present)
-//   2. Yahoo Finance v8/finance/chart?interval=1m (no auth needed)
-
-// ── Yahoo Finance 1-min fallback ──────────────────────────────────────────────
+//   1. Dhan /v2/charts/intraday (if x-dhan-* headers present) -- all in parallel
+//   2. Yahoo Finance v8 1-min chart -- restricted to pre-3:14 PM window
 
 const YF_HEADERS = {
   'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -35,15 +36,17 @@ function toYF(sym: string): string {
 }
 
 function ist315Unix(): number {
-  const istMs  = Date.now() + (5 * 3600 + 30 * 60) * 1000;
-  const ist    = new Date(istMs);
-  const yy     = ist.getUTCFullYear();
-  const mm     = String(ist.getUTCMonth() + 1).padStart(2, '0');
-  const dd     = String(ist.getUTCDate()).padStart(2, '0');
+  const istMs = Date.now() + (5 * 3600 + 30 * 60) * 1000;
+  const ist   = new Date(istMs);
+  const yy    = ist.getUTCFullYear();
+  const mm    = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  const dd    = String(ist.getUTCDate()).padStart(2, '0');
   return Math.floor(new Date(`${yy}-${mm}-${dd}T09:45:00Z`).getTime() / 1000);
 }
 
-async function yfAt315(yfSym: string, target: number): Promise<number | null> {
+// Yahoo Finance 1-min -- searches ONLY in [3:10 PM, 3:13 PM] IST (before the
+// 3:14 PM candle that Yahoo contaminates with the official closing price).
+async function yfAt315(yfSym: string, target315: number): Promise<number | null> {
   try {
     const ctrl  = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 10_000);
@@ -66,11 +69,24 @@ async function yfAt315(yfSym: string, target: number): Promise<number | null> {
     const timestamps = result.timestamp ?? [];
     const closes     = result.indicators?.quote?.[0]?.close ?? [];
 
-    let bestIdx = -1; let bestDiff = Infinity;
+    // Search window: 3:10 PM to 3:13 PM IST (target - 300s to target - 120s)
+    // We deliberately stop at 3:13 PM because Yahoo overwrites the 3:14 PM
+    // candle close with the official auction price (~1261.80 for AXISBANK).
+    const searchFrom = target315 - 300; // 3:10 PM IST
+    const searchTo   = target315 - 120; // 3:13 PM IST (inclusive boundary)
+
+    let bestIdx = -1;
+    let bestTs  = -1;
     for (let i = 0; i < timestamps.length; i++) {
-      const diff = Math.abs(timestamps[i] - target);
-      if (diff < bestDiff && diff <= 120) { bestDiff = diff; bestIdx = i; }
+      const cl = closes[i];
+      if (cl == null || cl <= 0) continue;
+      const ts = timestamps[i];
+      if (ts >= searchFrom && ts <= searchTo && ts > bestTs) {
+        bestTs  = ts;
+        bestIdx = i;
+      }
     }
+
     if (bestIdx < 0) return null;
     const price = closes[bestIdx];
     return price != null && price > 0 ? Math.round(price * 100) / 100 : null;
@@ -87,17 +103,18 @@ export async function GET(req: NextRequest) {
   const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
   const accessToken = req.headers.get('x-dhan-access-token') ?? '';
 
-  // 1. Dhan intraday (authenticated, most accurate for NSE)
+  // 1. Dhan intraday (all symbols in parallel -- accurate actual prices)
   if (clientId && accessToken) {
     const dhanMap = await fetchEquityIntraday315(nseSymbols, clientId, accessToken);
     if (dhanMap.size > 0) {
       const prices: Record<string, number> = {};
       for (const [sym, price] of dhanMap) prices[sym] = price;
-      // If we got most symbols, return; otherwise supplement with Yahoo below
+
+      // If Dhan covered >= 80% of symbols, return; else supplement via Yahoo
       if (dhanMap.size >= nseSymbols.length * 0.8) {
-        return NextResponse.json({ prices, source: 'dhan', targetTime: '15:15 IST' });
+        return NextResponse.json({ prices, source: 'dhan', targetTime: '~15:13 IST' });
       }
-      // Partial result — supplement missing ones via Yahoo Finance
+
       const missing = nseSymbols.filter(s => !dhanMap.has(s));
       const target  = ist315Unix();
       const yf      = await Promise.allSettled(
@@ -107,11 +124,11 @@ export async function GET(req: NextRequest) {
         if (r.status === 'fulfilled' && r.value.price !== null)
           prices[r.value.s] = r.value.price;
       }
-      return NextResponse.json({ prices, source: 'dhan+yf', targetTime: '15:15 IST' });
+      return NextResponse.json({ prices, source: 'dhan+yf', targetTime: '~15:13 IST' });
     }
   }
 
-  // 2. Yahoo Finance 1-min fallback (no auth needed)
+  // 2. Yahoo Finance 1-min fallback (pre-3:14 PM window only)
   const target  = ist315Unix();
   const results = await Promise.allSettled(
     nseSymbols.map(async nseSym => ({ nseSym, price: await yfAt315(toYF(nseSym), target) }))
@@ -121,5 +138,5 @@ export async function GET(req: NextRequest) {
     if (r.status === 'fulfilled' && r.value.price !== null)
       prices[r.value.nseSym] = r.value.price;
   }
-  return NextResponse.json({ prices, source: 'yf', targetTime: '15:15 IST' });
+  return NextResponse.json({ prices, source: 'yf', targetTime: '~15:13 IST' });
 }

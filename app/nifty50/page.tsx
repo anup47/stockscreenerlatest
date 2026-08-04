@@ -26,7 +26,7 @@ const NIFTY50: Constituent[] = [
   { symbol: 'ADANIENT',   name: 'Adani Enterprises',      sector: 'Conglomerate',     defaultWeight:  2.11, defaultPrevClose:  3050.00 },
   { symbol: 'KOTAKBANK',  name: 'Kotak Mahindra Bank',    sector: 'Banking',          defaultWeight:  1.99, defaultPrevClose:   398.00 },
   { symbol: 'ADANIPORTS', name: 'Adani Ports & SEZ',      sector: 'Infrastructure',   defaultWeight:  1.99, defaultPrevClose:  1706.70 },
-  { symbol: 'AXISBANK',   name: 'Axis Bank',              sector: 'Banking',          defaultWeight:  1.98, defaultPrevClose:  1261.80 },
+  { symbol: 'AXISBANK',   name: 'Axis Bank',              sector: 'Banking',          defaultWeight:  1.98, defaultPrevClose:  1248.00 },
   { symbol: 'HCLTECH',    name: 'HCL Technologies',       sector: 'IT Services',      defaultWeight:  1.88, defaultPrevClose:  1369.90 },
   { symbol: 'ITC',        name: 'ITC',                    sector: 'FMCG',             defaultWeight:  1.82, defaultPrevClose:   289.00 },
   { symbol: 'ULTRACEMCO', name: 'UltraTech Cement',       sector: 'Cement',           defaultWeight:  1.79, defaultPrevClose: 12050.00 },

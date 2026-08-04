@@ -1264,62 +1264,67 @@ export async function fetchEquityIntraday315(
   }
   if (!pairs.length) return result;
 
-  // Today's date string in IST and 3:15 PM IST as Unix seconds
+  // Today's date string in IST
   const istMs    = Date.now() + (5 * 3600 + 30 * 60) * 1000;
   const ist      = new Date(istMs);
   const todayIST = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
-  // 3:15 PM IST = 09:45 UTC on the same IST calendar date
-  const target315 = Math.floor(new Date(`${todayIST}T09:45:00Z`).getTime() / 1000);
+  // 3:15 PM IST = 09:45:00 UTC in epoch seconds
+  const target315Sec = Math.floor(new Date(`${todayIST}T09:45:00Z`).getTime() / 1000);
 
-  const BATCH = 10; // Dhan rate limit: ~10 rps
-  for (let i = 0; i < pairs.length; i += BATCH) {
-    const batch   = pairs.slice(i, i + BATCH);
-    const settled = await Promise.allSettled(
-      batch.map(async ({ sym, secId }) => {
-        const ctrl = new AbortController();
-        const t    = setTimeout(() => ctrl.abort(), 10_000);
-        try {
-          const res = await fetch(`${DHAN_BASE}/v2/charts/intraday`, {
-            method:  'POST',
-            headers: dhanHeaders(clientId, accessToken),
-            body:    JSON.stringify({
-              securityId:      String(secId),
-              exchangeSegment: 'NSE_EQ',
-              instrument:      'EQUITY',
-              interval:        '1',
-              fromDate:        todayIST,
-              toDate:          todayIST,
-            }),
-            signal: ctrl.signal,
-          });
-          clearTimeout(t);
-          if (!res.ok) return { sym, price: 0 };
+  // Run all in parallel — wall-clock = longest single call, not sum
+  const settled = await Promise.allSettled(
+    pairs.map(async ({ sym, secId }) => {
+      const ctrl = new AbortController();
+      const t    = setTimeout(() => ctrl.abort(), 12_000);
+      try {
+        const res = await fetch(`${DHAN_BASE}/v2/charts/intraday`, {
+          method:  'POST',
+          headers: dhanHeaders(clientId, accessToken),
+          body:    JSON.stringify({
+            securityId:      String(secId),
+            exchangeSegment: 'NSE_EQ',
+            instrument:      'EQUITY',
+            interval:        '1',
+            fromDate:        todayIST,
+            toDate:          todayIST,
+          }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(t);
+        if (!res.ok) return { sym, price: 0 };
 
-          const data       = await res.json() as { close?: number[]; start_Time?: number[] };
-          const timestamps = data.start_Time ?? [];
-          const closes     = data.close       ?? [];
+        const data = await res.json() as Record<string, unknown>;
+        const closes = (data.close ?? data.c ?? []) as (number | null)[];
+        // Handle both field names and both seconds / milliseconds timestamps
+        const rawTs  = (data.start_Time ?? data.timestamp ?? data.t ?? []) as number[];
+        const isMs   = rawTs.length > 0 && rawTs[0] > 1e12;
+        const tsSec  = isMs ? rawTs.map(ts => Math.floor(ts / 1000)) : rawTs;
 
-          // Candle closest to 3:15 PM within ±2 minutes
-          let bestIdx  = -1;
-          let bestDiff = Infinity;
-          for (let j = 0; j < timestamps.length; j++) {
-            const diff = Math.abs(timestamps[j] - target315);
-            if (diff < bestDiff && diff <= 120) { bestDiff = diff; bestIdx = j; }
-          }
-
-          const price = bestIdx >= 0 ? (closes[bestIdx] ?? 0) : 0;
-          return { sym, price: price > 0 ? Math.round(price * 100) / 100 : 0 };
-        } catch {
-          clearTimeout(t);
-          return { sym, price: 0 };
+        // Latest valid candle in [3:10 PM, 3:16 PM] IST = [09:40, 09:46] UTC
+        // (broad window so a candle slightly before/after 3:15 PM is accepted)
+        const lo = target315Sec - 300; // 3:10 PM
+        const hi = target315Sec + 60;  // 3:16 PM
+        let bestIdx = -1;
+        let bestTs  = -1;
+        for (let j = 0; j < tsSec.length; j++) {
+          const cl = closes[j];
+          if (cl == null || cl <= 0) continue;
+          const ts = tsSec[j];
+          if (ts >= lo && ts <= hi && ts > bestTs) { bestTs = ts; bestIdx = j; }
         }
-      }),
-    );
 
-    for (const r of settled) {
-      if (r.status === 'fulfilled' && r.value.price > 0)
-        result.set(r.value.sym, r.value.price);
-    }
+        const price = bestIdx >= 0 ? (closes[bestIdx] as number) : 0;
+        return { sym, price: price > 0 ? Math.round(price * 100) / 100 : 0 };
+      } catch {
+        clearTimeout(t);
+        return { sym, price: 0 };
+      }
+    }),
+  );
+
+  for (const r of settled) {
+    if (r.status === 'fulfilled' && r.value.price > 0)
+      result.set(r.value.sym, r.value.price);
   }
 
   return result;

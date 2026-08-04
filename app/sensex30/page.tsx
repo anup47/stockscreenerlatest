@@ -25,7 +25,7 @@ const SENSEX30: Constituent[] = [
   { symbol: 'M&M',        name: 'Mahindra & Mahindra',    sector: 'Auto',             defaultWeight:  2.66, defaultPrevClose:  3433.00 },
   { symbol: 'KOTAKBANK',  name: 'Kotak Mahindra Bank',    sector: 'Banking',          defaultWeight:  2.47, defaultPrevClose:   398.00 },
   { symbol: 'ADANIPORTS', name: 'Adani Ports & SEZ',      sector: 'Infrastructure',   defaultWeight:  2.47, defaultPrevClose:  1706.70 },
-  { symbol: 'AXISBANK',   name: 'Axis Bank',              sector: 'Banking',          defaultWeight:  2.46, defaultPrevClose:  1261.80 },
+  { symbol: 'AXISBANK',   name: 'Axis Bank',              sector: 'Banking',          defaultWeight:  2.46, defaultPrevClose:  1248.00 },
   { symbol: 'HCLTECH',    name: 'HCL Technologies',       sector: 'IT Services',      defaultWeight:  2.34, defaultPrevClose:  1369.90 },
   { symbol: 'ITC',        name: 'ITC',                    sector: 'FMCG',             defaultWeight:  2.27, defaultPrevClose:   289.00 },
   { symbol: 'ULTRACEMCO', name: 'UltraTech Cement',       sector: 'Cement',           defaultWeight:  2.23, defaultPrevClose: 12050.00 },
