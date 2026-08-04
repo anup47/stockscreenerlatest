@@ -19,6 +19,8 @@ const ROW1 = [
 
 const ROW2 = [
   { label: 'Targets',        href: '/research-targets' },
+  { label: 'Nifty 50',      href: '/nifty50' },
+  { label: 'Sensex 30',     href: '/sensex30' },
   { label: 'Scuttlebutt',    href: '/scuttlebutt' },
   { label: 'Phantom Flow',   href: '/phantom-flow' },
   { label: 'OI Screen',      href: '/oi-screener' },
