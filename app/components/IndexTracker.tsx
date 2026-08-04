@@ -9,6 +9,7 @@ export interface Constituent {
   name:             string;
   sector:           string;
   defaultWeight:    number;
+  defaultPrice?:    number; // pre-filled in Price column on first load
   defaultPrevClose?: number; // pre-filled in Prev Close column on first load
 }
 
@@ -48,7 +49,7 @@ export default function IndexTracker({
 }: Props) {
   const initRow = (c: Constituent): RowData => ({
     weight:    String(c.defaultWeight),
-    price:     '',
+    price:     c.defaultPrice     !== undefined ? String(c.defaultPrice)     : '',
     prevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
   });
 
@@ -61,9 +62,13 @@ export default function IndexTracker({
   const [hydrated, setHydrated]     = useState(false);
 
   // ── Hydrate from localStorage ─────────────────────────────────
+  // v3 key: forces fresh defaults when price/prevClose pre-fills change
+  const LS_KEY   = `${storageKey}_v3_rowdata`;
+  const LS_LEVEL = `${storageKey}_v3_prev_level`;
+
   useEffect(() => {
-    const saved      = localStorage.getItem(`${storageKey}_rowdata`);
-    const savedLevel = localStorage.getItem(`${storageKey}_prev_level`);
+    const saved      = localStorage.getItem(LS_KEY);
+    const savedLevel = localStorage.getItem(LS_LEVEL);
 
     if (saved) {
       try {
@@ -83,13 +88,13 @@ export default function IndexTracker({
   // ── Persist to localStorage ───────────────────────────────────
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(`${storageKey}_rowdata`, JSON.stringify(rowData));
-  }, [rowData, storageKey, hydrated]);
+    localStorage.setItem(LS_KEY, JSON.stringify(rowData));
+  }, [rowData, storageKey, hydrated, LS_KEY]);
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(`${storageKey}_prev_level`, prevLevelStr);
-  }, [prevLevelStr, storageKey, hydrated]);
+    localStorage.setItem(LS_LEVEL, prevLevelStr);
+  }, [prevLevelStr, storageKey, hydrated, LS_LEVEL]);
 
   // ── Mutation helpers ──────────────────────────────────────────
   const update = (symbol: string, field: keyof RowData, value: string) =>
