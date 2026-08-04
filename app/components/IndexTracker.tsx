@@ -1,29 +1,48 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RotateCcw, X, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface Constituent {
-  symbol:           string;
-  name:             string;
-  sector:           string;
-  defaultWeight:    number;
-  defaultPrice?:    number; // pre-filled in Price column on first load
-  defaultPrevClose?: number; // pre-filled in Prev Close column on first load
+  symbol:            string;
+  name:              string;
+  sector:            string;
+  defaultWeight:     number;
+  defaultPrice?:     number;
+  defaultPrevClose?: number;
 }
 
 interface RowData {
-  weight:    string; // stored as string so inputs stay controlled
+  weight:    string;
   price:     string;
   prevClose: string;
 }
 
 interface Props {
-  indexName:       string;
-  storageKey:      string;
+  indexName:        string;
+  storageKey:       string;
   defaultPrevLevel: number;
-  constituents:    Constituent[];
+  constituents:     Constituent[];
+}
+
+type LiveStatus = 'closed' | 'fetching' | 'live' | 'error';
+
+// IST = UTC + 5h 30m; market open Mon-Fri 09:15 – 15:40
+function isMarketOpen(): boolean {
+  const istMs = Date.now() + (5 * 60 + 30) * 60 * 1000;
+  const ist   = new Date(istMs);
+  const day   = ist.getUTCDay();                           // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const mins  = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 40;
+}
+
+function istTimeStr(): string {
+  const ist = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
+  return [ist.getUTCHours(), ist.getUTCMinutes(), ist.getUTCSeconds()]
+    .map(n => String(n).padStart(2, '0'))
+    .join(':');
 }
 
 function toNum(s: string): number | null {
@@ -53,66 +72,102 @@ export default function IndexTracker({
     prevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
   });
 
-  const [rowData, setRowData]       = useState<Record<string, RowData>>(() => {
+  const [rowData, setRowData]     = useState<Record<string, RowData>>(() => {
     const d: Record<string, RowData> = {};
     constituents.forEach(c => { d[c.symbol] = initRow(c); });
     return d;
   });
-  const [prevLevelStr, setPrevStr]  = useState(String(defaultPrevLevel));
-  const [hydrated, setHydrated]     = useState(false);
+  const [prevLevelStr, setPrevStr] = useState(String(defaultPrevLevel));
+  const [hydrated, setHydrated]    = useState(false);
+  const [liveStatus, setStatus]    = useState<LiveStatus>('closed');
+  const [lastTime, setLastTime]    = useState('');
 
-  // ── Hydrate from localStorage ─────────────────────────────────
-  // v6: prevClose = today's 3:15 close; Price = blank for live entry
+  // stable ref so the fetch effect never needs constituents in its dep array
+  const symbolsRef = useRef(constituents.map(c => c.symbol).join(','));
+
+  // ── localStorage keys (bump version to clear stale cache) ────────
   const LS_KEY   = `${storageKey}_v6_rowdata`;
   const LS_LEVEL = `${storageKey}_v6_prev_level`;
 
+  // ── Hydrate ───────────────────────────────────────────────────────
   useEffect(() => {
     const saved      = localStorage.getItem(LS_KEY);
     const savedLevel = localStorage.getItem(LS_LEVEL);
-
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Record<string, RowData>;
         const merged: Record<string, RowData> = {};
-        constituents.forEach(c => {
-          merged[c.symbol] = parsed[c.symbol] ?? initRow(c);
-        });
+        constituents.forEach(c => { merged[c.symbol] = parsed[c.symbol] ?? initRow(c); });
         setRowData(merged);
-      } catch { /* ignore corrupt data */ }
+      } catch { /* ignore corrupt */ }
     }
     if (savedLevel) setPrevStr(savedLevel);
     setHydrated(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
-  // ── Persist to localStorage ───────────────────────────────────
+  // ── Persist ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(LS_KEY, JSON.stringify(rowData));
-  }, [rowData, storageKey, hydrated, LS_KEY]);
+  }, [rowData, LS_KEY, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(LS_LEVEL, prevLevelStr);
-  }, [prevLevelStr, storageKey, hydrated, LS_LEVEL]);
+  }, [prevLevelStr, LS_LEVEL, hydrated]);
 
-  // ── Mutation helpers ──────────────────────────────────────────
+  // ── Live price feed (9:15 – 15:40 IST, every 15 s) ───────────────
+  useEffect(() => {
+    if (!hydrated) return;
+
+    async function fetchLive() {
+      if (!isMarketOpen()) { setStatus('closed'); return; }
+      setStatus('fetching');
+      try {
+        const res = await fetch(
+          `/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as {
+          prices: Record<string, { price: number }>;
+        };
+        const entries = Object.entries(data.prices ?? {});
+        if (entries.length === 0) { setStatus('error'); return; }
+        setRowData(prev => {
+          const next = { ...prev };
+          entries.forEach(([sym, q]) => {
+            if (next[sym]) next[sym] = { ...next[sym], price: String(q.price) };
+          });
+          return next;
+        });
+        setLastTime(istTimeStr());
+        setStatus('live');
+      } catch {
+        setStatus('error');
+      }
+    }
+
+    fetchLive();
+    const timer = setInterval(fetchLive, 15_000);
+    return () => clearInterval(timer);
+  }, [hydrated]); // runs once after hydration; symbolsRef is stable
+
+  // ── Mutation helpers ──────────────────────────────────────────────
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // at 3:15 PM: copy Price → Prev Close, clear Price ready for next day
+  // copy Price → Prev Close then clear Price (use at market close each day)
   const setAsClose = () =>
     setRowData(prev => {
       const next = { ...prev };
       Object.keys(next).forEach(sym => {
-        if (next[sym].price !== '') {
+        if (next[sym].price !== '')
           next[sym] = { ...next[sym], prevClose: next[sym].price, price: '' };
-        }
       });
       return next;
     });
 
-  // clears only the Price column — Prev Close stays
   const clearPrice = () =>
     setRowData(prev => {
       const next = { ...prev };
@@ -120,7 +175,6 @@ export default function IndexTracker({
       return next;
     });
 
-  // full reset — wipes everything back to hardcoded defaults
   const resetAll = () => {
     setRowData(() => {
       const d: Record<string, RowData> = {};
@@ -130,25 +184,22 @@ export default function IndexTracker({
     setPrevStr(String(defaultPrevLevel));
   };
 
-  // ── Derived calculations ───────────────────────────────────────
+  // ── Derived calculations ──────────────────────────────────────────
   const prevLevel = toNum(prevLevelStr) ?? defaultPrevLevel;
 
   const rows = constituents.map(c => {
-    const rd       = rowData[c.symbol] ?? initRow(c);
-    const w        = toNum(rd.weight) ?? c.defaultWeight;
-    const price    = toNum(rd.price);
-    const prevCl   = toNum(rd.prevClose);
-
-    let changePct:   number | null = null;
-    let contribPct:  number | null = null;
-    let pts:         number | null = null;
-
+    const rd     = rowData[c.symbol] ?? initRow(c);
+    const w      = toNum(rd.weight) ?? c.defaultWeight;
+    const price  = toNum(rd.price);
+    const prevCl = toNum(rd.prevClose);
+    let changePct: number | null = null;
+    let contribPct: number | null = null;
+    let pts: number | null = null;
     if (price !== null && prevCl !== null && prevCl !== 0) {
       changePct  = (price - prevCl) / prevCl * 100;
       contribPct = (w / 100) * changePct;
       pts        = prevLevel * contribPct / 100;
     }
-
     return { ...c, rd, w, price, prevCl, changePct, contribPct, pts };
   });
 
@@ -165,16 +216,17 @@ export default function IndexTracker({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ── Header ───────────────────────────────────────────── */}
+
+      {/* ── Header ──────────────────────────────────────────────── */}
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
 
-          {/* Title + live index readout */}
+          {/* Title + index readout */}
           <div className="flex items-end gap-8">
             <div>
               <h1 className="text-lg font-bold">{indexName}</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Enter prices and prev closes · index calculated automatically
+                Prices auto-update 09:15–15:40 IST · index calculated automatically
               </p>
             </div>
             <div>
@@ -205,11 +257,11 @@ export default function IndexTracker({
             />
             <button
               onClick={setAsClose}
-              title="At 3:15 PM: copy Price → Prev Close, clear Price for next day"
+              title="Copy Price → Prev Close, clear Price (use at market close each day)"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-emerald-600
                          text-emerald-700 hover:bg-emerald-50 transition-colors font-medium"
             >
-              <Clock className="size-3" /> Set 3:15 Close
+              <Clock className="size-3" /> Set Close
             </button>
             <button
               onClick={clearPrice}
@@ -232,19 +284,53 @@ export default function IndexTracker({
 
         {/* Status row */}
         <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+
+          {/* Live feed indicator */}
+          <span className="flex items-center gap-1.5">
+            {liveStatus === 'live' && (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+                <span className="text-emerald-600 font-medium">LIVE</span>
+                {lastTime && <span className="text-muted-foreground">· {lastTime} IST</span>}
+              </>
+            )}
+            {liveStatus === 'fetching' && (
+              <>
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-amber-600">Fetching…</span>
+              </>
+            )}
+            {liveStatus === 'error' && (
+              <>
+                <span className="h-2 w-2 rounded-full bg-red-400" />
+                <span className="text-red-500">Feed error — retrying</span>
+              </>
+            )}
+            {liveStatus === 'closed' && (
+              <>
+                <span className="h-2 w-2 rounded-full bg-muted-foreground/30" />
+                <span>Market closed</span>
+              </>
+            )}
+          </span>
+
+          <span>·</span>
           <span>
-            Weight total:&nbsp;
+            Weight:&nbsp;
             <span className={cn('font-semibold', weightOk ? 'text-emerald-600' : 'text-amber-600')}>
               {totalWeight.toFixed(2)}%
             </span>
-            {!weightOk && <span className="text-amber-600"> — adjust to 100% for accurate index</span>}
+            {!weightOk && <span className="text-amber-600"> (adjust to 100%)</span>}
           </span>
           <span>·</span>
-          <span>{filledRows.length} / {constituents.length} rows complete</span>
+          <span>{filledRows.length} / {constituents.length} stocks with price</span>
         </div>
       </div>
 
-      {/* ── Table ────────────────────────────────────────────── */}
+      {/* ── Table ────────────────────────────────────────────────── */}
       <div className="p-4">
         <div className="rounded-lg border border-border overflow-hidden">
           <div className="overflow-x-auto">
@@ -255,18 +341,24 @@ export default function IndexTracker({
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Company</th>
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Symbol</th>
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Sector</th>
-                  <th className="px-2 py-2 text-right font-semibold text-muted-foreground">Weight&nbsp;%</th>
+                  <th className="px-2 py-2 text-right font-semibold text-muted-foreground">Wt %</th>
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
-                    Price
-                    <span className="ml-1 font-normal text-muted-foreground/60">(enter)</span>
+                    Price&nbsp;
+                    <span className={cn(
+                      'text-xs font-normal px-1 rounded',
+                      liveStatus === 'live'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'text-muted-foreground/60',
+                    )}>
+                      {liveStatus === 'live' ? 'live' : 'enter'}
+                    </span>
                   </th>
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
-                    Prev&nbsp;Close
-                    <span className="ml-1 font-normal text-muted-foreground/60">(enter)</span>
+                    Prev Close&nbsp;<span className="font-normal text-muted-foreground/60">(enter)</span>
                   </th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Change&nbsp;%</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Contribution&nbsp;%</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Index&nbsp;Pts</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Chg %</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Contrib %</th>
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Idx Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -280,62 +372,58 @@ export default function IndexTracker({
                     <td className="px-3 py-1 font-mono text-muted-foreground">{r.symbol}</td>
                     <td className="px-3 py-1 text-muted-foreground whitespace-nowrap">{r.sector}</td>
 
-                    {/* Weight — editable */}
+                    {/* Weight */}
                     <td className="px-2 py-1 text-right">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="number" min="0" step="0.01"
                         value={r.rd.weight}
                         onChange={e => update(r.symbol, 'weight', e.target.value)}
                         className={cn(INPUT_CLS, 'w-20')}
                       />
                     </td>
 
-                    {/* Price — editable */}
+                    {/* Price — auto-filled when live */}
                     <td className="px-2 py-1 text-right">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.05"
+                        type="number" min="0" step="0.05"
                         value={r.rd.price}
                         onChange={e => update(r.symbol, 'price', e.target.value)}
-                        placeholder="0.00"
-                        className={cn(INPUT_CLS, 'w-24')}
+                        placeholder="—"
+                        className={cn(INPUT_CLS, 'w-24',
+                          liveStatus === 'live' && r.rd.price !== '' && 'border-emerald-400/60',
+                        )}
                       />
                     </td>
 
-                    {/* Prev Close — editable */}
+                    {/* Prev Close */}
                     <td className="px-2 py-1 text-right">
                       <input
-                        type="number"
-                        min="0"
-                        step="0.05"
+                        type="number" min="0" step="0.05"
                         value={r.rd.prevClose}
                         onChange={e => update(r.symbol, 'prevClose', e.target.value)}
-                        placeholder="0.00"
+                        placeholder="—"
                         className={cn(INPUT_CLS, 'w-24')}
                       />
                     </td>
 
-                    {/* Change % — auto */}
+                    {/* Change % */}
                     <td className={cn('px-3 py-1 text-right tabular-nums font-medium',
-                      r.changePct === null ? 'text-muted-foreground/40' :
-                      r.changePct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      r.changePct === null ? 'text-muted-foreground/30'
+                        : r.changePct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                       {r.changePct !== null ? `${signed(r.changePct)}%` : '—'}
                     </td>
 
-                    {/* Contribution % — auto */}
+                    {/* Contribution % */}
                     <td className={cn('px-3 py-1 text-right tabular-nums',
-                      r.contribPct === null ? 'text-muted-foreground/40' :
-                      r.contribPct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      r.contribPct === null ? 'text-muted-foreground/30'
+                        : r.contribPct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                       {r.contribPct !== null ? `${signed(r.contribPct, 4)}%` : '—'}
                     </td>
 
-                    {/* Index Pts — auto */}
+                    {/* Index Pts */}
                     <td className={cn('px-3 py-1 text-right tabular-nums font-semibold',
-                      r.pts === null ? 'text-muted-foreground/40' :
-                      r.pts >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      r.pts === null ? 'text-muted-foreground/30'
+                        : r.pts >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                       {r.pts !== null ? signed(r.pts) : '—'}
                     </td>
                   </tr>
@@ -364,12 +452,10 @@ export default function IndexTracker({
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-muted-foreground space-x-2">
-          <span>Change % = (Price − Prev Close) / Prev Close × 100</span>
-          <span>·</span>
-          <span>Contribution % = Weight × Change % / 100</span>
-          <span>·</span>
-          <span>Index Pts = Prev Index Level × Contribution % / 100</span>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Change % = (Price − Prev Close) / Prev Close × 100 &nbsp;·&nbsp;
+          Contribution % = Weight × Change % / 100 &nbsp;·&nbsp;
+          Index Pts = Prev Level × Contribution % / 100
         </p>
       </div>
     </div>
