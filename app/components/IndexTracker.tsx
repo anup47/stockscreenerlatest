@@ -312,16 +312,46 @@ export default function IndexTracker({
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // Manual override: copy Price → Prev Close now
-  const setAsClose = () =>
-    setRowData(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(sym => {
-        if (next[sym].price !== '')
-          next[sym] = { ...next[sym], prevClose: next[sym].price };
+  // Core capture: fetch LTP from Dhan → Prev Close; fallback to Price column
+  const captureClose = useCallback(async () => {
+    let capturedFromDhan = false;
+    if (dhan.isConfigured) {
+      try {
+        const res = await fetch(
+          `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
+          { headers: dhan.headers },
+        );
+        if (res.ok) {
+          const data = await res.json() as DhanResp;
+          const entries = Object.entries(data.quotes ?? {});
+          if (entries.length > 0) {
+            setRowData(prev => {
+              const next = { ...prev };
+              entries.forEach(([sym, q]) => {
+                if (next[sym] && q.ltp > 0)
+                  next[sym] = { ...next[sym], prevClose: String(q.ltp) };
+              });
+              return next;
+            });
+            capturedFromDhan = true;
+          }
+        }
+      } catch { /* fall through */ }
+    }
+    if (!capturedFromDhan) {
+      setRowData(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(sym => {
+          if (next[sym].price !== '')
+            next[sym] = { ...next[sym], prevClose: next[sym].price };
+        });
+        return next;
       });
-      return next;
-    });
+    }
+  }, [dhan.isConfigured, dhan.headers]);
+
+  // "Set Prev Close" button: same logic as auto-capture — Dhan LTP first, Price col fallback
+  const setAsClose = () => { void captureClose(); };
 
   const clearPrice = () =>
     setRowData(prev => {
@@ -433,10 +463,10 @@ export default function IndexTracker({
               </button>
             )}
 
-            {/* Manual capture now */}
+            {/* Manual capture now — fetches Dhan LTP → prevClose; falls back to Price column */}
             <button
               onClick={setAsClose}
-              title="Manually copy current Price → Prev Close (auto-capture fires at 3:15 PM automatically)"
+              title="Fetch today's closing prices from Dhan API → Prev Close (same as 3:15 PM auto-capture)"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-emerald-600
                          text-emerald-700 hover:bg-emerald-50 transition-colors font-medium"
             >
