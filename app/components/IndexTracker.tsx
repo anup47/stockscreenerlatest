@@ -5,10 +5,11 @@ import { RotateCcw, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface Constituent {
-  symbol: string;
-  name: string;
-  sector: string;
-  defaultWeight: number;
+  symbol:           string;
+  name:             string;
+  sector:           string;
+  defaultWeight:    number;
+  defaultPrevClose?: number; // pre-filled in Prev Close column on first load
 }
 
 interface RowData {
@@ -48,7 +49,7 @@ export default function IndexTracker({
   const initRow = (c: Constituent): RowData => ({
     weight:    String(c.defaultWeight),
     price:     '',
-    prevClose: '',
+    prevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
   });
 
   const [rowData, setRowData]       = useState<Record<string, RowData>>(() => {
