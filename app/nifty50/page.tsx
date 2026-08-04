@@ -12,7 +12,7 @@ const NIFTY50: Constituent[] = [
   { symbol: 'RELIANCE',   name: 'Reliance Industries',    sector: 'Energy/Petrochem', defaultWeight:  9.00, defaultPrevClose:  1290.90 },
   { symbol: 'BHARTIARTL', name: 'Bharti Airtel',          sector: 'Telecom',          defaultWeight:  6.18, defaultPrevClose:  1970.10 },
   { symbol: 'HDFCBANK',   name: 'HDFC Bank',              sector: 'Banking',          defaultWeight:  5.88, defaultPrevClose:   742.00 },
-  { symbol: 'ICICIBANK',  name: 'ICICI Bank',             sector: 'Banking',          defaultWeight:  5.26, defaultPrevClose:  1454.60 },
+  { symbol: 'ICICIBANK',  name: 'ICICI Bank',             sector: 'Banking',          defaultWeight:  5.26, defaultPrevClose:  1440.00 },
   { symbol: 'SBIN',       name: 'State Bank of India',    sector: 'Banking',          defaultWeight:  4.86, defaultPrevClose:  1042.70 },
   { symbol: 'TCS',        name: 'Tata Consultancy Svcs',  sector: 'IT Services',      defaultWeight:  4.50, defaultPrevClose:  2460.00 },
   { symbol: 'BAJFINANCE', name: 'Bajaj Finance',          sector: 'NBFC',             defaultWeight:  3.61, defaultPrevClose:  1149.00 },

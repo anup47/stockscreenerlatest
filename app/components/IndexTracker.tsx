@@ -86,8 +86,8 @@ export default function IndexTracker({
   const symbolsRef = useRef(constituents.map(c => c.symbol).join(','));
 
   // ── localStorage keys (bump version to clear stale cache) ────────
-  const LS_KEY   = `${storageKey}_v6_rowdata`;
-  const LS_LEVEL = `${storageKey}_v6_prev_level`;
+  const LS_KEY   = `${storageKey}_v7_rowdata`;
+  const LS_LEVEL = `${storageKey}_v7_prev_level`;
 
   // ── Hydrate ───────────────────────────────────────────────────────
   useEffect(() => {
