@@ -122,7 +122,9 @@ export default function IndexTracker({
   const hasFetchedPC = useRef(false);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Always-current dhan state for the capture timer (avoids stale closure)
-  const dhanRef      = useRef({ isConfigured: dhan.isConfigured, headers: dhan.headers });
+  const dhanRef         = useRef({ isConfigured: dhan.isConfigured, headers: dhan.headers });
+  // Always-current captureClose for the timer
+  const captureCloseRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   // Keep dhanRef in sync so the capture timer always reads current credentials
   useEffect(() => {
@@ -165,50 +167,14 @@ export default function IndexTracker({
     function scheduleCapture() {
       const ms = msUntilNext315();
       captureTimer.current = setTimeout(async () => {
-        // Fetch fresh prices from Dhan at exactly 3:15 PM
-        let capturedFromDhan = false;
-        if (dhanRef.current.isConfigured) {
-          try {
-            const res = await fetch(
-              `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
-              { headers: dhanRef.current.headers },
-            );
-            if (res.ok) {
-              const data = await res.json() as DhanResp;
-              const entries = Object.entries(data.quotes ?? {});
-              if (entries.length > 0) {
-                setRowData(prev => {
-                  const next = { ...prev };
-                  entries.forEach(([sym, q]) => {
-                    if (next[sym] && q.ltp > 0)
-                      next[sym] = { ...next[sym], prevClose: String(q.ltp) };
-                  });
-                  return next;
-                });
-                capturedFromDhan = true;
-              }
-            }
-          } catch { /* fall through to Price-column fallback */ }
-        }
-
-        // Fallback: copy from whatever is in the Price column
-        if (!capturedFromDhan) {
-          setRowData(prev => {
-            const next = { ...prev };
-            Object.keys(next).forEach(sym => {
-              if (next[sym].price !== '')
-                next[sym] = { ...next[sym], prevClose: next[sym].price };
-            });
-            return next;
-          });
-        }
+        // Delegate to captureClose (Dhan → Yahoo → Price column, all 3 tiers)
+        await captureCloseRef.current();
 
         const captureTime = istTimeStr();
         setLastCapture(captureTime);
         localStorage.setItem(`${storageKey}_v9_last_capture`, captureTime);
 
-        // Schedule the next day's capture
-        scheduleCapture();
+        scheduleCapture(); // arm next day
       }, ms);
     }
 
@@ -312,9 +278,12 @@ export default function IndexTracker({
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // Core capture: fetch LTP from Dhan → Prev Close; fallback to Price column
+  // Core capture: 3-tier fallback
+  //   1. Dhan ltp (live/last-traded — non-zero during and just after market hours)
+  //   2. Yahoo Finance regularMarketPrice (always returns today's closing price after close)
+  //   3. Price column copy (last resort when neither API responds)
   const captureClose = useCallback(async () => {
-    let capturedFromDhan = false;
+    // Tier 1: Dhan
     if (dhan.isConfigured) {
       try {
         const res = await fetch(
@@ -322,35 +291,56 @@ export default function IndexTracker({
           { headers: dhan.headers },
         );
         if (res.ok) {
-          const data = await res.json() as DhanResp;
-          const entries = Object.entries(data.quotes ?? {});
-          if (entries.length > 0) {
+          const data  = await res.json() as DhanResp;
+          const valid = Object.entries(data.quotes ?? {}).filter(([, q]) => q.ltp > 0);
+          if (valid.length > 0) {
             setRowData(prev => {
               const next = { ...prev };
-              entries.forEach(([sym, q]) => {
-                if (next[sym] && q.ltp > 0)
-                  next[sym] = { ...next[sym], prevClose: String(q.ltp) };
+              valid.forEach(([sym, q]) => {
+                if (next[sym]) next[sym] = { ...next[sym], prevClose: String(q.ltp) };
               });
               return next;
             });
-            capturedFromDhan = true;
+            return; // Done
           }
         }
-      } catch { /* fall through */ }
+      } catch { /* fall through to Tier 2 */ }
     }
-    if (!capturedFromDhan) {
-      setRowData(prev => {
-        const next = { ...prev };
-        Object.keys(next).forEach(sym => {
-          if (next[sym].price !== '')
-            next[sym] = { ...next[sym], prevClose: next[sym].price };
-        });
-        return next;
+
+    // Tier 2: Yahoo Finance (regularMarketPrice = today's close even after market close)
+    try {
+      const res = await fetch(`/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`);
+      if (res.ok) {
+        const data  = await res.json() as YFResp;
+        const valid = Object.entries(data.prices ?? {}).filter(([, q]) => q.price > 0);
+        if (valid.length > 0) {
+          setRowData(prev => {
+            const next = { ...prev };
+            valid.forEach(([sym, q]) => {
+              if (next[sym]) next[sym] = { ...next[sym], prevClose: String(q.price) };
+            });
+            return next;
+          });
+          return; // Done
+        }
+      }
+    } catch { /* fall through to Tier 3 */ }
+
+    // Tier 3: copy from Price column
+    setRowData(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(sym => {
+        if (next[sym].price !== '')
+          next[sym] = { ...next[sym], prevClose: next[sym].price };
       });
-    }
+      return next;
+    });
   }, [dhan.isConfigured, dhan.headers]);
 
-  // "Set Prev Close" button: same logic as auto-capture — Dhan LTP first, Price col fallback
+  // Keep ref current so the auto-capture timer always calls latest version
+  useEffect(() => { captureCloseRef.current = captureClose; }, [captureClose]);
+
+  // "Set Prev Close" button: same 3-tier capture — Dhan → Yahoo → Price column
   const setAsClose = () => { void captureClose(); };
 
   const clearPrice = () =>
