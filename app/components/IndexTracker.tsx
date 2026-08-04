@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RotateCcw, X } from 'lucide-react';
+import { RotateCcw, X, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface Constituent {
@@ -62,9 +62,9 @@ export default function IndexTracker({
   const [hydrated, setHydrated]     = useState(false);
 
   // ── Hydrate from localStorage ─────────────────────────────────
-  // v5 key: Price = today's live price, Prev Close = yesterday's close
-  const LS_KEY   = `${storageKey}_v5_rowdata`;
-  const LS_LEVEL = `${storageKey}_v5_prev_level`;
+  // v6: prevClose = today's 3:15 close; Price = blank for live entry
+  const LS_KEY   = `${storageKey}_v6_rowdata`;
+  const LS_LEVEL = `${storageKey}_v6_prev_level`;
 
   useEffect(() => {
     const saved      = localStorage.getItem(LS_KEY);
@@ -100,7 +100,19 @@ export default function IndexTracker({
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // clears only the Price column — Prev Close stays so next-day calc works
+  // at 3:15 PM: copy Price → Prev Close, clear Price ready for next day
+  const setAsClose = () =>
+    setRowData(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(sym => {
+        if (next[sym].price !== '') {
+          next[sym] = { ...next[sym], prevClose: next[sym].price, price: '' };
+        }
+      });
+      return next;
+    });
+
+  // clears only the Price column — Prev Close stays
   const clearPrice = () =>
     setRowData(prev => {
       const next = { ...prev };
@@ -108,7 +120,7 @@ export default function IndexTracker({
       return next;
     });
 
-  // full reset — wipes price, prevClose, and restores default weights
+  // full reset — wipes everything back to hardcoded defaults
   const resetAll = () => {
     setRowData(() => {
       const d: Record<string, RowData> = {};
@@ -192,8 +204,16 @@ export default function IndexTracker({
                          focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
             <button
+              onClick={setAsClose}
+              title="At 3:15 PM: copy Price → Prev Close, clear Price for next day"
+              className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-emerald-600
+                         text-emerald-700 hover:bg-emerald-50 transition-colors font-medium"
+            >
+              <Clock className="size-3" /> Set 3:15 Close
+            </button>
+            <button
               onClick={clearPrice}
-              title="Clear Price column only — Prev Close stays (use this each new day)"
+              title="Clear Price column only — Prev Close stays"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
                          text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -201,7 +221,7 @@ export default function IndexTracker({
             </button>
             <button
               onClick={resetAll}
-              title="Reset everything — weights, prices, prev closes back to defaults"
+              title="Reset everything back to hardcoded defaults"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
                          text-muted-foreground hover:text-foreground transition-colors"
             >

@@ -4,9 +4,10 @@ import IndexTracker, { type Constituent } from '@/app/components/IndexTracker';
 export const metadata: Metadata = { title: 'Sensex 30 | StockScreener' };
 
 // Actual Sensex 30 constituents – Aug 2026 rebalancing
-// Weights: smart-investing.in EOD Aug 3 2026  (free-float MCap weights)
-// defaultPrevClose: Dhan LTP as of Aug 4 2026 close (~16:15 IST)
-// defaultPrevLevel: Sensex official close Aug 3 2026
+// Weights        : smart-investing.in EOD Aug 3 2026 (free-float MCap weights)
+// defaultPrevClose: Aug 4 2026 3:15 PM closing prices (today's close = baseline)
+// Price column   : blank — user types live prices; click "Set 3:15 Close" each day
+// defaultPrevLevel: update this daily to yesterday's official Sensex close
 const SENSEX30: Constituent[] = [
   { symbol: 'RELIANCE',   name: 'Reliance Industries',    sector: 'Energy/Petrochem', defaultWeight: 11.19, defaultPrevClose:  1290.90 },
   { symbol: 'BHARTIARTL', name: 'Bharti Airtel',          sector: 'Telecom',          defaultWeight:  7.69, defaultPrevClose:  1970.10 },
