@@ -62,9 +62,9 @@ export default function IndexTracker({
   const [hydrated, setHydrated]     = useState(false);
 
   // ── Hydrate from localStorage ─────────────────────────────────
-  // v3 key: forces fresh defaults when price/prevClose pre-fills change
-  const LS_KEY   = `${storageKey}_v3_rowdata`;
-  const LS_LEVEL = `${storageKey}_v3_prev_level`;
+  // v4 key: forces fresh defaults — prevClose = 3:15 PM close, Price = blank
+  const LS_KEY   = `${storageKey}_v4_rowdata`;
+  const LS_LEVEL = `${storageKey}_v4_prev_level`;
 
   useEffect(() => {
     const saved      = localStorage.getItem(LS_KEY);
