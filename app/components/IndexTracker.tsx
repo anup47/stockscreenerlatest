@@ -121,6 +121,13 @@ export default function IndexTracker({
   const symbolsRef   = useRef(constituents.map(c => c.symbol).join(','));
   const hasFetchedPC = useRef(false);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Always-current dhan state for the capture timer (avoids stale closure)
+  const dhanRef      = useRef({ isConfigured: dhan.isConfigured, headers: dhan.headers });
+
+  // Keep dhanRef in sync so the capture timer always reads current credentials
+  useEffect(() => {
+    dhanRef.current = { isConfigured: dhan.isConfigured, headers: dhan.headers };
+  }, [dhan.isConfigured, dhan.headers]);
 
   // ── localStorage keys (v9 — fresh after Dhan integration) ────────
   const LS_KEY     = `${storageKey}_v9_rowdata`;
@@ -157,16 +164,45 @@ export default function IndexTracker({
 
     function scheduleCapture() {
       const ms = msUntilNext315();
-      captureTimer.current = setTimeout(() => {
-        // Snapshot the live Price column into Prev Close at exactly 3:15 PM
-        setRowData(prev => {
-          const next = { ...prev };
-          Object.keys(next).forEach(sym => {
-            if (next[sym].price !== '')
-              next[sym] = { ...next[sym], prevClose: next[sym].price };
+      captureTimer.current = setTimeout(async () => {
+        // Fetch fresh prices from Dhan at exactly 3:15 PM
+        let capturedFromDhan = false;
+        if (dhanRef.current.isConfigured) {
+          try {
+            const res = await fetch(
+              `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
+              { headers: dhanRef.current.headers },
+            );
+            if (res.ok) {
+              const data = await res.json() as DhanResp;
+              const entries = Object.entries(data.quotes ?? {});
+              if (entries.length > 0) {
+                setRowData(prev => {
+                  const next = { ...prev };
+                  entries.forEach(([sym, q]) => {
+                    if (next[sym] && q.ltp > 0)
+                      next[sym] = { ...next[sym], prevClose: String(q.ltp) };
+                  });
+                  return next;
+                });
+                capturedFromDhan = true;
+              }
+            }
+          } catch { /* fall through to Price-column fallback */ }
+        }
+
+        // Fallback: copy from whatever is in the Price column
+        if (!capturedFromDhan) {
+          setRowData(prev => {
+            const next = { ...prev };
+            Object.keys(next).forEach(sym => {
+              if (next[sym].price !== '')
+                next[sym] = { ...next[sym], prevClose: next[sym].price };
+            });
+            return next;
           });
-          return next;
-        });
+        }
+
         const captureTime = istTimeStr();
         setLastCapture(captureTime);
         localStorage.setItem(`${storageKey}_v9_last_capture`, captureTime);
