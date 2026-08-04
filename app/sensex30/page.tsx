@@ -12,7 +12,7 @@ const SENSEX30: Constituent[] = [
   { symbol: 'RELIANCE',   name: 'Reliance Industries',    sector: 'Energy/Petrochem', defaultWeight: 11.19, defaultPrevClose:  1290.90 },
   { symbol: 'BHARTIARTL', name: 'Bharti Airtel',          sector: 'Telecom',          defaultWeight:  7.69, defaultPrevClose:  1970.10 },
   { symbol: 'HDFCBANK',   name: 'HDFC Bank',              sector: 'Banking',          defaultWeight:  7.31, defaultPrevClose:   742.00 },
-  { symbol: 'ICICIBANK',  name: 'ICICI Bank',             sector: 'Banking',          defaultWeight:  6.55, defaultPrevClose:  1440.00 },
+  { symbol: 'ICICIBANK',  name: 'ICICI Bank',             sector: 'Banking',          defaultWeight:  6.55, defaultPrevClose:  1454.60 },
   { symbol: 'SBIN',       name: 'State Bank of India',    sector: 'Banking',          defaultWeight:  6.04, defaultPrevClose:  1042.70 },
   { symbol: 'TCS',        name: 'Tata Consultancy Svcs',  sector: 'IT Services',      defaultWeight:  5.60, defaultPrevClose:  2460.00 },
   { symbol: 'BAJFINANCE', name: 'Bajaj Finance',          sector: 'NBFC',             defaultWeight:  4.49, defaultPrevClose:  1149.00 },
