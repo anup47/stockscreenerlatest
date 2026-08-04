@@ -114,8 +114,10 @@ export default function IndexTracker({
   const [hydrated, setHydrated]      = useState(false);
   const [liveStatus, setStatus]      = useState<LiveStatus>('closed');
   const [lastTime, setLastTime]      = useState('');
-  const [pcStatus, setPcStatus]      = useState<PcStatus>('idle');
-  const [lastCapture, setLastCapture] = useState(''); // IST time string of last 3:15 auto-capture
+  const [pcStatus, setPcStatus]          = useState<PcStatus>('idle');
+  const [captureStatus, setCaptureStatus] = useState<'idle' | 'fetching' | 'done' | 'error'>('idle');
+  const [captureSource, setCaptureSource] = useState('');  // which tier/source succeeded
+  const [lastCapture, setLastCapture]     = useState(''); // IST time string of last 3:15 auto-capture
 
   const dhan         = useDhanCredentials();
   const symbolsRef   = useRef(constituents.map(c => c.symbol).join(','));
@@ -124,7 +126,7 @@ export default function IndexTracker({
   // Always-current dhan state for the capture timer (avoids stale closure)
   const dhanRef         = useRef({ isConfigured: dhan.isConfigured, headers: dhan.headers });
   // Always-current captureClose for the timer
-  const captureCloseRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const captureCloseRef = useRef<(silent?: boolean) => Promise<void>>(() => Promise.resolve());
 
   // Keep dhanRef in sync so the capture timer always reads current credentials
   useEffect(() => {
@@ -167,8 +169,8 @@ export default function IndexTracker({
     function scheduleCapture() {
       const ms = msUntilNext315();
       captureTimer.current = setTimeout(async () => {
-        // Delegate to captureClose (Dhan → Yahoo → Price column, all 3 tiers)
-        await captureCloseRef.current();
+        // Delegate to captureClose silently (timer-fired, no UI status)
+        await captureCloseRef.current(true);
 
         const captureTime = istTimeStr();
         setLastCapture(captureTime);
@@ -279,20 +281,21 @@ export default function IndexTracker({
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
   // Core capture: 4-tier fallback
-  //   0. /api/price-at-315  -- 1-min Yahoo Finance intraday, close of the 3:15 PM candle
-  //                            This is the ACTUAL traded price at 3:15 PM (not official close)
+  //   0. /api/price-at-315  -- 1-min intraday, pre-3:14 PM window (actual traded price)
   //   1. Dhan ltp           -- live/last-traded during market hours
-  //   2. Yahoo regular price -- regularMarketPrice (= official close, available after hours)
+  //   2. Yahoo regular price -- regularMarketPrice (= official close, after hours)
   //   3. Price column copy   -- last resort
-  const captureClose = useCallback(async () => {
-    // Tier 0: 1-min intraday → close of 3:15 PM candle (Dhan preferred, YF fallback)
+  const captureClose = useCallback(async (silent = false) => {
+    if (!silent) setCaptureStatus('fetching');
+
+    // Tier 0: pre-3:14 PM intraday price (Dhan or Yahoo, corrected window)
     try {
       const res = await fetch(
         `/api/price-at-315?symbols=${encodeURIComponent(symbolsRef.current)}`,
         dhan.isConfigured ? { headers: dhan.headers } : undefined,
       );
       if (res.ok) {
-        const data  = await res.json() as { prices: Record<string, number> };
+        const data  = await res.json() as { prices: Record<string, number>; source?: string };
         const valid = Object.entries(data.prices ?? {}).filter(([, p]) => p > 0);
         if (valid.length > 0) {
           setRowData(prev => {
@@ -302,7 +305,8 @@ export default function IndexTracker({
             });
             return next;
           });
-          return; // Done
+          if (!silent) { setCaptureStatus('done'); setCaptureSource(`${data.source ?? 'intraday'} (${valid.length} stocks)`); }
+          return;
         }
       }
     } catch { /* fall through */ }
@@ -325,6 +329,7 @@ export default function IndexTracker({
               });
               return next;
             });
+            if (!silent) { setCaptureStatus('done'); setCaptureSource(`Dhan LTP (${valid.length} stocks)`); }
             return;
           }
         }
@@ -345,6 +350,7 @@ export default function IndexTracker({
             });
             return next;
           });
+          if (!silent) { setCaptureStatus('done'); setCaptureSource(`Yahoo official close (${valid.length} stocks)`); }
           return;
         }
       }
@@ -359,13 +365,14 @@ export default function IndexTracker({
       });
       return next;
     });
+    if (!silent) { setCaptureStatus('error'); setCaptureSource('Fallback: copied Price column'); }
   }, [dhan.isConfigured, dhan.headers]);
 
   // Keep ref current so the auto-capture timer always calls latest version
   useEffect(() => { captureCloseRef.current = captureClose; }, [captureClose]);
 
-  // "Set Prev Close" button: same 3-tier capture — Dhan → Yahoo → Price column
-  const setAsClose = () => { void captureClose(); };
+  // "Set Prev Close" button
+  const setAsClose = () => { setCaptureStatus('idle'); setCaptureSource(''); void captureClose(false); };
 
   const clearPrice = () =>
     setRowData(prev => {
@@ -477,14 +484,24 @@ export default function IndexTracker({
               </button>
             )}
 
-            {/* Manual capture now — fetches Dhan LTP → prevClose; falls back to Price column */}
+            {/* Manual capture — fetches ~3:13 PM intraday price → Prev Close */}
             <button
               onClick={setAsClose}
-              title="Fetch today's closing prices from Dhan API → Prev Close (same as 3:15 PM auto-capture)"
-              className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-emerald-600
-                         text-emerald-700 hover:bg-emerald-50 transition-colors font-medium"
+              disabled={captureStatus === 'fetching'}
+              title="Fetch today's actual 3:13 PM traded price (not official close) → Prev Close"
+              className={cn(
+                'flex items-center gap-1.5 h-7 px-3 text-xs rounded border font-medium transition-colors',
+                captureStatus === 'fetching'
+                  ? 'border-emerald-300 text-emerald-400 cursor-not-allowed'
+                  : captureStatus === 'done'
+                  ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                  : captureStatus === 'error'
+                  ? 'border-red-400 text-red-600'
+                  : 'border-emerald-600 text-emerald-700 hover:bg-emerald-50',
+              )}
             >
-              <Clock className="size-3" /> Set Prev Close
+              <Clock className={cn('size-3', captureStatus === 'fetching' && 'animate-spin')} />
+              {captureStatus === 'fetching' ? 'Fetching...' : 'Set Prev Close'}
             </button>
 
             <button onClick={clearPrice}
@@ -521,14 +538,24 @@ export default function IndexTracker({
 
           <span>·</span>
 
-          {/* 3:15 PM capture indicator */}
+          {/* 3:15 PM / manual capture indicator */}
           <span className="flex items-center gap-1.5">
-            {lastCapture
-              ? <span className="text-violet-600 font-medium">Prev Close auto-captured at {lastCapture} IST</span>
-              : marketClosed315Today
-              ? <span className="text-amber-600">3:15 PM passed -- use "Set Prev Close" or "Sync from Dhan"</span>
-              : <span className="text-muted-foreground/70">Auto-capture fires at 3:15 PM IST</span>
-            }
+            {captureStatus === 'fetching' && (
+              <span className="text-emerald-600 animate-pulse">Fetching ~3:13 PM prices...</span>
+            )}
+            {captureStatus === 'done' && captureSource && (
+              <span className="text-emerald-700 font-medium">Set via {captureSource}</span>
+            )}
+            {captureStatus === 'error' && captureSource && (
+              <span className="text-red-600">{captureSource}</span>
+            )}
+            {captureStatus === 'idle' && (
+              lastCapture
+                ? <span className="text-violet-600 font-medium">Prev Close auto-captured at {lastCapture} IST</span>
+                : marketClosed315Today
+                ? <span className="text-amber-600">3:15 PM passed -- click "Set Prev Close"</span>
+                : <span className="text-muted-foreground/70">Auto-capture fires at 3:15 PM IST</span>
+            )}
           </span>
 
           <span>·</span>
