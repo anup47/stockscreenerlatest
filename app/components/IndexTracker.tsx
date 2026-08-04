@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Edit2, Check, AlertCircle, RotateCcw } from 'lucide-react';
-import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
+import { useState, useEffect } from 'react';
+import { RotateCcw, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface Constituent {
@@ -12,251 +11,210 @@ export interface Constituent {
   defaultWeight: number;
 }
 
-interface QuoteData {
-  ltp: number;
-  prevClose: number;
-  change: number;
-  changePct: number;
+interface RowData {
+  weight:    string; // stored as string so inputs stay controlled
+  price:     string;
+  prevClose: string;
 }
 
 interface Props {
-  indexName: string;
-  storageKey: string;
+  indexName:       string;
+  storageKey:      string;
   defaultPrevLevel: number;
-  constituents: Constituent[];
+  constituents:    Constituent[];
 }
 
-function fmt2(n: number) { return n.toFixed(2); }
-function fmtIdx(n: number) {
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function toNum(s: string): number | null {
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
 }
-function signed(n: number, digits = 2) {
+
+function signed(n: number, digits = 2): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`;
 }
 
-export default function IndexTracker({ indexName, storageKey, defaultPrevLevel, constituents }: Props) {
-  const dhan = useDhanCredentials();
+function fmtIdx(n: number): string {
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
-  const defaultWeights = useCallback(() => {
-    const d: Record<string, number> = {};
-    constituents.forEach(c => { d[c.symbol] = c.defaultWeight; });
+const INPUT_CLS =
+  'h-6 px-1.5 text-right text-xs border border-border rounded bg-background tabular-nums ' +
+  'focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 ' +
+  'placeholder:text-muted-foreground/30';
+
+export default function IndexTracker({
+  indexName, storageKey, defaultPrevLevel, constituents,
+}: Props) {
+  const initRow = (c: Constituent): RowData => ({
+    weight:    String(c.defaultWeight),
+    price:     '',
+    prevClose: '',
+  });
+
+  const [rowData, setRowData]       = useState<Record<string, RowData>>(() => {
+    const d: Record<string, RowData> = {};
+    constituents.forEach(c => { d[c.symbol] = initRow(c); });
     return d;
-  }, [constituents]);
-
-  const [weights, setWeights]       = useState<Record<string, number>>(defaultWeights);
-  const [prevLevel, setPrevLevel]   = useState(defaultPrevLevel);
+  });
   const [prevLevelStr, setPrevStr]  = useState(String(defaultPrevLevel));
-  const [quotes, setQuotes]         = useState<Record<string, QuoteData>>({});
-  const [loading, setLoading]       = useState(false);
-  const [fetchedAt, setFetchedAt]   = useState<string | null>(null);
-  const [editMode, setEditMode]     = useState(false);
   const [hydrated, setHydrated]     = useState(false);
-  const [sortBy, setSortBy]         = useState<'weight' | 'contribution' | 'change'>('weight');
 
-  // Hydrate from localStorage
+  // ── Hydrate from localStorage ─────────────────────────────────
   useEffect(() => {
-    const w = localStorage.getItem(`${storageKey}_weights`);
-    const l = localStorage.getItem(`${storageKey}_prev_level`);
-    if (w) {
-      try { setWeights(JSON.parse(w)); } catch { /* ignore */ }
+    const saved      = localStorage.getItem(`${storageKey}_rowdata`);
+    const savedLevel = localStorage.getItem(`${storageKey}_prev_level`);
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Record<string, RowData>;
+        const merged: Record<string, RowData> = {};
+        constituents.forEach(c => {
+          merged[c.symbol] = parsed[c.symbol] ?? initRow(c);
+        });
+        setRowData(merged);
+      } catch { /* ignore corrupt data */ }
     }
-    if (l) {
-      const n = parseFloat(l);
-      if (!isNaN(n) && n > 0) { setPrevLevel(n); setPrevStr(l); }
-    }
+    if (savedLevel) setPrevStr(savedLevel);
     setHydrated(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
-  const fetchPrices = useCallback(async () => {
-    if (!dhan.isConfigured) return;
-    setLoading(true);
-    try {
-      const syms = constituents.map(c => c.symbol).join(',');
-      const res = await fetch(`/api/dhan/equity-prices?symbols=${encodeURIComponent(syms)}`, {
-        headers: dhan.headers,
-        cache: 'no-store',
-      });
-      if (!res.ok) return;
-      const json = await res.json() as { quotes: Record<string, QuoteData>; fetchedAt?: string };
-      setQuotes(json.quotes ?? {});
-      setFetchedAt(json.fetchedAt ?? null);
-    } finally {
-      setLoading(false);
-    }
-  }, [dhan.isConfigured, dhan.headers, constituents]);
+  // ── Persist to localStorage ───────────────────────────────────
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(`${storageKey}_rowdata`, JSON.stringify(rowData));
+  }, [rowData, storageKey, hydrated]);
 
   useEffect(() => {
-    if (!hydrated || !dhan.isHydrated) return;
-    fetchPrices();
-    const id = setInterval(fetchPrices, 30_000);
-    return () => clearInterval(id);
-  }, [hydrated, dhan.isHydrated, fetchPrices]);
+    if (!hydrated) return;
+    localStorage.setItem(`${storageKey}_prev_level`, prevLevelStr);
+  }, [prevLevelStr, storageKey, hydrated]);
 
-  const updateWeight = (symbol: string, val: string) => {
-    const n = parseFloat(val);
-    const updated = { ...weights, [symbol]: isNaN(n) ? 0 : Math.max(0, n) };
-    setWeights(updated);
-    localStorage.setItem(`${storageKey}_weights`, JSON.stringify(updated));
-  };
+  // ── Mutation helpers ──────────────────────────────────────────
+  const update = (symbol: string, field: keyof RowData, value: string) =>
+    setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  const resetWeights = () => {
-    const d = defaultWeights();
-    setWeights(d);
-    localStorage.setItem(`${storageKey}_weights`, JSON.stringify(d));
-  };
+  const resetWeights = () =>
+    setRowData(prev => {
+      const next = { ...prev };
+      constituents.forEach(c => { next[c.symbol] = { ...next[c.symbol], weight: String(c.defaultWeight) }; });
+      return next;
+    });
 
-  const updatePrevLevel = (val: string) => {
-    setPrevStr(val);
-    const n = parseFloat(val);
-    if (!isNaN(n) && n > 0) {
-      setPrevLevel(n);
-      localStorage.setItem(`${storageKey}_prev_level`, val);
+  const clearPrices = () =>
+    setRowData(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(sym => { next[sym] = { ...next[sym], price: '', prevClose: '' }; });
+      return next;
+    });
+
+  // ── Derived calculations ───────────────────────────────────────
+  const prevLevel = toNum(prevLevelStr) ?? defaultPrevLevel;
+
+  const rows = constituents.map(c => {
+    const rd       = rowData[c.symbol] ?? initRow(c);
+    const w        = toNum(rd.weight) ?? c.defaultWeight;
+    const price    = toNum(rd.price);
+    const prevCl   = toNum(rd.prevClose);
+
+    let changePct:   number | null = null;
+    let contribPct:  number | null = null;
+    let pts:         number | null = null;
+
+    if (price !== null && prevCl !== null && prevCl !== 0) {
+      changePct  = (price - prevCl) / prevCl * 100;
+      contribPct = (w / 100) * changePct;
+      pts        = prevLevel * contribPct / 100;
     }
-  };
 
-  // Build rows
-  const baseRows = constituents.map(c => {
-    const w        = weights[c.symbol] ?? c.defaultWeight;
-    const q        = quotes[c.symbol] ?? null;
-    const chPct    = q?.changePct ?? 0;
-    const contribPct = (w / 100) * chPct;            // % contribution to index return
-    const pts      = prevLevel * contribPct / 100;    // index points
-    return { ...c, w, q, chPct, contribPct, pts };
+    return { ...c, rd, w, price, prevCl, changePct, contribPct, pts };
   });
 
-  const rows = [...baseRows].sort((a, b) => {
-    if (sortBy === 'contribution') return Math.abs(b.contribPct) - Math.abs(a.contribPct);
-    if (sortBy === 'change')       return Math.abs(b.chPct)      - Math.abs(a.chPct);
-    return b.w - a.w; // default: weight desc
-  });
+  const totalWeight  = rows.reduce((s, r) => s + r.w, 0);
+  const filledRows   = rows.filter(r => r.changePct !== null);
+  const totalContrib = filledRows.reduce((s, r) => s + (r.contribPct ?? 0), 0);
+  const hasData      = filledRows.length > 0;
+  const currentIndex = hasData ? prevLevel * (1 + totalContrib / 100) : null;
+  const indexChg     = currentIndex !== null ? currentIndex - prevLevel : null;
+  const indexChgPct  = currentIndex !== null && prevLevel > 0 ? (indexChg! / prevLevel) * 100 : null;
+  const weightOk     = Math.abs(totalWeight - 100) <= 1;
 
-  const totalWeight   = baseRows.reduce((s, r) => s + r.w, 0);
-  const totalContrib  = baseRows.filter(r => r.q).reduce((s, r) => s + r.contribPct, 0);
-  const currentIndex  = prevLevel * (1 + totalContrib / 100);
-  const indexChg      = currentIndex - prevLevel;
-  const indexChgPct   = prevLevel > 0 ? (indexChg / prevLevel) * 100 : 0;
-  const pricesLoaded  = Object.keys(quotes).length > 0;
-  const priceCount    = baseRows.filter(r => r.q).length;
-  const weightOk      = Math.abs(totalWeight - 100) <= 1;
-
-  const SortBtn = ({ id, label }: { id: typeof sortBy; label: string }) => (
-    <button
-      onClick={() => setSortBy(id)}
-      className={cn(
-        'h-6 px-2 text-xs rounded border transition-colors',
-        sortBy === id
-          ? 'bg-slate-700 text-white border-slate-700'
-          : 'border-border text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {label}
-    </button>
-  );
+  if (!hydrated) return null;
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ── Header ─────────────────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────────── */}
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          {/* Title + index readout */}
+
+          {/* Title + live index readout */}
           <div className="flex items-end gap-8">
             <div>
-              <h1 className="text-lg font-bold text-foreground">{indexName}</h1>
+              <h1 className="text-lg font-bold">{indexName}</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Estimated · weights × live prices
+                Enter prices and prev closes · index calculated automatically
               </p>
             </div>
             <div>
               <div className="text-3xl font-bold tabular-nums leading-none">
-                {pricesLoaded ? fmtIdx(currentIndex) : '—'}
+                {currentIndex !== null ? fmtIdx(currentIndex) : '—'}
               </div>
-              {pricesLoaded && (
+              {currentIndex !== null && indexChg !== null && indexChgPct !== null && (
                 <div className={cn('text-sm font-semibold tabular-nums mt-0.5',
                   indexChg >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                   {signed(indexChg)} ({signed(indexChgPct)}%)
                 </div>
               )}
-              {!weightOk && pricesLoaded && (
-                <p className="text-xs text-amber-600 mt-0.5">⚠ Weights ≠ 100%; adjust for accurate index</p>
+              {currentIndex !== null && !weightOk && (
+                <p className="text-xs text-amber-600 mt-0.5">⚠ Weights ≠ 100%</p>
               )}
             </div>
           </div>
 
           {/* Controls */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">Prev Close:</span>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">Prev Index Level:</span>
             <input
               type="number"
               value={prevLevelStr}
-              onChange={e => updatePrevLevel(e.target.value)}
+              onChange={e => setPrevStr(e.target.value)}
               className="w-28 h-7 px-2 text-xs border border-border rounded bg-background tabular-nums
                          focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
             <button
-              onClick={() => { setEditMode(v => !v); }}
-              className={cn(
-                'flex items-center gap-1.5 h-7 px-3 text-xs rounded border transition-colors',
-                editMode
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'border-border text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {editMode ? <><Check className="size-3" /> Done</> : <><Edit2 className="size-3" /> Edit Weights</>}
-            </button>
-            {editMode && (
-              <button
-                onClick={resetWeights}
-                className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RotateCcw className="size-3" /> Reset
-              </button>
-            )}
-            <button
-              onClick={fetchPrices}
-              disabled={loading || !dhan.isConfigured}
+              onClick={resetWeights}
+              title="Restore default weights"
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
-                         text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                         text-muted-foreground hover:text-foreground transition-colors"
             >
-              <RefreshCw className={cn('size-3', loading && 'animate-spin')} />
-              Refresh
+              <RotateCcw className="size-3" /> Reset Weights
+            </button>
+            <button
+              onClick={clearPrices}
+              title="Clear all price and prev-close inputs"
+              className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
+                         text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="size-3" /> Clear Prices
             </button>
           </div>
         </div>
 
         {/* Status row */}
-        <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground flex-wrap gap-2">
-          <div className="flex items-center gap-3">
-            <span>
-              Weight total:&nbsp;
-              <span className={cn('font-semibold', weightOk ? 'text-emerald-600' : 'text-amber-600')}>
-                {totalWeight.toFixed(2)}%
-              </span>
+        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+          <span>
+            Weight total:&nbsp;
+            <span className={cn('font-semibold', weightOk ? 'text-emerald-600' : 'text-amber-600')}>
+              {totalWeight.toFixed(2)}%
             </span>
-            <span>·</span>
-            <span>{priceCount} / {constituents.length} prices</span>
-            <span>·</span>
-            <div className="flex items-center gap-1">
-              <span>Sort:</span>
-              <SortBtn id="weight"       label="Weight" />
-              <SortBtn id="contribution" label="Contribution" />
-              <SortBtn id="change"       label="Change %" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {!dhan.isConfigured && (
-              <span className="flex items-center gap-1 text-amber-600">
-                <AlertCircle className="size-3.5" />
-                Configure Dhan API in Settings for live prices
-              </span>
-            )}
-            {fetchedAt && (
-              <span>Updated {new Date(fetchedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
-            )}
-          </div>
+            {!weightOk && <span className="text-amber-600"> — adjust to 100% for accurate index</span>}
+          </span>
+          <span>·</span>
+          <span>{filledRows.length} / {constituents.length} rows complete</span>
         </div>
       </div>
 
-      {/* ── Table ──────────────────────────────────────────────── */}
+      {/* ── Table ────────────────────────────────────────────── */}
       <div className="p-4">
         <div className="rounded-lg border border-border overflow-hidden">
           <div className="overflow-x-auto">
@@ -267,9 +225,15 @@ export default function IndexTracker({ indexName, storageKey, defaultPrevLevel, 
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Company</th>
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Symbol</th>
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Sector</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Weight&nbsp;%</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Price</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Prev&nbsp;Close</th>
+                  <th className="px-2 py-2 text-right font-semibold text-muted-foreground">Weight&nbsp;%</th>
+                  <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
+                    Price
+                    <span className="ml-1 font-normal text-muted-foreground/60">(enter)</span>
+                  </th>
+                  <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
+                    Prev&nbsp;Close
+                    <span className="ml-1 font-normal text-muted-foreground/60">(enter)</span>
+                  </th>
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Change&nbsp;%</th>
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Contribution&nbsp;%</th>
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Index&nbsp;Pts</th>
@@ -277,56 +241,77 @@ export default function IndexTracker({ indexName, storageKey, defaultPrevLevel, 
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr
-                    key={r.symbol}
-                    className={cn(
-                      'border-b border-border/40 hover:bg-muted/30 transition-colors',
-                      i % 2 === 1 && 'bg-muted/15',
-                    )}
-                  >
-                    <td className="px-3 py-1.5 text-center text-muted-foreground">{i + 1}</td>
-                    <td className="px-3 py-1.5 font-medium whitespace-nowrap">{r.name}</td>
-                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.symbol}</td>
-                    <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">{r.sector}</td>
+                  <tr key={r.symbol} className={cn(
+                    'border-b border-border/40',
+                    i % 2 === 1 && 'bg-muted/15',
+                  )}>
+                    <td className="px-3 py-1 text-center text-muted-foreground">{i + 1}</td>
+                    <td className="px-3 py-1 font-medium whitespace-nowrap">{r.name}</td>
+                    <td className="px-3 py-1 font-mono text-muted-foreground">{r.symbol}</td>
+                    <td className="px-3 py-1 text-muted-foreground whitespace-nowrap">{r.sector}</td>
 
-                    {/* Weight — editable in edit mode */}
-                    <td className="px-3 py-1.5 text-right">
-                      {editMode ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={r.w}
-                          onChange={e => updateWeight(r.symbol, e.target.value)}
-                          className="w-20 h-6 px-1.5 text-right text-xs border border-emerald-500 rounded
-                                     bg-background tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
-                      ) : (
-                        <span className="tabular-nums">{r.w.toFixed(2)}%</span>
-                      )}
+                    {/* Weight — editable */}
+                    <td className="px-2 py-1 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={r.rd.weight}
+                        onChange={e => update(r.symbol, 'weight', e.target.value)}
+                        className={cn(INPUT_CLS, 'w-20')}
+                      />
                     </td>
 
-                    <td className="px-3 py-1.5 text-right tabular-nums">
-                      {r.q ? fmt2(r.q.ltp) : '—'}
+                    {/* Price — editable */}
+                    <td className="px-2 py-1 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.05"
+                        value={r.rd.price}
+                        onChange={e => update(r.symbol, 'price', e.target.value)}
+                        placeholder="0.00"
+                        className={cn(INPUT_CLS, 'w-24')}
+                      />
                     </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                      {r.q ? fmt2(r.q.prevClose) : '—'}
+
+                    {/* Prev Close — editable */}
+                    <td className="px-2 py-1 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.05"
+                        value={r.rd.prevClose}
+                        onChange={e => update(r.symbol, 'prevClose', e.target.value)}
+                        placeholder="0.00"
+                        className={cn(INPUT_CLS, 'w-24')}
+                      />
                     </td>
-                    <td className={cn('px-3 py-1.5 text-right tabular-nums font-medium',
-                      !r.q ? 'text-muted-foreground' : r.chPct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                      {r.q ? `${signed(r.chPct)}%` : '—'}
+
+                    {/* Change % — auto */}
+                    <td className={cn('px-3 py-1 text-right tabular-nums font-medium',
+                      r.changePct === null ? 'text-muted-foreground/40' :
+                      r.changePct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      {r.changePct !== null ? `${signed(r.changePct)}%` : '—'}
                     </td>
-                    <td className={cn('px-3 py-1.5 text-right tabular-nums',
-                      !r.q ? 'text-muted-foreground' : r.contribPct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                      {r.q ? `${signed(r.contribPct, 4)}%` : '—'}
+
+                    {/* Contribution % — auto */}
+                    <td className={cn('px-3 py-1 text-right tabular-nums',
+                      r.contribPct === null ? 'text-muted-foreground/40' :
+                      r.contribPct >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      {r.contribPct !== null ? `${signed(r.contribPct, 4)}%` : '—'}
                     </td>
-                    <td className={cn('px-3 py-1.5 text-right tabular-nums font-semibold',
-                      !r.q ? 'text-muted-foreground' : r.pts >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                      {r.q ? signed(r.pts) : '—'}
+
+                    {/* Index Pts — auto */}
+                    <td className={cn('px-3 py-1 text-right tabular-nums font-semibold',
+                      r.pts === null ? 'text-muted-foreground/40' :
+                      r.pts >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      {r.pts !== null ? signed(r.pts) : '—'}
                     </td>
                   </tr>
                 ))}
               </tbody>
+
               <tfoot>
                 <tr className="border-t-2 border-border bg-muted/50">
                   <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-muted-foreground">TOTAL</td>
@@ -337,11 +322,11 @@ export default function IndexTracker({ indexName, storageKey, defaultPrevLevel, 
                   <td colSpan={3} />
                   <td className={cn('px-3 py-2 text-right tabular-nums text-xs font-bold',
                     totalContrib >= 0 ? 'text-emerald-700' : 'text-red-700')}>
-                    {pricesLoaded ? `${signed(totalContrib, 4)}%` : '—'}
+                    {hasData ? `${signed(totalContrib, 4)}%` : '—'}
                   </td>
                   <td className={cn('px-3 py-2 text-right tabular-nums font-bold',
-                    indexChg >= 0 ? 'text-emerald-700' : 'text-red-700')}>
-                    {pricesLoaded ? signed(indexChg) : '—'}
+                    (indexChg ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-700')}>
+                    {indexChg !== null ? signed(indexChg) : '—'}
                   </td>
                 </tr>
               </tfoot>
@@ -349,8 +334,12 @@ export default function IndexTracker({ indexName, storageKey, defaultPrevLevel, 
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-muted-foreground">
-          Formula: Estimated Index = Prev Close × (1 + Σ(wᵢ × Δᵢ) / 10000) · where wᵢ is weight in % and Δᵢ is today&apos;s change in %
+        <p className="mt-3 text-xs text-muted-foreground space-x-2">
+          <span>Change % = (Price − Prev Close) / Prev Close × 100</span>
+          <span>·</span>
+          <span>Contribution % = Weight × Change % / 100</span>
+          <span>·</span>
+          <span>Index Pts = Prev Index Level × Contribution % / 100</span>
         </p>
       </div>
     </div>
