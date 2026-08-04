@@ -278,12 +278,36 @@ export default function IndexTracker({
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // Core capture: 3-tier fallback
-  //   1. Dhan ltp (live/last-traded — non-zero during and just after market hours)
-  //   2. Yahoo Finance regularMarketPrice (always returns today's closing price after close)
-  //   3. Price column copy (last resort when neither API responds)
+  // Core capture: 4-tier fallback
+  //   0. /api/price-at-315  -- 1-min Yahoo Finance intraday, close of the 3:15 PM candle
+  //                            This is the ACTUAL traded price at 3:15 PM (not official close)
+  //   1. Dhan ltp           -- live/last-traded during market hours
+  //   2. Yahoo regular price -- regularMarketPrice (= official close, available after hours)
+  //   3. Price column copy   -- last resort
   const captureClose = useCallback(async () => {
-    // Tier 1: Dhan
+    // Tier 0: 1-min intraday → close of 3:15 PM candle (Dhan preferred, YF fallback)
+    try {
+      const res = await fetch(
+        `/api/price-at-315?symbols=${encodeURIComponent(symbolsRef.current)}`,
+        dhan.isConfigured ? { headers: dhan.headers } : undefined,
+      );
+      if (res.ok) {
+        const data  = await res.json() as { prices: Record<string, number> };
+        const valid = Object.entries(data.prices ?? {}).filter(([, p]) => p > 0);
+        if (valid.length > 0) {
+          setRowData(prev => {
+            const next = { ...prev };
+            valid.forEach(([sym, price]) => {
+              if (next[sym]) next[sym] = { ...next[sym], prevClose: String(price) };
+            });
+            return next;
+          });
+          return; // Done
+        }
+      }
+    } catch { /* fall through */ }
+
+    // Tier 1: Dhan ltp (non-zero during / just after market hours)
     if (dhan.isConfigured) {
       try {
         const res = await fetch(
@@ -301,13 +325,13 @@ export default function IndexTracker({
               });
               return next;
             });
-            return; // Done
+            return;
           }
         }
-      } catch { /* fall through to Tier 2 */ }
+      } catch { /* fall through */ }
     }
 
-    // Tier 2: Yahoo Finance (regularMarketPrice = today's close even after market close)
+    // Tier 2: Yahoo Finance regularMarketPrice (official close, available after hours)
     try {
       const res = await fetch(`/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`);
       if (res.ok) {
@@ -321,10 +345,10 @@ export default function IndexTracker({
             });
             return next;
           });
-          return; // Done
+          return;
         }
       }
-    } catch { /* fall through to Tier 3 */ }
+    } catch { /* fall through */ }
 
     // Tier 3: copy from Price column
     setRowData(prev => {

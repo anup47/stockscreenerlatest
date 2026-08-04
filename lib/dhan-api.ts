@@ -1244,3 +1244,83 @@ export async function fetchEquityQuotes(
   }
   return result;
 }
+
+// ── Fetch the close price at 3:15 PM IST today using Dhan intraday 1-min data ──
+
+export async function fetchEquityIntraday315(
+  symbols:     string[],
+  clientId:    string,
+  accessToken: string,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (!symbols.length || !clientId || !accessToken) return result;
+
+  const master = await loadNseEqMaster();
+  const pairs: Array<{ sym: string; secId: number }> = [];
+  for (const s of symbols) {
+    const sym   = s.toUpperCase();
+    const secId = master.get(sym);
+    if (secId) pairs.push({ sym, secId });
+  }
+  if (!pairs.length) return result;
+
+  // Today's date string in IST and 3:15 PM IST as Unix seconds
+  const istMs    = Date.now() + (5 * 3600 + 30 * 60) * 1000;
+  const ist      = new Date(istMs);
+  const todayIST = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
+  // 3:15 PM IST = 09:45 UTC on the same IST calendar date
+  const target315 = Math.floor(new Date(`${todayIST}T09:45:00Z`).getTime() / 1000);
+
+  const BATCH = 10; // Dhan rate limit: ~10 rps
+  for (let i = 0; i < pairs.length; i += BATCH) {
+    const batch   = pairs.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(
+      batch.map(async ({ sym, secId }) => {
+        const ctrl = new AbortController();
+        const t    = setTimeout(() => ctrl.abort(), 10_000);
+        try {
+          const res = await fetch(`${DHAN_BASE}/v2/charts/intraday`, {
+            method:  'POST',
+            headers: dhanHeaders(clientId, accessToken),
+            body:    JSON.stringify({
+              securityId:      String(secId),
+              exchangeSegment: 'NSE_EQ',
+              instrument:      'EQUITY',
+              interval:        '1',
+              fromDate:        todayIST,
+              toDate:          todayIST,
+            }),
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          if (!res.ok) return { sym, price: 0 };
+
+          const data       = await res.json() as { close?: number[]; start_Time?: number[] };
+          const timestamps = data.start_Time ?? [];
+          const closes     = data.close       ?? [];
+
+          // Candle closest to 3:15 PM within ±2 minutes
+          let bestIdx  = -1;
+          let bestDiff = Infinity;
+          for (let j = 0; j < timestamps.length; j++) {
+            const diff = Math.abs(timestamps[j] - target315);
+            if (diff < bestDiff && diff <= 120) { bestDiff = diff; bestIdx = j; }
+          }
+
+          const price = bestIdx >= 0 ? (closes[bestIdx] ?? 0) : 0;
+          return { sym, price: price > 0 ? Math.round(price * 100) / 100 : 0 };
+        } catch {
+          clearTimeout(t);
+          return { sym, price: 0 };
+        }
+      }),
+    );
+
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value.price > 0)
+        result.set(r.value.sym, r.value.price);
+    }
+  }
+
+  return result;
+}
