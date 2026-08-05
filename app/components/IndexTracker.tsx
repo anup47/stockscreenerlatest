@@ -226,96 +226,78 @@ export default function IndexTracker({
   }, [hydrated, dhan.isHydrated, dhan.isConfigured, fetchPrevClose]);
 
   // ── Live LTP polling ──────────────────────────────────────────────
-  // Always fetches once on load; polls every 5 s during market hours.
-  // After market close Dhan returns ltp=0 — we keep the last known price
-  // and fall back to Yahoo regularMarketPrice if the column is still empty.
+  // Runs once on load (always) + every 5 s during market hours.
+  // Tier 1: Dhan LTP (non-zero during market hours).
+  // Tier 2: Yahoo regularMarketPrice — always available, used as fallback.
   useEffect(() => {
     if (!hydrated || !dhan.isHydrated) return;
-
-    let active = true; // guard against setting state after unmount
+    let active = true;
 
     async function fetchLive() {
       const open = isMarketOpen();
-      if (!open && lastTime !== '') { setStatus('closed'); return; } // already loaded once
-
       if (open) setStatus('fetching');
 
-      try {
-        if (dhan.isConfigured) {
+      let gotPrices = false;
+
+      // Tier 1 — Dhan LTP (accurate live price during market hours)
+      if (dhan.isConfigured) {
+        try {
           const res = await fetch(
             `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
             { headers: dhan.headers },
           );
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data    = await res.json() as DhanResp;
-          const entries = Object.entries(data.quotes ?? {});
-          if (entries.length === 0) { if (open) setStatus('error'); return; }
-
-          const hasLive = entries.some(([, q]) => q.ltp > 0);
-
-          if (hasLive) {
-            // Market is open and Dhan has real prices
-            if (!active) return;
-            setRowData(prev => {
-              const next = { ...prev };
-              entries.forEach(([sym, q]) => {
-                if (next[sym] && q.ltp > 0)
-                  next[sym] = { ...next[sym], price: String(q.ltp) };
-              });
-              return next;
-            });
-            setLastTime(istTimeStr());
-            setStatus('live');
-          } else {
-            // ltp = 0: market just closed or pre-open; fall back to Yahoo for initial load
-            if (!active) return;
-            if (lastTime === '') {
-              // First load — populate from Yahoo regularMarketPrice so column isn't blank
-              const yf = await fetch(
-                `/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
-              );
-              if (yf.ok) {
-                const yfData = await yf.json() as YFResp;
-                setRowData(prev => {
-                  const next = { ...prev };
-                  Object.entries(yfData.prices ?? {}).forEach(([sym, q]) => {
-                    if (next[sym] && q.price > 0 && next[sym].price === '')
-                      next[sym] = { ...next[sym], price: String(q.price) };
-                  });
-                  return next;
+          if (res.ok) {
+            const data    = await res.json() as DhanResp;
+            const entries = Object.entries(data.quotes ?? {}).filter(([, q]) => q.ltp > 0);
+            if (entries.length > 0 && active) {
+              setRowData(prev => {
+                const next = { ...prev };
+                entries.forEach(([sym, q]) => {
+                  if (next[sym]) next[sym] = { ...next[sym], price: String(q.ltp) };
                 });
-                setLastTime(istTimeStr());
-              }
+                return next;
+              });
+              setLastTime(istTimeStr());
+              setStatus(open ? 'live' : 'closed');
+              gotPrices = true;
             }
-            setStatus('closed');
           }
-        } else {
-          // No Dhan — always use Yahoo
+        } catch { /* fall through to Yahoo */ }
+      }
+
+      // Tier 2 — Yahoo regularMarketPrice (official close; works any time of day)
+      if (!gotPrices) {
+        try {
           const res = await fetch(
             `/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
           );
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data    = await res.json() as YFResp;
-          const entries = Object.entries(data.prices ?? {});
-          if (entries.length === 0) { setStatus('error'); return; }
-          if (!active) return;
-          setRowData(prev => {
-            const next = { ...prev };
-            entries.forEach(([sym, q]) => {
-              if (next[sym] && q.price > 0)
-                next[sym] = { ...next[sym], price: String(q.price) };
-            });
-            return next;
-          });
-          setLastTime(istTimeStr());
-          setStatus(open ? 'live' : 'closed');
-        }
-      } catch { if (active) setStatus('error'); }
+          if (res.ok) {
+            const data    = await res.json() as YFResp;
+            const entries = Object.entries(data.prices ?? {}).filter(([, q]) => q.price > 0);
+            if (entries.length > 0 && active) {
+              setRowData(prev => {
+                const next = { ...prev };
+                entries.forEach(([sym, q]) => {
+                  if (next[sym]) next[sym] = { ...next[sym], price: String(q.price) };
+                });
+                return next;
+              });
+              setLastTime(istTimeStr());
+              setStatus(open ? 'live' : 'closed');
+              gotPrices = true;
+            }
+          }
+        } catch { /* nothing */ }
+      }
+
+      if (active && !gotPrices) setStatus(open ? 'error' : 'closed');
     }
 
-    fetchLive();
-    // Poll every 5 s during market hours; stop after close (re-evaluate each tick)
-    const timer = setInterval(() => { if (isMarketOpen()) fetchLive(); else setStatus('closed'); }, 5_000);
+    fetchLive(); // immediate load on mount
+    const timer = setInterval(() => {
+      if (isMarketOpen()) fetchLive();
+      else setStatus('closed');
+    }, 5_000);
     return () => { active = false; clearInterval(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, dhan.isHydrated, dhan.isConfigured, dhan.accessToken]);
