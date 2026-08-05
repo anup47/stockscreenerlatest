@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RotateCcw, X, Clock, RefreshCw } from 'lucide-react';
+import { RotateCcw, X, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
@@ -28,7 +28,6 @@ interface Props {
 }
 
 type LiveStatus = 'closed' | 'fetching' | 'live' | 'error';
-type PcStatus   = 'idle' | 'fetching' | 'done' | 'error';
 
 // IST = UTC + 5h 30m
 function nowIst(): { mins: number; ms: number; day: number; ist: Date } {
@@ -94,7 +93,6 @@ const INPUT_CLS =
 
 interface DhanQuote { ltp: number; prevClose: number; change: number; changePct: number; }
 interface DhanResp  { quotes: Record<string, DhanQuote>; }
-interface YFResp    { prices: Record<string, { price: number }>; }
 
 export default function IndexTracker({
   indexName, storageKey, defaultPrevLevel, constituents,
@@ -114,14 +112,12 @@ export default function IndexTracker({
   const [hydrated, setHydrated]      = useState(false);
   const [liveStatus, setStatus]      = useState<LiveStatus>('closed');
   const [lastTime, setLastTime]      = useState('');
-  const [pcStatus, setPcStatus]          = useState<PcStatus>('idle');
   const [captureStatus, setCaptureStatus] = useState<'idle' | 'fetching' | 'done' | 'error'>('idle');
   const [captureSource, setCaptureSource] = useState('');  // which tier/source succeeded
   const [lastCapture, setLastCapture]     = useState(''); // IST time string of last 3:15 auto-capture
 
   const dhan         = useDhanCredentials();
   const symbolsRef   = useRef(constituents.map(c => c.symbol).join(','));
-  const hasFetchedPC = useRef(false);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Always-current dhan state for the capture timer (avoids stale closure)
   const dhanRef         = useRef({ isConfigured: dhan.isConfigured, headers: dhan.headers });
@@ -185,45 +181,6 @@ export default function IndexTracker({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, storageKey]);
 
-  // ── Fetch prevClose from Dhan (yesterday's official close) ────────
-  const fetchPrevClose = useCallback(async () => {
-    if (!dhan.isConfigured) return;
-    setPcStatus('fetching');
-    try {
-      const res = await fetch(
-        `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
-        { headers: dhan.headers },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as DhanResp;
-      const entries = Object.entries(data.quotes ?? {});
-      if (entries.length === 0) { setPcStatus('error'); return; }
-      setRowData(prev => {
-        const next = { ...prev };
-        entries.forEach(([sym, q]) => {
-          if (next[sym] && q.prevClose > 0)
-            next[sym] = { ...next[sym], prevClose: String(q.prevClose) };
-        });
-        return next;
-      });
-      setPcStatus('done');
-    } catch { setPcStatus('error'); }
-  }, [dhan.isConfigured, dhan.headers]);
-
-  // Auto-fetch Dhan prevClose once on first load (only if no 3:15 capture for today)
-  useEffect(() => {
-    if (!hydrated || !dhan.isHydrated || !dhan.isConfigured) return;
-    if (hasFetchedPC.current) return;
-    // Only auto-populate from Dhan if there is no recent auto-capture
-    // (i.e., on a fresh start before today's 3:15 PM has fired)
-    const { mins, day } = nowIst();
-    const alreadyCapturedToday = lastCapture !== '' && mins >= 15 * 60 + 15 && day !== 0 && day !== 6;
-    if (!alreadyCapturedToday) {
-      hasFetchedPC.current = true;
-      fetchPrevClose();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, dhan.isHydrated, dhan.isConfigured, fetchPrevClose]);
 
   // ── Live LTP polling ──────────────────────────────────────────────
   // Runs once on load (always) + every 5 s during market hours.
@@ -275,22 +232,22 @@ export default function IndexTracker({
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // Core capture: 4-tier fallback
-  //   0. /api/price-at-315  -- 1-min intraday, pre-3:14 PM window (actual traded price)
-  //   1. Dhan ltp           -- live/last-traded during market hours
-  //   2. Yahoo regular price -- regularMarketPrice (= official close, after hours)
-  //   3. Price column copy   -- last resort
+  // Capture Prev Close = Dhan intraday LTP at 3:15 PM IST.
+  // The route picks yesterday's session if before 3:15 PM today, today's if after.
   const captureClose = useCallback(async (silent = false) => {
+    if (!dhan.isConfigured) {
+      if (!silent) { setCaptureStatus('error'); setCaptureSource('Dhan not configured'); }
+      return;
+    }
     if (!silent) setCaptureStatus('fetching');
 
-    // Tier 0: pre-3:14 PM intraday price (Dhan or Yahoo, corrected window)
     try {
       const res = await fetch(
         `/api/price-at-315?symbols=${encodeURIComponent(symbolsRef.current)}`,
-        dhan.isConfigured ? { headers: dhan.headers } : undefined,
+        { headers: dhan.headers },
       );
       if (res.ok) {
-        const data  = await res.json() as { prices: Record<string, number>; source?: string };
+        const data  = await res.json() as { prices: Record<string, number>; date?: string };
         const valid = Object.entries(data.prices ?? {}).filter(([, p]) => p > 0);
         if (valid.length > 0) {
           setRowData(prev => {
@@ -300,67 +257,16 @@ export default function IndexTracker({
             });
             return next;
           });
-          if (!silent) { setCaptureStatus('done'); setCaptureSource(`${data.source ?? 'intraday'} (${valid.length} stocks)`); }
-          return;
-        }
-      }
-    } catch { /* fall through */ }
-
-    // Tier 1: Dhan ltp (non-zero during / just after market hours)
-    if (dhan.isConfigured) {
-      try {
-        const res = await fetch(
-          `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
-          { headers: dhan.headers },
-        );
-        if (res.ok) {
-          const data  = await res.json() as DhanResp;
-          const valid = Object.entries(data.quotes ?? {}).filter(([, q]) => q.ltp > 0);
-          if (valid.length > 0) {
-            setRowData(prev => {
-              const next = { ...prev };
-              valid.forEach(([sym, q]) => {
-                if (next[sym]) next[sym] = { ...next[sym], prevClose: String(q.ltp) };
-              });
-              return next;
-            });
-            if (!silent) { setCaptureStatus('done'); setCaptureSource(`Dhan LTP (${valid.length} stocks)`); }
-            return;
+          if (!silent) {
+            setCaptureStatus('done');
+            setCaptureSource(`Dhan 3:15 PM ${data.date ?? ''} (${valid.length} stocks)`);
           }
-        }
-      } catch { /* fall through */ }
-    }
-
-    // Tier 2: Yahoo Finance regularMarketPrice (official close, available after hours)
-    try {
-      const res = await fetch(`/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`);
-      if (res.ok) {
-        const data  = await res.json() as YFResp;
-        const valid = Object.entries(data.prices ?? {}).filter(([, q]) => q.price > 0);
-        if (valid.length > 0) {
-          setRowData(prev => {
-            const next = { ...prev };
-            valid.forEach(([sym, q]) => {
-              if (next[sym]) next[sym] = { ...next[sym], prevClose: String(q.price) };
-            });
-            return next;
-          });
-          if (!silent) { setCaptureStatus('done'); setCaptureSource(`Yahoo official close (${valid.length} stocks)`); }
           return;
         }
       }
-    } catch { /* fall through */ }
+    } catch { /* nothing */ }
 
-    // Tier 3: copy from Price column
-    setRowData(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(sym => {
-        if (next[sym].price !== '')
-          next[sym] = { ...next[sym], prevClose: next[sym].price };
-      });
-      return next;
-    });
-    if (!silent) { setCaptureStatus('error'); setCaptureSource('Fallback: copied Price column'); }
+    if (!silent) { setCaptureStatus('error'); setCaptureSource('Dhan returned no data'); }
   }, [dhan.isConfigured, dhan.headers]);
 
   // Keep ref current so the auto-capture timer always calls latest version
@@ -384,7 +290,6 @@ export default function IndexTracker({
     });
     setPrevStr(String(defaultPrevLevel));
     setLastCapture('');
-    hasFetchedPC.current = false;
     localStorage.removeItem(LS_CAPTURE);
   };
 
@@ -461,25 +366,7 @@ export default function IndexTracker({
                          focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
 
-            {/* Sync prevClose from Dhan (yesterday's official close) */}
-            {dhan.isConfigured && (
-              <button
-                onClick={() => fetchPrevClose()}
-                disabled={pcStatus === 'fetching'}
-                title="Fetch yesterday's official close from Dhan (overrides today's 3:15 capture if used)"
-                className={cn(
-                  'flex items-center gap-1.5 h-7 px-3 text-xs rounded border font-medium transition-colors',
-                  pcStatus === 'fetching'
-                    ? 'border-blue-300 text-blue-400 cursor-not-allowed'
-                    : 'border-blue-400 text-blue-600 hover:bg-blue-50',
-                )}
-              >
-                <RefreshCw className={cn('size-3', pcStatus === 'fetching' && 'animate-spin')} />
-                {pcStatus === 'fetching' ? 'Syncing...' : 'Sync from Dhan'}
-              </button>
-            )}
-
-            {/* Manual capture — fetches ~3:13 PM intraday price → Prev Close */}
+            {/* Set Prev Close = Dhan intraday LTP at 3:15 PM (yesterday if before 3:15, today if after) */}
             <button
               onClick={setAsClose}
               disabled={captureStatus === 'fetching'}

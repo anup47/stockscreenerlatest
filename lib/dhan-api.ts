@@ -1251,6 +1251,7 @@ export async function fetchEquityIntraday315(
   symbols:     string[],
   clientId:    string,
   accessToken: string,
+  date?:       string, // 'YYYY-MM-DD' IST; defaults to today IST
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   if (!symbols.length || !clientId || !accessToken) return result;
@@ -1264,12 +1265,15 @@ export async function fetchEquityIntraday315(
   }
   if (!pairs.length) return result;
 
-  // Today's date string in IST
-  const istMs    = Date.now() + (5 * 3600 + 30 * 60) * 1000;
-  const ist      = new Date(istMs);
-  const todayIST = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
+  // Use provided date or fall back to today in IST
+  let targetDate = date;
+  if (!targetDate) {
+    const istMs = Date.now() + (5 * 3600 + 30 * 60) * 1000;
+    const ist   = new Date(istMs);
+    targetDate  = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
+  }
   // 3:15 PM IST = 09:45:00 UTC in epoch seconds
-  const target315Sec = Math.floor(new Date(`${todayIST}T09:45:00Z`).getTime() / 1000);
+  const target315Sec = Math.floor(new Date(`${targetDate}T09:45:00Z`).getTime() / 1000);
 
   // Run all in parallel — wall-clock = longest single call, not sum
   const settled = await Promise.allSettled(
@@ -1285,8 +1289,8 @@ export async function fetchEquityIntraday315(
             exchangeSegment: 'NSE_EQ',
             instrument:      'EQUITY',
             interval:        '1',
-            fromDate:        todayIST,
-            toDate:          todayIST,
+            fromDate:        targetDate,
+            toDate:          targetDate,
           }),
           signal: ctrl.signal,
         });
