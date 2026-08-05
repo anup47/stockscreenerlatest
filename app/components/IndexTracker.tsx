@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RotateCcw, Zap, Clock, History } from 'lucide-react';
+import { RotateCcw, Zap, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
@@ -112,8 +112,6 @@ export default function IndexTracker({
   const [captureStatus, setCaptureStatus] = useState<'idle' | 'fetching' | 'done' | 'error'>('idle');
   const [captureSource, setCaptureSource] = useState('');
   const [lastCapture, setLastCapture]     = useState('');
-  // tracks which "mode" the LTP column is showing (live prices vs yesterday's close), for badge only
-  const [ltpSource, setLtpSource]         = useState<'live' | 'yesterday'>('live');
 
   const dhan            = useDhanCredentials();
   const symbolsRef      = useRef(constituents.map(c => c.symbol).join(','));
@@ -220,7 +218,6 @@ export default function IndexTracker({
           });
           setLastTime(istTimeStr());
           const hasLtp = entries.some(([, q]) => q.ltp > 0);
-          if (hasLtp) setLtpSource('live');
           setStatus(open && hasLtp ? 'live' : 'closed');
         } else if (active) {
           setStatus('closed');
@@ -280,33 +277,14 @@ export default function IndexTracker({
 
   useEffect(() => { captureCloseRef.current = captureClose; }, [captureClose]);
 
-  // Load Live Prices — immediate Dhan LTP fetch → LTP column
-  const handleLoadLive = () => {
-    setLtpSource('live');
-    void fetchLiveRef.current();
-  };
-
-  // Load Yesterday's Close — copies dhanPrevClose → LTP column (no API call, Ref Close unchanged)
-  const handleLoadYesterdayClose = () => {
-    setRowData(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(sym => {
-        if (next[sym].dhanPrevClose !== '') {
-          next[sym] = { ...next[sym], price: next[sym].dhanPrevClose };
-        }
-      });
-      return next;
-    });
-    setLtpSource('yesterday');
-    setStatus('closed');
-  };
+  // Refresh LTP — immediate Dhan fetch
+  const handleLoadLive = () => void fetchLiveRef.current();
 
   const resetAll = () => {
     const d: Record<string, RowData> = {};
     constituents.forEach(c => { d[c.symbol] = initRow(c); });
     setRowData(d);
     setPrevStr(String(defaultPrevLevel));
-    setLtpSource('live');
     setLastCapture('');
     setCaptureStatus('idle');
     setCaptureSource('');
@@ -345,14 +323,9 @@ export default function IndexTracker({
   const { mins: curMins, day: curDay } = nowIst();
   const marketClosed315Today = curMins >= 15 * 60 + 15 && curDay !== 0 && curDay !== 6;
 
-  // LTP column badge label
-  const ltpBadgeLabel = liveStatus === 'live'     ? 'live'
-                       : liveStatus === 'fetching' ? 'updating'
-                       : ltpSource  === 'yesterday'? 'yesterday'
-                       : 'live prices';
-  const ltpBadgeCls   = liveStatus === 'live'     ? 'bg-emerald-100 text-emerald-700'
+  const ltpBadgeLabel = liveStatus === 'live' ? 'live' : liveStatus === 'fetching' ? 'updating' : 'live prices';
+  const ltpBadgeCls   = liveStatus === 'live' ? 'bg-emerald-100 text-emerald-700'
                        : liveStatus === 'fetching' ? 'bg-amber-100 text-amber-700'
-                       : ltpSource  === 'yesterday'? 'bg-violet-100 text-violet-700'
                        : 'bg-blue-50 text-blue-600';
 
   if (!hydrated) return null;
@@ -411,18 +384,7 @@ export default function IndexTracker({
               Load Live Prices
             </button>
 
-            {/* Load Yesterday's Close — copies Ref Close (dhanPrevClose) → LTP column, no API call */}
-            <button
-              onClick={handleLoadYesterdayClose}
-              title="Copies Dhan's official previous session close into the LTP column. Ref Close is unchanged."
-              className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-violet-400
-                         text-violet-700 hover:bg-violet-50 font-medium transition-colors"
-            >
-              <History className="size-3" />
-              Load Yesterday&apos;s Close
-            </button>
-
-            {/* Internal: capture 3:15 PM prices (stored in prevClose, used by auto-capture timer) */}
+            {/* Capture 3:15 PM prices → Ref Close (auto-fires daily at 3:15 PM IST) */}
             <button
               onClick={() => { setCaptureStatus('idle'); setCaptureSource(''); void captureClose(false); }}
               disabled={captureStatus === 'fetching'}
@@ -462,11 +424,7 @@ export default function IndexTracker({
             )}
             {liveStatus === 'fetching' && <><span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /><span className="text-amber-600">Fetching...</span></>}
             {liveStatus === 'error'    && <><span className="h-2 w-2 rounded-full bg-red-400" /><span className="text-red-500">Feed error -- retrying</span></>}
-            {liveStatus === 'closed'   && (
-              ltpSource === 'yesterday'
-                ? <><span className="h-2 w-2 rounded-full bg-violet-400" /><span className="text-violet-600 font-medium">LTP showing yesterday&apos;s close</span></>
-                : <><span className="h-2 w-2 rounded-full bg-muted-foreground/30" /><span>Market closed</span></>
-            )}
+            {liveStatus === 'closed'   && <><span className="h-2 w-2 rounded-full bg-muted-foreground/30" /><span>Market closed</span></>}
           </span>
 
           <span>·</span>
@@ -542,7 +500,7 @@ export default function IndexTracker({
                         className={cn(INPUT_CLS, 'w-20')} />
                     </td>
 
-                    {/* LTP cell: pulsing when live, read-only yesterday badge, or editable input */}
+                    {/* LTP cell: pulsing green when live, editable input otherwise */}
                     <td className="px-2 py-1 text-right">
                       {liveStatus === 'live' && r.rd.price !== '' ? (
                         <div className="inline-flex items-center justify-end gap-1 w-24">
@@ -554,10 +512,6 @@ export default function IndexTracker({
                             {parseFloat(r.rd.price).toFixed(2)}
                           </span>
                         </div>
-                      ) : ltpSource === 'yesterday' && r.rd.price !== '' ? (
-                        <span className="tabular-nums font-semibold text-violet-700 block text-right pr-1">
-                          {parseFloat(r.rd.price).toFixed(2)}
-                        </span>
                       ) : (
                         <input type="number" min="0" step="0.05" value={r.rd.price}
                           onChange={e => update(r.symbol, 'price', e.target.value)}
