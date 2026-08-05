@@ -313,14 +313,15 @@ export default function IndexTracker({
     localStorage.removeItem(LS_CAPTURE);
   };
 
-  // Derived calculations — Chg% always = (LTP price - Dhan prevClose) / Dhan prevClose
+  // Derived calculations — Chg% = (LTP - 3:15 PM ref) / 3:15 PM ref
   const prevLevel = toNum(prevLevelStr) ?? defaultPrevLevel;
 
   const rows = constituents.map(c => {
     const rd     = rowData[c.symbol] ?? initRow(c);
     const w      = toNum(rd.weight) ?? c.defaultWeight;
     const price  = toNum(rd.price);
-    const prevCl = toNum(rd.dhanPrevClose);
+    // Reference = 3:15 PM captured price (prevClose field), NOT Dhan's official close
+    const prevCl = toNum(rd.prevClose);
     let changePct: number | null = null;
     let contribPct: number | null = null;
     let pts: number | null = null;
@@ -368,7 +369,8 @@ export default function IndexTracker({
             <div>
               <h1 className="text-lg font-bold">{indexName}</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Ref Close = Dhan prev session official close (auto-updated) &nbsp;·&nbsp;
+                Ref Close = 3:15 PM price (auto-captured daily) &nbsp;·&nbsp;
+                LTP Yesterday = official 3:40 PM adjusted close &nbsp;·&nbsp;
                 Chg% = (LTP - Ref Close) / Ref Close
               </p>
             </div>
@@ -516,9 +518,9 @@ export default function IndexTracker({
                     </span>
                   </th>
 
-                  {/* Ref Close — always Dhan official prevClose, never touched by LTP buttons */}
+                  {/* Ref Close — 3:15 PM captured price, auto-captured daily, editable */}
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
-                    Ref Close&nbsp;<span className="font-normal text-[10px] text-muted-foreground/50">dhan</span>
+                    Ref Close&nbsp;<span className="font-normal text-[10px] text-amber-600">3:15 PM</span>
                   </th>
 
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Chg %</th>
@@ -564,13 +566,13 @@ export default function IndexTracker({
                       )}
                     </td>
 
-                    {/* Ref Close: editable, auto-populated by live poll, never touched by LTP buttons */}
+                    {/* Ref Close: 3:15 PM captured price — populated by Capture 3:15 PM / auto-capture */}
                     <td className="px-2 py-1 text-right">
-                      <input type="number" min="0" step="0.05" value={r.rd.dhanPrevClose}
-                        onChange={e => update(r.symbol, 'dhanPrevClose', e.target.value)}
+                      <input type="number" min="0" step="0.05" value={r.rd.prevClose}
+                        onChange={e => update(r.symbol, 'prevClose', e.target.value)}
                         placeholder="—"
                         className={cn(INPUT_CLS, 'w-24',
-                          r.rd.dhanPrevClose !== '' && 'border-blue-200/60')} />
+                          r.rd.prevClose !== '' && 'border-amber-200/60')} />
                     </td>
 
                     <td className={cn('px-3 py-1 text-right tabular-nums font-medium',
@@ -617,8 +619,8 @@ export default function IndexTracker({
         </div>
 
         <p className="mt-3 text-xs text-muted-foreground">
-          LTP = live price from Dhan (5s auto-refresh) or yesterday&apos;s close when loaded via button&nbsp;·&nbsp;
-          Ref Close = Dhan official prev session close (auto-populated, editable)&nbsp;·&nbsp;
+          LTP = Dhan live price (5s) or official 3:40 PM adjusted close (via Load Yesterday&apos;s Close)&nbsp;·&nbsp;
+          Ref Close = 3:15 PM continuous-session price, auto-captured at 3:15 PM daily (editable)&nbsp;·&nbsp;
           Chg% = (LTP - Ref Close) / Ref Close
         </p>
       </div>
