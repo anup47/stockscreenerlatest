@@ -225,13 +225,20 @@ export default function IndexTracker({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, dhan.isHydrated, dhan.isConfigured, fetchPrevClose]);
 
-  // ── Live price polling (every 15 s during market hours) ──────────
+  // ── Live LTP polling ──────────────────────────────────────────────
+  // Always fetches once on load; polls every 5 s during market hours.
+  // After market close Dhan returns ltp=0 — we keep the last known price
+  // and fall back to Yahoo regularMarketPrice if the column is still empty.
   useEffect(() => {
     if (!hydrated || !dhan.isHydrated) return;
 
+    let active = true; // guard against setting state after unmount
+
     async function fetchLive() {
-      if (!isMarketOpen()) { setStatus('closed'); return; }
-      setStatus('fetching');
+      const open = isMarketOpen();
+      if (!open && lastTime !== '') { setStatus('closed'); return; } // already loaded once
+
+      if (open) setStatus('fetching');
 
       try {
         if (dhan.isConfigured) {
@@ -240,39 +247,76 @@ export default function IndexTracker({
             { headers: dhan.headers },
           );
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json() as DhanResp;
+          const data    = await res.json() as DhanResp;
           const entries = Object.entries(data.quotes ?? {});
-          if (entries.length === 0) { setStatus('error'); return; }
-          setRowData(prev => {
-            const next = { ...prev };
-            entries.forEach(([sym, q]) => {
-              if (next[sym] && q.ltp > 0)
-                next[sym] = { ...next[sym], price: String(q.ltp) };
+          if (entries.length === 0) { if (open) setStatus('error'); return; }
+
+          const hasLive = entries.some(([, q]) => q.ltp > 0);
+
+          if (hasLive) {
+            // Market is open and Dhan has real prices
+            if (!active) return;
+            setRowData(prev => {
+              const next = { ...prev };
+              entries.forEach(([sym, q]) => {
+                if (next[sym] && q.ltp > 0)
+                  next[sym] = { ...next[sym], price: String(q.ltp) };
+              });
+              return next;
             });
-            return next;
-          });
+            setLastTime(istTimeStr());
+            setStatus('live');
+          } else {
+            // ltp = 0: market just closed or pre-open; fall back to Yahoo for initial load
+            if (!active) return;
+            if (lastTime === '') {
+              // First load — populate from Yahoo regularMarketPrice so column isn't blank
+              const yf = await fetch(
+                `/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
+              );
+              if (yf.ok) {
+                const yfData = await yf.json() as YFResp;
+                setRowData(prev => {
+                  const next = { ...prev };
+                  Object.entries(yfData.prices ?? {}).forEach(([sym, q]) => {
+                    if (next[sym] && q.price > 0 && next[sym].price === '')
+                      next[sym] = { ...next[sym], price: String(q.price) };
+                  });
+                  return next;
+                });
+                setLastTime(istTimeStr());
+              }
+            }
+            setStatus('closed');
+          }
         } else {
-          const res = await fetch(`/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`);
+          // No Dhan — always use Yahoo
+          const res = await fetch(
+            `/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
+          );
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json() as YFResp;
+          const data    = await res.json() as YFResp;
           const entries = Object.entries(data.prices ?? {});
           if (entries.length === 0) { setStatus('error'); return; }
+          if (!active) return;
           setRowData(prev => {
             const next = { ...prev };
             entries.forEach(([sym, q]) => {
-              if (next[sym]) next[sym] = { ...next[sym], price: String(q.price) };
+              if (next[sym] && q.price > 0)
+                next[sym] = { ...next[sym], price: String(q.price) };
             });
             return next;
           });
+          setLastTime(istTimeStr());
+          setStatus(open ? 'live' : 'closed');
         }
-        setLastTime(istTimeStr());
-        setStatus('live');
-      } catch { setStatus('error'); }
+      } catch { if (active) setStatus('error'); }
     }
 
     fetchLive();
-    const timer = setInterval(fetchLive, 15_000);
-    return () => clearInterval(timer);
+    // Poll every 5 s during market hours; stop after close (re-evaluate each tick)
+    const timer = setInterval(() => { if (isMarketOpen()) fetchLive(); else setStatus('closed'); }, 5_000);
+    return () => { active = false; clearInterval(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, dhan.isHydrated, dhan.isConfigured, dhan.accessToken]);
 
@@ -528,7 +572,7 @@ export default function IndexTracker({
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                <span className="text-emerald-600 font-medium">LIVE {lastTime} IST</span>
+                <span className="text-emerald-600 font-medium">LIVE · {dhan.isConfigured ? 'Dhan LTP' : 'Yahoo'} · updated {lastTime} IST · 5s</span>
               </>
             )}
             {liveStatus === 'fetching' && <><span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /><span className="text-amber-600">Fetching...</span></>}
@@ -584,10 +628,13 @@ export default function IndexTracker({
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Sector</th>
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">Wt %</th>
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
-                    Price
+                    LTP
                     <span className={cn('ml-1 font-normal px-1 rounded',
-                      liveStatus === 'live' ? 'bg-emerald-100 text-emerald-700' : 'text-muted-foreground/40')}>
-                      {liveStatus === 'live' ? (dhan.isConfigured ? 'dhan' : 'live') : 'auto'}
+                      liveStatus === 'live'    ? 'bg-emerald-100 text-emerald-700' :
+                      liveStatus === 'fetching'? 'bg-amber-100 text-amber-700' :
+                      'text-muted-foreground/40')}>
+                      {liveStatus === 'live'    ? (dhan.isConfigured ? 'dhan live' : 'live') :
+                       liveStatus === 'fetching'? 'updating' : 'manual'}
                     </span>
                   </th>
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
@@ -617,11 +664,24 @@ export default function IndexTracker({
                     </td>
 
                     <td className="px-2 py-1 text-right">
-                      <input type="number" min="0" step="0.05" value={r.rd.price}
-                        onChange={e => update(r.symbol, 'price', e.target.value)}
-                        placeholder="—"
-                        className={cn(INPUT_CLS, 'w-24',
-                          liveStatus === 'live' && r.rd.price !== '' && 'border-emerald-400/60')} />
+                      {liveStatus === 'live' && r.rd.price !== '' ? (
+                        /* Live display — read-only with pulsing green dot */
+                        <div className="inline-flex items-center justify-end gap-1 w-24">
+                          <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          </span>
+                          <span className="tabular-nums font-semibold text-emerald-700">
+                            {parseFloat(r.rd.price).toFixed(2)}
+                          </span>
+                        </div>
+                      ) : (
+                        /* Editable fallback when market closed / no data */
+                        <input type="number" min="0" step="0.05" value={r.rd.price}
+                          onChange={e => update(r.symbol, 'price', e.target.value)}
+                          placeholder="—"
+                          className={cn(INPUT_CLS, 'w-24')} />
+                      )}
                     </td>
 
                     <td className="px-2 py-1 text-right">
@@ -676,9 +736,9 @@ export default function IndexTracker({
         </div>
 
         <p className="mt-3 text-xs text-muted-foreground">
-          Prev Close = auto-captured at 3:15 PM IST from the live Price column &nbsp;·&nbsp;
-          Chg% = (Price - Prev Close) / Prev Close x 100 &nbsp;·&nbsp;
-          Contrib% = Weight x Chg% / 100
+          LTP = live last-traded price from Dhan (5s refresh during market hours) &nbsp;·&nbsp;
+          Prev Close = actual ~3:13 PM price, auto-captured at 3:15 PM each day &nbsp;·&nbsp;
+          Chg% = (LTP - Prev Close) / Prev Close &times; 100
         </p>
       </div>
     </div>
