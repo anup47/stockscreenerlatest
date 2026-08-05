@@ -235,62 +235,31 @@ export default function IndexTracker({
 
     async function fetchLive() {
       const open = isMarketOpen();
+      if (!dhan.isConfigured) { setStatus('closed'); return; }
       if (open) setStatus('fetching');
 
-      let gotPrices = false;
-
-      // Tier 1 — Dhan LTP (accurate live price during market hours)
-      if (dhan.isConfigured) {
-        try {
-          const res = await fetch(
-            `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
-            { headers: dhan.headers },
-          );
-          if (res.ok) {
-            const data    = await res.json() as DhanResp;
-            const entries = Object.entries(data.quotes ?? {}).filter(([, q]) => q.ltp > 0);
-            if (entries.length > 0 && active) {
-              setRowData(prev => {
-                const next = { ...prev };
-                entries.forEach(([sym, q]) => {
-                  if (next[sym]) next[sym] = { ...next[sym], price: String(q.ltp) };
-                });
-                return next;
-              });
-              setLastTime(istTimeStr());
-              setStatus(open ? 'live' : 'closed');
-              gotPrices = true;
-            }
-          }
-        } catch { /* fall through to Yahoo */ }
-      }
-
-      // Tier 2 — Yahoo regularMarketPrice (official close; works any time of day)
-      if (!gotPrices) {
-        try {
-          const res = await fetch(
-            `/api/live-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
-          );
-          if (res.ok) {
-            const data    = await res.json() as YFResp;
-            const entries = Object.entries(data.prices ?? {}).filter(([, q]) => q.price > 0);
-            if (entries.length > 0 && active) {
-              setRowData(prev => {
-                const next = { ...prev };
-                entries.forEach(([sym, q]) => {
-                  if (next[sym]) next[sym] = { ...next[sym], price: String(q.price) };
-                });
-                return next;
-              });
-              setLastTime(istTimeStr());
-              setStatus(open ? 'live' : 'closed');
-              gotPrices = true;
-            }
-          }
-        } catch { /* nothing */ }
-      }
-
-      if (active && !gotPrices) setStatus(open ? 'error' : 'closed');
+      try {
+        const res = await fetch(
+          `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
+          { headers: dhan.headers },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data    = await res.json() as DhanResp;
+        const entries = Object.entries(data.quotes ?? {}).filter(([, q]) => q.ltp > 0);
+        if (entries.length > 0 && active) {
+          setRowData(prev => {
+            const next = { ...prev };
+            entries.forEach(([sym, q]) => {
+              if (next[sym]) next[sym] = { ...next[sym], price: String(q.ltp) };
+            });
+            return next;
+          });
+          setLastTime(istTimeStr());
+          setStatus(open ? 'live' : 'closed');
+        } else if (active) {
+          setStatus('closed');
+        }
+      } catch { if (active) setStatus('error'); }
     }
 
     fetchLive(); // immediate load on mount
