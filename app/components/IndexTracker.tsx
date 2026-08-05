@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RotateCcw, X, Clock } from 'lucide-react';
+import { RotateCcw, Zap, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
@@ -15,9 +15,10 @@ export interface Constituent {
 }
 
 interface RowData {
-  weight:    string;
-  price:     string;
-  prevClose: string;
+  weight:        string;
+  price:         string;  // Dhan LTP (live)
+  prevClose:     string;  // captured 3:15 PM close (from /api/price-at-315)
+  dhanPrevClose: string;  // Dhan official prevClose from quote API — reference baseline for Chg%
 }
 
 interface Props {
@@ -28,17 +29,16 @@ interface Props {
 }
 
 type LiveStatus = 'closed' | 'fetching' | 'live' | 'error';
+type PriceMode  = 'live' | 'close';
 
-// IST = UTC + 5h 30m
 function nowIst(): { mins: number; ms: number; day: number; ist: Date } {
   const ms  = Date.now() + (5 * 60 + 30) * 60 * 1000;
   const ist = new Date(ms);
   const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-  const day  = ist.getUTCDay(); // 0=Sun, 6=Sat
+  const day  = ist.getUTCDay();
   return { mins, ms, day, ist };
 }
 
-// Market open Mon-Fri 09:15 – 15:40 IST
 function isMarketOpen(): boolean {
   const { mins, day } = nowIst();
   if (day === 0 || day === 6) return false;
@@ -51,20 +51,13 @@ function istTimeStr(): string {
     .map(n => String(n).padStart(2, '0')).join(':');
 }
 
-// Milliseconds until the next 3:15:00 PM IST on a weekday
 function msUntilNext315(): number {
   const { ms: nowMs, ist, day } = nowIst();
-  // ms elapsed since IST midnight
-  const msInDay = (ist.getUTCHours() * 3600 + ist.getUTCMinutes() * 60 + ist.getUTCSeconds()) * 1000 + ist.getUTCMilliseconds();
+  const msInDay = (ist.getUTCHours() * 3600 + ist.getUTCMinutes() * 60 + ist.getUTCSeconds()) * 1000
+    + ist.getUTCMilliseconds();
   const istMidnightUtc = nowMs - msInDay;
-  const target315today = istMidnightUtc + (15 * 60 + 15) * 60 * 1000; // 3:15 PM = 55500s
-
-  // If today is a weekday and 3:15 PM is still at least 2s away, schedule for today
-  if (day !== 0 && day !== 6 && target315today - nowMs > 2000) {
-    return target315today - nowMs;
-  }
-
-  // Otherwise find next weekday
+  const target315today = istMidnightUtc + (15 * 60 + 15) * 60 * 1000;
+  if (day !== 0 && day !== 6 && target315today - nowMs > 2000) return target315today - nowMs;
   let daysAhead = 1;
   for (let i = 1; i <= 7; i++) {
     const next = (day + i) % 7;
@@ -97,95 +90,110 @@ interface DhanResp  { quotes: Record<string, DhanQuote>; }
 export default function IndexTracker({
   indexName, storageKey, defaultPrevLevel, constituents,
 }: Props) {
-  const initRow = (c: Constituent): RowData => ({
-    weight:    String(c.defaultWeight),
-    price:     '',
-    prevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
-  });
+  const initRow = useCallback((c: Constituent): RowData => ({
+    weight:        String(c.defaultWeight),
+    price:         '',
+    prevClose:     c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
+    dhanPrevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
+  }), []);
 
-  const [rowData, setRowData]     = useState<Record<string, RowData>>(() => {
+  const [rowData, setRowData]   = useState<Record<string, RowData>>(() => {
     const d: Record<string, RowData> = {};
-    constituents.forEach(c => { d[c.symbol] = initRow(c); });
+    constituents.forEach(c => { d[c.symbol] = {
+      weight: String(c.defaultWeight), price: '',
+      prevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
+      dhanPrevClose: c.defaultPrevClose !== undefined ? String(c.defaultPrevClose) : '',
+    }; });
     return d;
   });
-  const [prevLevelStr, setPrevStr]   = useState(String(defaultPrevLevel));
-  const [hydrated, setHydrated]      = useState(false);
-  const [liveStatus, setStatus]      = useState<LiveStatus>('closed');
-  const [lastTime, setLastTime]      = useState('');
-  const [captureStatus, setCaptureStatus] = useState<'idle' | 'fetching' | 'done' | 'error'>('idle');
-  const [captureSource, setCaptureSource] = useState('');  // which tier/source succeeded
-  const [lastCapture, setLastCapture]     = useState(''); // IST time string of last 3:15 auto-capture
+  const [prevLevelStr, setPrevStr]         = useState(String(defaultPrevLevel));
+  const [priceMode, setPriceMode]          = useState<PriceMode>('live');
+  const [hydrated, setHydrated]            = useState(false);
+  const [liveStatus, setStatus]            = useState<LiveStatus>('closed');
+  const [lastTime, setLastTime]            = useState('');
+  const [captureStatus, setCaptureStatus]  = useState<'idle' | 'fetching' | 'done' | 'error'>('idle');
+  const [captureSource, setCaptureSource]  = useState('');
+  const [lastCapture, setLastCapture]      = useState('');
 
-  const dhan         = useDhanCredentials();
-  const symbolsRef   = useRef(constituents.map(c => c.symbol).join(','));
-  const captureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Always-current dhan state for the capture timer (avoids stale closure)
+  const dhan            = useDhanCredentials();
+  const symbolsRef      = useRef(constituents.map(c => c.symbol).join(','));
+  const captureTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dhanRef         = useRef({ isConfigured: dhan.isConfigured, headers: dhan.headers });
-  // Always-current captureClose for the timer
   const captureCloseRef = useRef<(silent?: boolean) => Promise<void>>(() => Promise.resolve());
+  const fetchLiveRef    = useRef<() => Promise<void>>(() => Promise.resolve());
 
-  // Keep dhanRef in sync so the capture timer always reads current credentials
   useEffect(() => {
     dhanRef.current = { isConfigured: dhan.isConfigured, headers: dhan.headers };
   }, [dhan.isConfigured, dhan.headers]);
 
-  // ── localStorage keys (v9 — fresh after Dhan integration) ────────
-  const LS_KEY     = `${storageKey}_v9_rowdata`;
-  const LS_LEVEL   = `${storageKey}_v9_prev_level`;
-  const LS_CAPTURE = `${storageKey}_v9_last_capture`; // persists last auto-capture time
+  const LS_KEY     = `${storageKey}_v10_rowdata`;
+  const LS_LEVEL   = `${storageKey}_v10_prev_level`;
+  const LS_CAPTURE = `${storageKey}_v10_last_capture`;
+  const LS_MODE    = `${storageKey}_v10_price_mode`;
 
-  // ── Hydrate from localStorage ─────────────────────────────────────
+  // Hydrate — with v9 → v10 migration
   useEffect(() => {
-    const saved      = localStorage.getItem(LS_KEY);
-    const savedLevel = localStorage.getItem(LS_LEVEL);
-    const savedCap   = localStorage.getItem(LS_CAPTURE);
+    const saved10    = localStorage.getItem(LS_KEY);
+    const savedLevel = localStorage.getItem(LS_LEVEL) ?? localStorage.getItem(`${storageKey}_v9_prev_level`);
+    const savedCap   = localStorage.getItem(LS_CAPTURE) ?? localStorage.getItem(`${storageKey}_v9_last_capture`);
+    const savedMode  = localStorage.getItem(LS_MODE);
 
-    if (saved) {
+    if (saved10) {
       try {
-        const parsed = JSON.parse(saved) as Record<string, RowData>;
+        const parsed = JSON.parse(saved10) as Record<string, RowData>;
         const merged: Record<string, RowData> = {};
         constituents.forEach(c => { merged[c.symbol] = parsed[c.symbol] ?? initRow(c); });
         setRowData(merged);
-      } catch { /* ignore corrupt */ }
+      } catch { /* ignore */ }
+    } else {
+      // Migrate from v9 (preserves captured prevClose values)
+      const saved9 = localStorage.getItem(`${storageKey}_v9_rowdata`);
+      if (saved9) {
+        try {
+          const parsed9 = JSON.parse(saved9) as Record<string, { weight: string; price: string; prevClose: string }>;
+          const migrated: Record<string, RowData> = {};
+          constituents.forEach(c => {
+            const old = parsed9[c.symbol];
+            migrated[c.symbol] = old
+              ? { weight: old.weight, price: old.price, prevClose: old.prevClose, dhanPrevClose: old.prevClose }
+              : initRow(c);
+          });
+          setRowData(migrated);
+        } catch { /* ignore */ }
+      }
     }
+
     if (savedLevel) setPrevStr(savedLevel);
     if (savedCap)   setLastCapture(savedCap);
+    if (savedMode === 'close') setPriceMode('close');
     setHydrated(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
-  // ── Persist to localStorage ───────────────────────────────────────
-  useEffect(() => { if (hydrated) localStorage.setItem(LS_KEY, JSON.stringify(rowData)); }, [rowData, LS_KEY, hydrated]);
-  useEffect(() => { if (hydrated) localStorage.setItem(LS_LEVEL, prevLevelStr); },          [prevLevelStr, LS_LEVEL, hydrated]);
+  // Persist
+  useEffect(() => { if (hydrated) localStorage.setItem(LS_KEY,   JSON.stringify(rowData)); }, [rowData,      LS_KEY,   hydrated]);
+  useEffect(() => { if (hydrated) localStorage.setItem(LS_LEVEL, prevLevelStr);            }, [prevLevelStr, LS_LEVEL, hydrated]);
+  useEffect(() => { if (hydrated) localStorage.setItem(LS_MODE,  priceMode);               }, [priceMode,   LS_MODE,  hydrated]);
 
-  // ── Auto-capture at 3:15 PM IST each trading day ─────────────────
+  // Auto-capture at 3:15 PM IST
   useEffect(() => {
     if (!hydrated) return;
-
     function scheduleCapture() {
       const ms = msUntilNext315();
       captureTimer.current = setTimeout(async () => {
-        // Delegate to captureClose silently (timer-fired, no UI status)
         await captureCloseRef.current(true);
-
-        const captureTime = istTimeStr();
-        setLastCapture(captureTime);
-        localStorage.setItem(`${storageKey}_v9_last_capture`, captureTime);
-
-        scheduleCapture(); // arm next day
+        const t = istTimeStr();
+        setLastCapture(t);
+        localStorage.setItem(`${storageKey}_v10_last_capture`, t);
+        scheduleCapture();
       }, ms);
     }
-
     scheduleCapture();
     return () => { if (captureTimer.current) clearTimeout(captureTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, storageKey]);
 
-
-  // ── Live LTP polling ──────────────────────────────────────────────
-  // Runs once on load (always) + every 5 s during market hours.
-  // Tier 1: Dhan LTP (non-zero during market hours).
-  // Tier 2: Yahoo regularMarketPrice — always available, used as fallback.
+  // Live LTP polling — always updates dhanPrevClose (available even when market closed)
   useEffect(() => {
     if (!hydrated || !dhan.isHydrated) return;
     let active = true;
@@ -194,7 +202,6 @@ export default function IndexTracker({
       const open = isMarketOpen();
       if (!dhan.isConfigured) { setStatus('closed'); return; }
       if (open) setStatus('fetching');
-
       try {
         const res = await fetch(
           `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
@@ -202,24 +209,31 @@ export default function IndexTracker({
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data    = await res.json() as DhanResp;
-        const entries = Object.entries(data.quotes ?? {}).filter(([, q]) => q.ltp > 0);
+        // prevClose is non-zero even when market is closed — always capture it as reference baseline
+        const entries = Object.entries(data.quotes ?? {}).filter(([, q]) => q.prevClose > 0);
         if (entries.length > 0 && active) {
           setRowData(prev => {
             const next = { ...prev };
             entries.forEach(([sym, q]) => {
-              if (next[sym]) next[sym] = { ...next[sym], price: String(q.ltp) };
+              if (next[sym]) {
+                const upd: Partial<RowData> = { dhanPrevClose: String(q.prevClose) };
+                if (q.ltp > 0) upd.price = String(q.ltp);
+                next[sym] = { ...next[sym], ...upd };
+              }
             });
             return next;
           });
           setLastTime(istTimeStr());
-          setStatus(open ? 'live' : 'closed');
+          const hasLtp = entries.some(([, q]) => q.ltp > 0);
+          setStatus(open && hasLtp ? 'live' : 'closed');
         } else if (active) {
           setStatus('closed');
         }
       } catch { if (active) setStatus('error'); }
     }
 
-    fetchLive(); // immediate load on mount
+    fetchLiveRef.current = fetchLive;
+    fetchLive();
     const timer = setInterval(() => {
       if (isMarketOpen()) fetchLive();
       else setStatus('closed');
@@ -228,19 +242,16 @@ export default function IndexTracker({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, dhan.isHydrated, dhan.isConfigured, dhan.accessToken]);
 
-  // ── Mutation helpers ──────────────────────────────────────────────
   const update = (symbol: string, field: keyof RowData, value: string) =>
     setRowData(prev => ({ ...prev, [symbol]: { ...prev[symbol], [field]: value } }));
 
-  // Capture Prev Close = Dhan intraday LTP at 3:15 PM IST.
-  // The route picks yesterday's session if before 3:15 PM today, today's if after.
+  // Capture close prices from Dhan (3:15 PM candle after 3:15, prevClose before)
   const captureClose = useCallback(async (silent = false) => {
     if (!dhan.isConfigured) {
       if (!silent) { setCaptureStatus('error'); setCaptureSource('Dhan not configured'); }
       return;
     }
     if (!silent) setCaptureStatus('fetching');
-
     try {
       const res = await fetch(
         `/api/price-at-315?symbols=${encodeURIComponent(symbolsRef.current)}`,
@@ -268,42 +279,33 @@ export default function IndexTracker({
         }
       }
     } catch { /* nothing */ }
-
     if (!silent) { setCaptureStatus('error'); setCaptureSource('Dhan returned no data'); }
   }, [dhan.isConfigured, dhan.headers]);
 
-  // Keep ref current so the auto-capture timer always calls latest version
   useEffect(() => { captureCloseRef.current = captureClose; }, [captureClose]);
 
-  // "Set Prev Close" button
-  const setAsClose = () => { setCaptureStatus('idle'); setCaptureSource(''); void captureClose(false); };
-
-  const clearPrice = () =>
-    setRowData(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(sym => { next[sym] = { ...next[sym], price: '' }; });
-      return next;
-    });
-
   const resetAll = () => {
-    setRowData(() => {
-      const d: Record<string, RowData> = {};
-      constituents.forEach(c => { d[c.symbol] = initRow(c); });
-      return d;
-    });
+    const d: Record<string, RowData> = {};
+    constituents.forEach(c => { d[c.symbol] = initRow(c); });
+    setRowData(d);
     setPrevStr(String(defaultPrevLevel));
+    setPriceMode('live');
     setLastCapture('');
+    setCaptureStatus('idle');
+    setCaptureSource('');
     localStorage.removeItem(LS_CAPTURE);
   };
 
-  // ── Derived calculations ──────────────────────────────────────────
+  // Derived calculations
   const prevLevel = toNum(prevLevelStr) ?? defaultPrevLevel;
 
   const rows = constituents.map(c => {
     const rd     = rowData[c.symbol] ?? initRow(c);
     const w      = toNum(rd.weight) ?? c.defaultWeight;
-    const price  = toNum(rd.price);
-    const prevCl = toNum(rd.prevClose);
+    // Active price: LTP in live mode, captured close in close mode
+    const price  = priceMode === 'live' ? toNum(rd.price) : toNum(rd.prevClose);
+    // Reference baseline: Dhan's official prevClose (previous session close) — same in both modes
+    const prevCl = toNum(rd.dhanPrevClose);
     let changePct: number | null = null;
     let contribPct: number | null = null;
     let pts: number | null = null;
@@ -324,7 +326,6 @@ export default function IndexTracker({
   const indexChgPct  = currentIndex !== null && prevLevel > 0 ? (indexChg! / prevLevel) * 100 : null;
   const weightOk     = Math.abs(totalWeight - 100) <= 1;
 
-  // Compute ms until next 3:15 PM for display (recomputed on render — cheap)
   const { mins: curMins, day: curDay } = nowIst();
   const marketClosed315Today = curMins >= 15 * 60 + 15 && curDay !== 0 && curDay !== 6;
 
@@ -333,7 +334,7 @@ export default function IndexTracker({
   return (
     <div className="min-h-screen bg-background">
 
-      {/* ── Header ──────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="border-b border-border bg-card px-6 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
 
@@ -342,8 +343,9 @@ export default function IndexTracker({
             <div>
               <h1 className="text-lg font-bold">{indexName}</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Prev Close auto-captured at 3:15 PM IST each day&nbsp;·&nbsp;
-                {dhan.isConfigured ? 'Live prices via Dhan API' : 'Live prices via Yahoo Finance'}
+                {priceMode === 'live'
+                  ? 'Live mode: LTP vs Dhan prev session close → intraday Chg%'
+                  : 'Close mode: 3:15 PM close vs Dhan prev session close → day-over-day Chg%'}
               </p>
             </div>
             <div>
@@ -369,31 +371,44 @@ export default function IndexTracker({
                          focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
 
-            {/* Set Prev Close = Dhan intraday LTP at 3:15 PM (yesterday if before 3:15, today if after) */}
-            <button
-              onClick={setAsClose}
-              disabled={captureStatus === 'fetching'}
-              title="Fetch today's actual 3:13 PM traded price (not official close) → Prev Close"
-              className={cn(
-                'flex items-center gap-1.5 h-7 px-3 text-xs rounded border font-medium transition-colors',
-                captureStatus === 'fetching'
-                  ? 'border-emerald-300 text-emerald-400 cursor-not-allowed'
-                  : captureStatus === 'done'
-                  ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
-                  : captureStatus === 'error'
-                  ? 'border-red-400 text-red-600'
-                  : 'border-emerald-600 text-emerald-700 hover:bg-emerald-50',
-              )}
-            >
-              <Clock className={cn('size-3', captureStatus === 'fetching' && 'animate-spin')} />
-              {captureStatus === 'fetching' ? 'Fetching...' : 'Set Prev Close'}
-            </button>
+            {/* Mode toggle: Live Prices / Close Prices */}
+            <div className="flex items-center gap-0.5 border border-border rounded-lg p-0.5 bg-muted/30">
+              <button
+                onClick={() => {
+                  setPriceMode('live');
+                  void fetchLiveRef.current();
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 h-7 px-3 text-xs rounded-md font-medium transition-all',
+                  priceMode === 'live'
+                    ? 'bg-background shadow-sm text-emerald-700 ring-1 ring-emerald-200'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Zap className="size-3" />
+                Live Prices
+              </button>
+              <button
+                onClick={() => {
+                  setPriceMode('close');
+                  setCaptureStatus('idle');
+                  setCaptureSource('');
+                  void captureClose(false);
+                }}
+                disabled={captureStatus === 'fetching'}
+                className={cn(
+                  'flex items-center gap-1.5 h-7 px-3 text-xs rounded-md font-medium transition-all',
+                  priceMode === 'close'
+                    ? 'bg-background shadow-sm text-violet-700 ring-1 ring-violet-200'
+                    : 'text-muted-foreground hover:text-foreground',
+                  captureStatus === 'fetching' && 'cursor-not-allowed',
+                )}
+              >
+                <Clock className={cn('size-3', captureStatus === 'fetching' && 'animate-spin')} />
+                Close Prices
+              </button>
+            </div>
 
-            <button onClick={clearPrice}
-              className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
-                         text-muted-foreground hover:text-foreground transition-colors">
-              <X className="size-3" /> Clear Price
-            </button>
             <button onClick={resetAll}
               className="flex items-center gap-1.5 h-7 px-3 text-xs rounded border border-border
                          text-muted-foreground hover:text-foreground transition-colors">
@@ -404,8 +419,6 @@ export default function IndexTracker({
 
         {/* Status row */}
         <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground flex-wrap">
-
-          {/* Live feed */}
           <span className="flex items-center gap-1.5">
             {liveStatus === 'live' && (
               <>
@@ -413,7 +426,7 @@ export default function IndexTracker({
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                <span className="text-emerald-600 font-medium">LIVE · {dhan.isConfigured ? 'Dhan LTP' : 'Yahoo'} · updated {lastTime} IST · 5s</span>
+                <span className="text-emerald-600 font-medium">LIVE · Dhan LTP · {lastTime} IST · 5s</span>
               </>
             )}
             {liveStatus === 'fetching' && <><span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /><span className="text-amber-600">Fetching...</span></>}
@@ -423,40 +436,33 @@ export default function IndexTracker({
 
           <span>·</span>
 
-          {/* 3:15 PM / manual capture indicator */}
           <span className="flex items-center gap-1.5">
-            {captureStatus === 'fetching' && (
-              <span className="text-emerald-600 animate-pulse">Fetching ~3:13 PM prices...</span>
-            )}
-            {captureStatus === 'done' && captureSource && (
-              <span className="text-emerald-700 font-medium">Set via {captureSource}</span>
-            )}
-            {captureStatus === 'error' && captureSource && (
-              <span className="text-red-600">{captureSource}</span>
-            )}
+            {captureStatus === 'fetching' && <span className="text-violet-600 animate-pulse">Fetching close prices...</span>}
+            {captureStatus === 'done' && captureSource && <span className="text-violet-700 font-medium">Close: {captureSource}</span>}
+            {captureStatus === 'error' && captureSource && <span className="text-red-600">{captureSource}</span>}
             {captureStatus === 'idle' && (
               lastCapture
-                ? <span className="text-violet-600 font-medium">Prev Close auto-captured at {lastCapture} IST</span>
+                ? <span className="text-violet-600 font-medium">Close auto-captured {lastCapture} IST</span>
                 : marketClosed315Today
-                ? <span className="text-amber-600">3:15 PM passed -- click "Set Prev Close"</span>
-                : <span className="text-muted-foreground/70">Auto-capture fires at 3:15 PM IST</span>
+                ? <span className="text-amber-600">3:15 PM passed -- click Close Prices</span>
+                : <span className="text-muted-foreground/70">Close auto-captures at 3:15 PM IST</span>
             )}
           </span>
 
           <span>·</span>
+          <span>{filledRows.length} / {constituents.length} priced</span>
 
+          <span>·</span>
           <span>
             Weight:&nbsp;
             <span className={cn('font-semibold', weightOk ? 'text-emerald-600' : 'text-amber-600')}>
               {totalWeight.toFixed(2)}%
             </span>
           </span>
-          <span>·</span>
-          <span>{filledRows.length} / {constituents.length} priced</span>
         </div>
       </div>
 
-      {/* ── Table ────────────────────────────────────────────────── */}
+      {/* Table */}
       <div className="p-4">
         <div className="rounded-lg border border-border overflow-hidden">
           <div className="overflow-x-auto">
@@ -468,23 +474,26 @@ export default function IndexTracker({
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Symbol</th>
                   <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Sector</th>
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">Wt %</th>
+
+                  {/* Primary price column — switches between LTP and Close */}
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
-                    LTP
-                    <span className={cn('ml-1 font-normal px-1 rounded',
-                      liveStatus === 'live'    ? 'bg-emerald-100 text-emerald-700' :
-                      liveStatus === 'fetching'? 'bg-amber-100 text-amber-700' :
-                      'text-muted-foreground/40')}>
-                      {liveStatus === 'live'    ? (dhan.isConfigured ? 'dhan live' : 'live') :
-                       liveStatus === 'fetching'? 'updating' : 'manual'}
-                    </span>
+                    {priceMode === 'live' ? (
+                      <>LTP&nbsp;<span className={cn('font-normal px-1 rounded text-[10px]',
+                        liveStatus === 'live'     ? 'bg-emerald-100 text-emerald-700' :
+                        liveStatus === 'fetching' ? 'bg-amber-100 text-amber-700' :
+                        'text-muted-foreground/40')}>
+                        {liveStatus === 'live' ? 'live' : liveStatus === 'fetching' ? 'updating' : 'manual'}
+                      </span></>
+                    ) : (
+                      <>Close&nbsp;<span className="font-normal px-1 rounded text-[10px] bg-violet-100 text-violet-700">3:15 PM</span></>
+                    )}
                   </th>
+
+                  {/* Reference baseline: Dhan prevClose — previous session official close */}
                   <th className="px-2 py-2 text-right font-semibold text-muted-foreground">
-                    Prev Close
-                    <span className={cn('ml-1 font-normal px-1 rounded',
-                      lastCapture ? 'bg-violet-100 text-violet-700' : 'text-muted-foreground/40')}>
-                      {lastCapture ? '3:15 PM' : 'enter'}
-                    </span>
+                    Ref Close&nbsp;<span className="font-normal text-[10px] text-muted-foreground/50">dhan</span>
                   </th>
+
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Chg %</th>
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Contrib %</th>
                   <th className="px-3 py-2 text-right font-semibold text-muted-foreground">Idx Pts</th>
@@ -504,33 +513,47 @@ export default function IndexTracker({
                         className={cn(INPUT_CLS, 'w-20')} />
                     </td>
 
+                    {/* Primary price cell */}
                     <td className="px-2 py-1 text-right">
-                      {liveStatus === 'live' && r.rd.price !== '' ? (
-                        /* Live display — read-only with pulsing green dot */
-                        <div className="inline-flex items-center justify-end gap-1 w-24">
-                          <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          </span>
-                          <span className="tabular-nums font-semibold text-emerald-700">
-                            {parseFloat(r.rd.price).toFixed(2)}
-                          </span>
-                        </div>
+                      {priceMode === 'live' ? (
+                        liveStatus === 'live' && r.rd.price !== '' ? (
+                          <div className="inline-flex items-center justify-end gap-1 w-24">
+                            <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            </span>
+                            <span className="tabular-nums font-semibold text-emerald-700">
+                              {parseFloat(r.rd.price).toFixed(2)}
+                            </span>
+                          </div>
+                        ) : (
+                          <input type="number" min="0" step="0.05" value={r.rd.price}
+                            onChange={e => update(r.symbol, 'price', e.target.value)}
+                            placeholder="—"
+                            className={cn(INPUT_CLS, 'w-24')} />
+                        )
                       ) : (
-                        /* Editable fallback when market closed / no data */
-                        <input type="number" min="0" step="0.05" value={r.rd.price}
-                          onChange={e => update(r.symbol, 'price', e.target.value)}
-                          placeholder="—"
-                          className={cn(INPUT_CLS, 'w-24')} />
+                        /* Close mode */
+                        r.rd.prevClose !== '' ? (
+                          <span className="tabular-nums font-semibold text-violet-700 block text-right pr-1">
+                            {parseFloat(r.rd.prevClose).toFixed(2)}
+                          </span>
+                        ) : (
+                          <input type="number" min="0" step="0.05" value={r.rd.prevClose}
+                            onChange={e => update(r.symbol, 'prevClose', e.target.value)}
+                            placeholder="—"
+                            className={cn(INPUT_CLS, 'w-24')} />
+                        )
                       )}
                     </td>
 
+                    {/* Reference close: editable, auto-populated by live poll */}
                     <td className="px-2 py-1 text-right">
-                      <input type="number" min="0" step="0.05" value={r.rd.prevClose}
-                        onChange={e => update(r.symbol, 'prevClose', e.target.value)}
+                      <input type="number" min="0" step="0.05" value={r.rd.dhanPrevClose}
+                        onChange={e => update(r.symbol, 'dhanPrevClose', e.target.value)}
                         placeholder="—"
                         className={cn(INPUT_CLS, 'w-24',
-                          lastCapture && r.rd.prevClose !== '' && 'border-violet-300/60')} />
+                          r.rd.dhanPrevClose !== '' && 'border-blue-200/50')} />
                     </td>
 
                     <td className={cn('px-3 py-1 text-right tabular-nums font-medium',
@@ -577,9 +600,10 @@ export default function IndexTracker({
         </div>
 
         <p className="mt-3 text-xs text-muted-foreground">
-          LTP = live last-traded price from Dhan (5s refresh during market hours) &nbsp;·&nbsp;
-          Prev Close = actual ~3:13 PM price, auto-captured at 3:15 PM each day &nbsp;·&nbsp;
-          Chg% = (LTP - Prev Close) / Prev Close &times; 100
+          {priceMode === 'live'
+            ? 'Live: LTP (Dhan, 5s) vs Ref Close (Dhan prev session) → intraday Chg%'
+            : 'Close: 3:15 PM price vs Ref Close (Dhan prev session) → day-over-day Chg%'}
+          &nbsp;·&nbsp;Ref Close column auto-populated from Dhan quote API
         </p>
       </div>
     </div>
