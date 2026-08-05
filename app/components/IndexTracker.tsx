@@ -28,7 +28,7 @@ interface Props {
   constituents:     Constituent[];
 }
 
-type LiveStatus = 'closed' | 'fetching' | 'live' | 'error';
+type LiveStatus = 'closed' | 'fetching' | 'live' | 'error' | 'rate-limited';
 
 function nowIst(): { mins: number; ms: number; day: number; ist: Date } {
   const ms  = Date.now() + (5 * 60 + 30) * 60 * 1000;
@@ -200,6 +200,7 @@ export default function IndexTracker({
           `/api/dhan/equity-prices?symbols=${encodeURIComponent(symbolsRef.current)}`,
           { headers: dhan.headers },
         );
+        if (res.status === 429) { if (active) setStatus('rate-limited'); return; }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data    = await res.json() as DhanResp;
         const entries = Object.entries(data.quotes ?? {}).filter(([, q]) => q.prevClose > 0);
@@ -230,7 +231,7 @@ export default function IndexTracker({
     const timer = setInterval(() => {
       if (isMarketOpen()) fetchLive();
       else setStatus('closed');
-    }, 5_000);
+    }, 15_000);
     return () => { active = false; clearInterval(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, dhan.isHydrated, dhan.isConfigured, dhan.accessToken]);
@@ -323,9 +324,13 @@ export default function IndexTracker({
   const { mins: curMins, day: curDay } = nowIst();
   const marketClosed315Today = curMins >= 15 * 60 + 15 && curDay !== 0 && curDay !== 6;
 
-  const ltpBadgeLabel = liveStatus === 'live' ? 'live' : liveStatus === 'fetching' ? 'updating' : 'live prices';
-  const ltpBadgeCls   = liveStatus === 'live' ? 'bg-emerald-100 text-emerald-700'
-                       : liveStatus === 'fetching' ? 'bg-amber-100 text-amber-700'
+  const ltpBadgeLabel = liveStatus === 'live'         ? 'live'
+                       : liveStatus === 'fetching'    ? 'updating'
+                       : liveStatus === 'rate-limited'? 'rate limited'
+                       : 'live prices';
+  const ltpBadgeCls   = liveStatus === 'live'         ? 'bg-emerald-100 text-emerald-700'
+                       : liveStatus === 'fetching'    ? 'bg-amber-100 text-amber-700'
+                       : liveStatus === 'rate-limited'? 'bg-amber-100 text-amber-700'
                        : 'bg-blue-50 text-blue-600';
 
   if (!hydrated) return null;
@@ -375,7 +380,7 @@ export default function IndexTracker({
               onClick={handleLoadLive}
               className={cn(
                 'flex items-center gap-1.5 h-7 px-3 text-xs rounded border font-medium transition-colors',
-                liveStatus === 'live'
+                liveStatus === 'live' || liveStatus === 'rate-limited'
                   ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
                   : 'border-emerald-600 text-emerald-700 hover:bg-emerald-50',
               )}
@@ -422,9 +427,10 @@ export default function IndexTracker({
                 <span className="text-emerald-600 font-medium">LIVE · Dhan LTP · {lastTime} IST · 5s</span>
               </>
             )}
-            {liveStatus === 'fetching' && <><span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /><span className="text-amber-600">Fetching...</span></>}
-            {liveStatus === 'error'    && <><span className="h-2 w-2 rounded-full bg-red-400" /><span className="text-red-500">Feed error -- retrying</span></>}
-            {liveStatus === 'closed'   && <><span className="h-2 w-2 rounded-full bg-muted-foreground/30" /><span>Market closed</span></>}
+            {liveStatus === 'fetching'     && <><span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /><span className="text-amber-600">Fetching...</span></>}
+            {liveStatus === 'rate-limited' && <><span className="h-2 w-2 rounded-full bg-amber-400" /><span className="text-amber-600">Rate limited -- retrying in 15s</span></>}
+            {liveStatus === 'error'        && <><span className="h-2 w-2 rounded-full bg-red-400" /><span className="text-red-500">Feed error -- retrying</span></>}
+            {liveStatus === 'closed'       && <><span className="h-2 w-2 rounded-full bg-muted-foreground/30" /><span>Market closed</span></>}
           </span>
 
           <span>·</span>
@@ -500,7 +506,7 @@ export default function IndexTracker({
                         className={cn(INPUT_CLS, 'w-20')} />
                     </td>
 
-                    {/* LTP cell: pulsing green when live, editable input otherwise */}
+                    {/* LTP cell: pulsing green when live, amber dot when rate-limited (keeps last price), editable otherwise */}
                     <td className="px-2 py-1 text-right">
                       {liveStatus === 'live' && r.rd.price !== '' ? (
                         <div className="inline-flex items-center justify-end gap-1 w-24">
@@ -509,6 +515,13 @@ export default function IndexTracker({
                             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           </span>
                           <span className="tabular-nums font-semibold text-emerald-700">
+                            {parseFloat(r.rd.price).toFixed(2)}
+                          </span>
+                        </div>
+                      ) : liveStatus === 'rate-limited' && r.rd.price !== '' ? (
+                        <div className="inline-flex items-center justify-end gap-1 w-24">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                          <span className="tabular-nums font-semibold text-amber-700">
                             {parseFloat(r.rd.price).toFixed(2)}
                           </span>
                         </div>

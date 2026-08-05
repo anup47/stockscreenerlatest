@@ -1227,6 +1227,7 @@ export async function fetchEquityQuotes(
         signal:  ctrl.signal,
       });
       clearTimeout(t);
+      if (res.status === 429) throw new Error('RATE_LIMITED');
       if (!res.ok) continue;
       const json       = await res.json() as DhanMfResponse;
       const eqData     = json?.data?.NSE_EQ ?? {};
@@ -1240,7 +1241,10 @@ export async function fetchEquityQuotes(
         const changePct = Number(q['chp']               ?? q['change_percent'] ?? (prevClose > 0 ? change / prevClose * 100 : 0));
         result.set(sym, { symbol: sym, secId, ltp, prevClose, change, changePct });
       }
-    } catch { /* batch failed silently */ }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'RATE_LIMITED') throw err;
+      // other errors (network, timeout, parse): skip batch silently
+    }
   }
   return result;
 }

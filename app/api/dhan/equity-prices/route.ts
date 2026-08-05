@@ -15,7 +15,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing Dhan credentials', quotes: {} }, { status: 401 });
   }
 
-  const quoteMap = await fetchEquityQuotes(symbols, clientId, accessToken);
+  let quoteMap: Awaited<ReturnType<typeof fetchEquityQuotes>>;
+  try {
+    quoteMap = await fetchEquityQuotes(symbols, clientId, accessToken);
+  } catch (err) {
+    if (err instanceof Error && err.message === 'RATE_LIMITED') {
+      return NextResponse.json({ error: 'rate_limited', quotes: {} }, { status: 429 });
+    }
+    return NextResponse.json({ error: 'fetch_failed', quotes: {} }, { status: 500 });
+  }
 
   const quotes: Record<string, { ltp: number; prevClose: number; change: number; changePct: number }> = {};
   for (const [sym, q] of quoteMap) {
