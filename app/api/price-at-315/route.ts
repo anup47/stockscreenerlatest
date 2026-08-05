@@ -1,15 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { fetchEquityIntraday315 }    from '@/lib/dhan-api';
+import { NextRequest, NextResponse }                      from 'next/server';
+import { fetchEquityIntraday315, fetchEquityQuotes }       from '@/lib/dhan-api';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 55;
 
-// Returns the Dhan intraday LTP at 3:15 PM IST for the relevant trading session.
-// Date selection:
-//   - If IST >= 3:15 PM on a weekday  →  today   (auto-capture is firing right now)
-//   - Otherwise                        →  previous weekday (Set Prev Close clicked before open)
+// Returns Dhan prices for use as Prev Close.
+//
+// Two modes — picked automatically based on IST time:
+//
+//  After 3:15 PM on a weekday (incl. auto-capture timer firing at exactly 3:15):
+//    → Dhan /v2/charts/intraday for TODAY — finds the actual 3:15 PM 1-min candle.
+//      This is the exact traded price the user wants.
+//
+//  Before 3:15 PM / morning (page opened the next day, manual "Set Prev Close"):
+//    → Dhan /v2/marketfeed/quote prevClose — previous session official close from Dhan.
+//      Intraday endpoint only works for the live session, so this is the best
+//      Dhan-only price available for the previous day.
 
-function istNow(): { date: string; mins: number; day: number } {
+function istNow() {
   const istMs = Date.now() + (5 * 3600 + 30 * 60) * 1000;
   const ist   = new Date(istMs);
   return {
@@ -17,20 +25,6 @@ function istNow(): { date: string; mins: number; day: number } {
     mins: ist.getUTCHours() * 60 + ist.getUTCMinutes(),
     day:  ist.getUTCDay(),
   };
-}
-
-function prevWeekday(dateIST: string): string {
-  const d = new Date(dateIST + 'T00:00:00Z');
-  do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
-  return d.toISOString().slice(0, 10);
-}
-
-function targetSessionDate(): string {
-  const { date, mins, day } = istNow();
-  // After 3:15 PM on a trading weekday → use today's session
-  if (day !== 0 && day !== 6 && mins >= 15 * 60 + 15) return date;
-  // Before market / weekend → use previous weekday
-  return prevWeekday(date);
 }
 
 export async function GET(req: NextRequest) {
@@ -41,15 +35,28 @@ export async function GET(req: NextRequest) {
   const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
   const accessToken = req.headers.get('x-dhan-access-token') ?? '';
 
-  if (!clientId || !accessToken) {
+  if (!clientId || !accessToken)
     return NextResponse.json({ prices: {}, error: 'Dhan credentials required' }, { status: 401 });
+
+  const { date, mins, day } = istNow();
+  const isAfter315 = day !== 0 && day !== 6 && mins >= 15 * 60 + 15;
+
+  if (isAfter315) {
+    // ── Mode A: intraday 3:15 PM candle (same-day, works because session is/just-was live) ──
+    const dhanMap = await fetchEquityIntraday315(nseSymbols, clientId, accessToken, date);
+    if (dhanMap.size > 0) {
+      const prices: Record<string, number> = {};
+      for (const [sym, price] of dhanMap) prices[sym] = price;
+      return NextResponse.json({ prices, source: 'dhan-intraday-315', date });
+    }
+    // Intraday returned nothing — fall through to prevClose below
   }
 
-  const date    = targetSessionDate();
-  const dhanMap = await fetchEquityIntraday315(nseSymbols, clientId, accessToken, date);
-
+  // ── Mode B: Dhan market-feed prevClose (previous session official close, always available) ──
+  const quoteMap = await fetchEquityQuotes(nseSymbols, clientId, accessToken);
   const prices: Record<string, number> = {};
-  for (const [sym, price] of dhanMap) prices[sym] = price;
-
-  return NextResponse.json({ prices, date, source: 'dhan-intraday' });
+  for (const [sym, q] of quoteMap) {
+    if (q.prevClose > 0) prices[sym] = q.prevClose;
+  }
+  return NextResponse.json({ prices, source: 'dhan-prevclose', date });
 }

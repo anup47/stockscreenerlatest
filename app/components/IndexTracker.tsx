@@ -247,7 +247,7 @@ export default function IndexTracker({
         { headers: dhan.headers },
       );
       if (res.ok) {
-        const data  = await res.json() as { prices: Record<string, number>; date?: string };
+        const data  = await res.json() as { prices: Record<string, number>; date?: string; source?: string };
         const valid = Object.entries(data.prices ?? {}).filter(([, p]) => p > 0);
         if (valid.length > 0) {
           setRowData(prev => {
@@ -258,8 +258,11 @@ export default function IndexTracker({
             return next;
           });
           if (!silent) {
+            const label = data.source === 'dhan-intraday-315'
+              ? `Dhan 3:15 PM candle ${data.date ?? ''} (${valid.length} stocks)`
+              : `Dhan prev close ${data.date ?? ''} (${valid.length} stocks)`;
             setCaptureStatus('done');
-            setCaptureSource(`Dhan 3:15 PM ${data.date ?? ''} (${valid.length} stocks)`);
+            setCaptureSource(label);
           }
           return;
         }
