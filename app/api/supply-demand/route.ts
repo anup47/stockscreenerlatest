@@ -324,7 +324,7 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
-    name: 'Solar Glass', ticker: 'BORORENEW.NS', unit: '₹/sh (Borosil Renewables proxy)', sector: 'Solar Energy',
+    name: 'Solar Glass', ticker: '3868.HK', unit: 'HKD/sh (Xinyi Solar — world #1 solar glass maker)', sector: 'Solar Energy',
     timeHorizon: 'medium-term',
     historicalAnalog: '2020-21 solar boom when Chinese solar glass prices doubled on module demand surge and capacity crunch, squeezing panel BOM by 15–20% and forcing module makers to renegotiate EPC contracts',
     sources: ['InfoLink Solar Glass Price Index', 'BloombergNEF Solar Supply Chain Tracker', 'MNRE India Solar Deployment Data', 'PVinsights Solar Glass Weekly Report'],
