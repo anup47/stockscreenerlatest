@@ -323,6 +323,22 @@ const COMMODITIES: CommodityDef[] = [
       { symbol: 'SASKEN', company: 'Sasken Technologies', rationale: 'Chip design and embedded software revenue tied to memory capex', impact: 'medium' },
     ],
   },
+  {
+    name: 'Solar Glass', ticker: 'BORORENEW.NS', unit: '₹/sh (Borosil Renewables proxy)', sector: 'Solar Energy',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2020-21 solar boom when Chinese solar glass prices doubled on module demand surge and capacity crunch, squeezing panel BOM by 15–20% and forcing module makers to renegotiate EPC contracts',
+    sources: ['InfoLink Solar Glass Price Index', 'BloombergNEF Solar Supply Chain Tracker', 'MNRE India Solar Deployment Data', 'PVinsights Solar Glass Weekly Report'],
+    beneficiaries: [
+      { symbol: 'BORORENEW',  company: 'Borosil Renewables',   rationale: "India's only listed solar glass manufacturer — realisations surge when global solar glass prices rise; direct read-through from Xinyi/Flat Glass international pricing", impact: 'high' },
+      { symbol: 'HGINFRA',    company: 'H.G. Infra Engineering', rationale: 'Solar EPC contractor — higher solar glass signals strong panel demand pipeline, driving EPC order inflows', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'WAAREEENS',  company: 'Waaree Energies',        rationale: "India's largest solar module maker — glass is ~10% of panel BOM; higher prices compress margins on fixed-price EPC and export orders", impact: 'high' },
+      { symbol: 'PREMIER',    company: 'Premier Energies',        rationale: 'Vertically integrated solar cell and module manufacturer — direct input cost exposure to solar glass; limited ability to pass through on short-cycle orders', impact: 'high' },
+      { symbol: 'WEBSOL',     company: 'Websol Energy Systems',   rationale: 'Solar cell producer — panel glass is a direct input; cost pressure intensifies when Chinese exports tighten', impact: 'medium' },
+      { symbol: 'INSOLATION', company: 'Insolation Energy',       rationale: 'Small-cap solar module maker — most exposed to glass cost swings due to limited hedging and scale', impact: 'medium' },
+    ],
+  },
 ];
 
 // ── Yahoo Finance fetcher ──────────────────────────────────────────────────────
