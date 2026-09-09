@@ -355,6 +355,54 @@ const COMMODITIES: CommodityDef[] = [
       { symbol: 'INSOLATION', company: 'Insolation Energy',       rationale: 'Small-cap solar module maker — most exposed to glass cost swings due to limited hedging and scale', impact: 'medium' },
     ],
   },
+  {
+    name: 'Coking Coal (Met)', ticker: 'AMR', unit: '$/sh (Alpha Metallurgical — pure-play US met coal)', sector: 'Steel Raw Material',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2021-22 coking coal supercycle when Australian supply disruptions and surging Chinese steel output pushed HCC prices to $670/t — Indian blast furnace steelmakers saw coking coal costs more than double, crushing EBITDA/tonne despite record steel prices',
+    sources: ['Platts Metallurgical Coal Price Index', 'World Steel Association', 'Coal & Steel Monthly (S&P Global)', 'SAIL & Tata Steel Quarterly Earnings'],
+    beneficiaries: [
+      { symbol: 'COALINDIA', company: 'Coal India',       rationale: 'State miner produces both thermal and some coking coal — higher met coal prices lift blended realisations and support captive supply negotiations', impact: 'medium' },
+      { symbol: 'NMDC',      company: 'NMDC',             rationale: 'Iron ore and coal mining revenue positively correlated with broader coking coal cycle via steel production volume', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'TATASTEEL',  company: 'Tata Steel',            rationale: 'Imports ~80% of coking coal requirements — largest cost item in blast furnace steelmaking BOM; every $10/t move = ~₹60–80/t EBITDA impact', impact: 'high' },
+      { symbol: 'JSWSTEEL',   company: 'JSW Steel',             rationale: 'Blast furnace operations at Vijayanagar and Dolvi source coking coal internationally — directly exposed to spot and term contract price swings', impact: 'high' },
+      { symbol: 'SAIL',       company: 'Steel Authority of India', rationale: 'Partially captive coking coal through Bhilai mines (~30% self-sufficiency) but imports significant volumes; cost headwind amplified by lower operational efficiency', impact: 'high' },
+      { symbol: 'JSPL',       company: 'Jindal Steel & Power',  rationale: 'Angul blast furnace relies on imported coking coal; EAF operations somewhat insulated but overall EBITDA/tonne under pressure in a rising coking coal cycle', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Thermal Coal', ticker: 'BTU', unit: '$/sh (Peabody Energy — global thermal coal benchmark)', sector: 'Energy',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021-22 energy crisis when Newcastle thermal coal hit $440/t — NTPC and state discoms faced ₹1.2 lakh cr fuel bill surge, triggering emergency coal imports and RBI inflation surprise',
+    sources: ['IEA Coal Market Update', 'Newcastle Coal Price Index', 'CERC Fuel Adjustment Charge reports', 'Coal India Production Data (Ministry of Coal)'],
+    beneficiaries: [
+      { symbol: 'COALINDIA',  company: 'Coal India',         rationale: "India's dominant coal producer — higher international prices allow domestic e-auction price discovery to rise, lifting realisation above floor (notified price); incremental coal volumes fetch spot premium", impact: 'high' },
+      { symbol: 'NLCINDIA',   company: 'NLC India',          rationale: 'Lignite and thermal coal miner-cum-generator — higher coal prices improve captive mine economics and negotiating leverage in power supply agreements', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'NTPC',       company: 'NTPC',               rationale: 'Largest thermal power generator — imported coal supplementation at spot prices compresses PAF-linked profitability; domestic Coal India shortfall forces imports', impact: 'high' },
+      { symbol: 'ADANIPOWER', company: 'Adani Power',        rationale: 'Mundra UMPP and other imported coal-based plants directly exposed to international coal price — fuel cost is pass-through only under case-2 bids, not merchant', impact: 'high' },
+      { symbol: 'TATAPOWER',  company: 'Tata Power',         rationale: 'Mundra plant (5,000 MW) runs on Indonesian sub-bituminous coal — higher prices squeezes PPA tariff spread and triggered landmark compensatory tariff disputes', impact: 'high' },
+      { symbol: 'JSWENERGY',  company: 'JSW Energy',         rationale: 'Mix of hydro, thermal, and renewable; thermal plants face higher fuel costs in an imported coal price up-cycle', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Titanium Dioxide (TiO2)', ticker: 'TROX', unit: '$/sh (Tronox — global TiO2 pure-play)', sector: 'Specialty Chemicals',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2021-22 TiO2 supercycle when pigment prices hit $3,800/t on post-COVID construction boom and titanium feedstock (ilmenite/rutile) tightness — Asian Paints and Berger saw RM costs spike 18% in a single year',
+    sources: ['TZMI TiO2 Price Monitor', 'ICIS Titanium Dioxide Report', 'Asian Paints & Berger Paints Quarterly Earnings', 'Tronox Investor Presentations'],
+    beneficiaries: [
+      { symbol: 'KMEW',      company: 'Kerala Minerals & Metals', rationale: 'State-owned ilmenite/rutile processor — feedstock price appreciation benefits mining and mineral separation business', impact: 'medium' },
+      { symbol: 'TRANSWIN',  company: 'Transworld Minerals',      rationale: 'Indian titanium mineral sand producer — rising TiO2 prices lift feedstock realisations for ilmenite and rutile exports', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'ASIANPAINT',  company: 'Asian Paints',           rationale: 'TiO2 is the primary white pigment (20–25% of RM cost) in interior and exterior emulsions — largest paint player, cost base most sensitive to TiO2 cycle; margin compression visible in quarterly RM commentary', impact: 'high' },
+      { symbol: 'BERGEPAINT',  company: 'Berger Paints India',    rationale: 'Second-largest Indian paints company — similar TiO2 exposure as Asian Paints; higher pigment cost compresses gross margins unless passed through via price hike', impact: 'high' },
+      { symbol: 'KANSAINER',   company: 'Kansai Nerolac Paints',  rationale: 'OEM-heavy business (automotive refinish + industrial) — lower pricing power than decorative peers makes TiO2 cost pass-through harder; margin impact amplified', impact: 'high' },
+      { symbol: 'INDIGOPNTS',  company: 'Indigo Paints',          rationale: 'Fast-growing mid-cap paints brand — TiO2 cost inflation hits smaller players harder due to limited bargaining power on raw material procurement and smaller scale to absorb volatility', impact: 'medium' },
+    ],
+  },
 ];
 
 // ── Yahoo Finance fetcher ──────────────────────────────────────────────────────
@@ -402,8 +450,12 @@ function percentile52w(bars: YFBar[]): number {
 }
 
 function deriveCategory(
-  chg1m: number, chg3m: number, chg6m: number, pct52: number
+  chg1m: number, chg3m: number, chg6m: number, pct52: number, chg1d = 0
 ): Category {
+  // Large single-day move = news-driven shock — override sustained-trend rules
+  if (chg1d >= 8)  return 'shortage';   // sudden price spike (e.g. producer price hike)
+  if (chg1d <= -8) return 'oversupply'; // sudden price collapse
+
   // Shortage: sustained rally, near 52-week high
   if (chg3m > 12 && pct52 > 70) return 'shortage';
   if (chg1m > 6  && chg3m > 8  && pct52 > 65) return 'shortage';
@@ -413,6 +465,7 @@ function deriveCategory(
   if (chg1m < -6  && chg3m < -8 && pct52 < 35) return 'oversupply';
 
   // Emerging: rapid recent move, not yet at extremes
+  if (chg1d >= 4) return 'emerging';   // notable single-day jump
   if (Math.abs(chg1m) > 7 && pct52 > 40 && pct52 < 80) return 'emerging';
   if (chg1m > 4 && chg3m > 6) return 'emerging';
 
@@ -539,7 +592,7 @@ export async function GET() {
     const chg6m = pctChange(prev6m, current);
     const pct52 = percentile52w(b);
 
-    const category     = deriveCategory(chg1m, chg3m, chg6m, pct52);
+    const category     = deriveCategory(chg1m, chg3m, chg6m, pct52, chg1d);
     const pricingPower = derivePricingPower(chg1m, chg3m);
     const confidence   = deriveConfidence(chg1m, chg3m, chg6m, pct52);
     // Only flip beneficiaries/adverselyAffected when prices are actively falling
