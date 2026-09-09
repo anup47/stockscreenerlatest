@@ -324,6 +324,22 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
+    name: 'Graphite Electrodes (EAF)', ticker: 'GRAF', unit: '$/sh (GrafTech — pure-play UHP electrode maker)', sector: 'Steel Raw Material',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2017-18 graphite electrode supercycle when UHP electrode prices surged 5x from ~$2,000/t to $10,000/t on needle coke shortage and surging EAF steel adoption — HEG and Graphite India rallied 10x in 18 months before normalising sharply on Chinese capacity additions',
+    sources: ['CRU Graphite Electrode Price Monitor', 'Wood Mackenzie Steel Raw Materials', 'HEG Quarterly Investor Presentations', 'Graphite India Annual Report'],
+    beneficiaries: [
+      { symbol: 'HEG',       company: 'HEG Ltd',             rationale: "India's largest UHP graphite electrode maker — realisations track global EAF electrode prices directly; ~70% revenue from export to EAF mills worldwide", impact: 'high' },
+      { symbol: 'GRAPHITEI', company: 'Graphite India',       rationale: 'Second-largest Indian electrode producer — same direct price-cycle exposure as HEG; European and US EAF mill customer base', impact: 'high' },
+    ],
+    adverselyAffected: [
+      { symbol: 'JSPL',      company: 'Jindal Steel & Power', rationale: 'Angul EAF plant is a large electrode consumer — higher electrode prices compress steel spread as it is a running variable cost', impact: 'high' },
+      { symbol: 'JSWSTEEL',  company: 'JSW Steel',            rationale: 'Operates EAF furnaces at multiple locations — graphite electrode cost feeds directly into steel BOM', impact: 'medium' },
+      { symbol: 'SHYAMMETL', company: 'Shyam Metalics',       rationale: 'Integrated EAF-based steel and ferro-alloy maker — electrode cost is an unhedged variable input', impact: 'medium' },
+      { symbol: 'TATASTEEL', company: 'Tata Steel',           rationale: 'EAF capacity at UK operations faces direct cost headwind; Indian blast-furnace operations largely insulated', impact: 'low' },
+    ],
+  },
+  {
     name: 'Solar Glass', ticker: '3868.HK', unit: 'HKD/sh (Xinyi Solar — world #1 solar glass maker)', sector: 'Solar Energy',
     timeHorizon: 'medium-term',
     historicalAnalog: '2020-21 solar boom when Chinese solar glass prices doubled on module demand surge and capacity crunch, squeezing panel BOM by 15–20% and forcing module makers to renegotiate EPC contracts',
