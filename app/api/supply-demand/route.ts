@@ -403,6 +403,41 @@ const COMMODITIES: CommodityDef[] = [
       { symbol: 'INDIGOPNTS',  company: 'Indigo Paints',          rationale: 'Fast-growing mid-cap paints brand — TiO2 cost inflation hits smaller players harder due to limited bargaining power on raw material procurement and smaller scale to absorb volatility', impact: 'medium' },
     ],
   },
+  {
+    name: 'Industrial Robotics & Automation', ticker: 'BOTZ', unit: '$/sh (Global X Robotics & AI ETF — FANUC, ABB, Yaskawa, Keyence, Teradyne)', sector: 'Automation & Robotics',
+    timeHorizon: 'long-term',
+    historicalAnalog: '2011-21 Chinese factory automation wave — robot density rose from 15 to 322 units per 10,000 workers in a decade; global installations doubled from 250,000 to 517,000 units/year; India at ~49 units/10,000 workers in 2023 is 5-7 years behind, implying a coming PLI-driven automation catch-up as labour costs rise and manufacturers compete on quality',
+    sources: ['IFR World Robotics Report (annual)', 'Global X BOTZ ETF Factsheet', 'ABB India Annual Report', 'Siemens India Investor Day', 'SIAM Manufacturing Competitiveness Survey'],
+    beneficiaries: [
+      { symbol: 'ABB',        company: 'ABB India',                  rationale: "Indian subsidiary of ABB Global — Robotics & Discrete Automation division installs industrial robots in automotive, electronics, and food & beverage plants; order book grows directly with Indian factory automation capex; parent ABB is among BOTZ's top holdings", impact: 'high' },
+      { symbol: 'SIEMENS',    company: 'Siemens India',              rationale: 'Digital Industries division sells PLCs, SCADA, motion control and industrial software — top-line expands when Indian factories modernise to Industry 4.0; Siemens AG is the global automation leader and a core BOTZ constituent', impact: 'high' },
+      { symbol: 'HONAUT',     company: 'Honeywell Automation India', rationale: 'Process automation for refineries, chemicals, and building controls — revenue growth tracks Indian industrial capex driven by automation adoption; high-margin software and service contracts expand in a rising automation cycle', impact: 'high' },
+      { symbol: 'LTTS',       company: 'L&T Technology Services',    rationale: 'Engineering R&D for global robot OEMs — designs motion planning, safety systems, and sensor fusion software for robot manufacturers; addressable market expands directly with global automation capex', impact: 'medium' },
+      { symbol: 'TATAELXSI',  company: 'Tata Elxsi',                rationale: 'Embedded AI and vision systems for robotics — autonomous mobile robot navigation, cobot control software, industrial machine vision; global OEM outsourcing to Tata Elxsi grows in an automation boom', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'TEAMLEASE',  company: 'TeamLease Services',         rationale: 'Temporary staffing business — automation on factory floors directly shrinks addressable market for contract manufacturing workers; every robot deployed replaces 3-5 flexi-staff positions; secular headwind to core revenue model', impact: 'high' },
+      { symbol: 'QUESS',      company: 'Quess Corp',                 rationale: "India's largest integrated business services company — workforce management and facility services face structural pressure as clients automate repetitive assembly, QC, and material-handling roles; volume-based margin model threatened", impact: 'high' },
+      { symbol: 'PAGEIND',    company: 'Page Industries',            rationale: "Labor-intensive innerwear and garment manufacturing — globally, automated sewing and assembly lines (China, Vietnam) erode India's labor-cost advantage; margin pressure intensifies if exports shift to countries with automated supply chains", impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Collaborative Robots (Cobots)', ticker: 'TER', unit: '$/sh (Teradyne — owns Universal Robots, ~30% global cobot market share)', sector: 'Automation & Robotics',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2016-22 cobot democratisation wave — Universal Robots grew revenue from $100M to $370M as cobot ASPs fell below $20,000, enabling SME automation for the first time; Indian MSMEs in auto-ancillary, electronics, and pharma are now at the same adoption inflection point global factories crossed in 2018',
+    sources: ['Interact Analysis Cobot Market Forecast', 'Universal Robots Annual Revenue Data', 'Teradyne Investor Day Presentations', 'FICCI Indian MSME Automation Survey', 'Collaborative Robotics Trends Report (IFR)'],
+    beneficiaries: [
+      { symbol: 'BOSCHLTD',   company: 'Bosch India',               rationale: 'Precision actuators, servo drives, and electronic control units — core components inside collaborative robots; global Bosch cobot supply chain and Indian automotive automation adoption both benefit', impact: 'medium' },
+      { symbol: 'KPITTECH',   company: 'KPIT Technologies',         rationale: 'Cobot OS, motion planning, and industrial IoT middleware — embedded software for robot controllers is a growing revenue stream as EV and automotive plants deploy cobots for battery assembly and precision tasks', impact: 'medium' },
+      { symbol: 'CYIENT',     company: 'Cyient',                    rationale: 'Engineering services for robotics OEMs — designs cobot joint kinematics, safety certification packages, and sensor integration; revenue tracks global cobot R&D spend by Universal Robots, Fanuc, and Kawasaki', impact: 'medium' },
+      { symbol: 'AZAD',       company: 'Azad Engineering',          rationale: 'Ultra-precision aerospace components — machining expertise directly applicable to high-tolerance cobot joint housings, harmonic drive casings, and end-effector bodies; nascent but growing robotics supply chain opportunity', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'TEAMLEASE',  company: 'TeamLease Services',        rationale: 'Cobots specifically target semi-skilled assembly, pick-and-place, and quality-inspection tasks — the exact job categories temp staffing places; falling cobot prices (sub-$15,000 by 2026) accelerate factory-floor replacement', impact: 'high' },
+      { symbol: 'SIS',        company: 'SIS Ltd',                   rationale: 'Security and facility management staffing — surveillance roles automated by AI cameras and patrol robots; cleaning roles replaced by autonomous floor-scrubbing robots; core workforce shrinks in cobot-adopting facilities', impact: 'medium' },
+      { symbol: 'ARVIND',     company: 'Arvind Ltd',                rationale: 'Vertically integrated textile and garment company — automated sewing robots (e.g. SoftWear Automation Sewbots) in global apparel supply chains gradually erode Indian hand-assembly export cost advantage', impact: 'medium' },
+    ],
+  },
 ];
 
 // ── Yahoo Finance fetcher ──────────────────────────────────────────────────────
