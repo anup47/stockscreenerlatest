@@ -41,6 +41,44 @@ const AUG_STOCKS: AugStock[] = [
   { rank: 20, name: 'Vintage Coffee',            symbol: 'VINCOFE',    tier: 'MICROCAP', mcap: '~750 Cr',      entry:  149.48, keySignal: 'FDC Rs 480 Cr plant (FY28); B2B instant coffee export structural play', conviction: 'LOW-MED'     },
 ];
 
+// ── Sep 2026 basket (hardcoded from PDF; API sync replaces this once uploaded) ─
+
+const SEP26_BASKET: ScuttlebuttBasket = {
+  id:         'sep2026',
+  fileName:   'ScuttlebuttBasket_Research_September2026.pdf',
+  runDate:    '2026-09-13',
+  basketName: 'Sep 2026',
+  basketRead: 'Basket tilted toward domestic cyclicals and quality mid/small caps. Top mover: ASM Technologies (+58.5% rerating underway). Watchlist caution on Bajaj Finserv (-11.2%). Macro fills: Maruti (auto recovery) + Britannia (rural FMCG revival). Several stale entries pending price refresh.',
+  topMover:   { name: 'ASM Technologies', pct: 58.5 },
+  weakSpot:   { name: 'Bajaj Finserv', pct: -11.2 },
+  stocks: [
+    // LARGECAP
+    { rank: 1,  name: 'Bajaj Finserv',       symbol: 'BAJAJFINSV', tier: 'LARGECAP', entryDate: 'Aug 9',  entry: 2009.00, macroFill: false, stale: false, keySignal: 'Insurance + AMC dual engine; BAGIC loss ratio improved; re-entry after -11.2% correction', stance: 'ACCUMULATE' },
+    { rank: 2,  name: 'Hindalco Industries', symbol: 'HINDALCO',   tier: 'LARGECAP', entryDate: 'Jun',    entry: 1010.00, macroFill: false, stale: false, keySignal: 'Novelis EBITDA/t expanding; aluminium deficit deepening; China export tax removes overhang', stance: 'ACCUMULATE' },
+    { rank: 3,  name: 'Oil India',           symbol: 'OIL',        tier: 'LARGECAP', entryDate: 'Aug 10', entry:  453.00, macroFill: false, stale: false, keySignal: 'Upstream PSU; high dividend yield; Numaligarh refinery ramp; gas monetisation optionality', stance: 'ACCUMULATE' },
+    { rank: 4,  name: 'Maruti Suzuki',       symbol: 'MARUTI',     tier: 'LARGECAP', entryDate: '—',      entry:    0.00, macroFill: true,  stale: false, keySignal: 'Auto recovery; rural demand revival + EV optionality (e-Vitara FY26 launch)',               stance: 'MACRO'      },
+    { rank: 5,  name: 'Britannia Industries',symbol: 'BRITANNIA',  tier: 'LARGECAP', entryDate: '—',      entry:    0.00, macroFill: true,  stale: false, keySignal: 'Rural FMCG revival; volume-led growth; margin stability; steady compounder at scale',       stance: 'MACRO'      },
+    // MIDCAP
+    { rank: 6,  name: 'APL Apollo Tubes',    symbol: 'APLAPOLLO',  tier: 'MIDCAP',   entryDate: 'Aug 3',  entry: 1944.00, macroFill: false, stale: false, keySignal: 'Structural steel demand; capacity 5→10 MTPA; export ramp; direct-forming moat', stance: 'ACCUMULATE' },
+    { rank: 7,  name: 'Delhivery',           symbol: 'DELHIVERY',  tier: 'MIDCAP',   entryDate: 'Aug 11', entry:  473.00, macroFill: false, stale: false, keySignal: 'Q1 EBITDA breakeven achieved; market share gains from Xpressbees; network leverage', stance: 'ACCUMULATE' },
+    { rank: 8,  name: 'Himadri Speciality',  symbol: 'HIMADRI',    tier: 'MIDCAP',   entryDate: 'Jul 3',  entry:  662.65, macroFill: false, stale: true,  keySignal: 'Carbon black + anode material (EV battery) pivot; margins expanding; re-rating candidate', stance: 'WATCH'      },
+    { rank: 9,  name: 'Endurance Technologies', symbol: 'ENDURANCE',tier: 'MIDCAP',  entryDate: 'Jun',    entry: 2477.80, macroFill: false, stale: true,  keySignal: 'Auto ancillary; EV exposure via braking/casting; Europe ops turning; quality franchise', stance: 'ACCUMULATE' },
+    { rank: 10, name: 'Emmvee Photovoltaic', symbol: 'EMMVEE',     tier: 'MIDCAP',   entryDate: 'Aug 3',  entry:  325.00, macroFill: false, stale: true,  keySignal: 'ALMM List II moat; 9.9 GW order book; PAT +103% YoY; domestic solar manufacturing play', stance: 'ACCUMULATE' },
+    // SMALLCAP
+    { rank: 11, name: 'ASM Technologies',    symbol: 'ASMTECHN',   tier: 'SMALLCAP', entryDate: 'Sep 3',  entry: 4574.00, macroFill: false, stale: false, keySignal: 'Aerospace PCB + VLSI design; US defence + semiconductor clients; +58.5% rerating in motion', stance: 'RERATING'   },
+    { rank: 12, name: 'Gravita India',       symbol: 'GRAVITA',    tier: 'SMALLCAP', entryDate: 'Jul',    entry: 1855.00, macroFill: false, stale: false, keySignal: 'Lead recycling monopoly; battery scrap volumes rising; ESG premium valuation unlocking', stance: 'ACCUMULATE' },
+    { rank: 13, name: 'Inox India',          symbol: 'INOXINDIA',  tier: 'SMALLCAP', entryDate: 'Sep 1',  entry: 2183.00, macroFill: false, stale: true,  keySignal: 'Industrial gas cylinder + cryo equipment; LNG truck + hospital O2 demand structural', stance: 'ACCUMULATE' },
+    { rank: 14, name: 'RPEL',               symbol: 'RPEL',       tier: 'SMALLCAP', entryDate: '—',      entry: 1748.00, macroFill: false, stale: true,  keySignal: 'Watching for confirmation; entry level under review', stance: 'WATCH'      },
+    { rank: 15, name: 'Sunflag Iron & Steel',symbol: 'SUNFLAG',    tier: 'SMALLCAP', entryDate: 'Sep 2',  entry:  369.00, macroFill: false, stale: true,  keySignal: 'Specialty steel; alloy steel demand from auto + defence; debt-light balance sheet', stance: 'ACCUMULATE' },
+    // MICROCAP
+    { rank: 16, name: 'Devson Pharma',       symbol: 'DEVSON',     tier: 'MICROCAP', entryDate: 'Aug 11', entry:  236.60, macroFill: false, stale: true,  keySignal: 'API manufacturer; domestic formulation ramp; small but EBITDA positive inflection', stance: 'ACCUMULATE' },
+    { rank: 17, name: 'Yasho Industries',    symbol: 'YASHO',      tier: 'MICROCAP', entryDate: 'Sep 5',  entry: 4129.00, macroFill: false, stale: true,  keySignal: 'Rubber chemicals + FMCG fragrance; specialty chem re-rating; founder-led, debt-free', stance: 'ACCUMULATE' },
+    { rank: 18, name: 'Krishna Defence',     symbol: 'KRISHNADEF', tier: 'MICROCAP', entryDate: 'Jul',    entry: 1280.00, macroFill: false, stale: false, keySignal: 'Naval systems; submarine sonar + torpedo decoys; classified contract visibility', stance: 'WATCH',      bse: true },
+    { rank: 19, name: 'Monolithis',          symbol: 'MONOLITHIS', tier: 'MICROCAP', entryDate: 'Aug',    entry: 1226.00, macroFill: false, stale: false, keySignal: 'Refractory products; steel sector demand driven; niche high-margin specialty play', stance: 'WATCH',      bse: true },
+    { rank: 20, name: 'CMS Info Systems',    symbol: 'CMSINFO',    tier: 'MICROCAP', entryDate: 'Sep 4',  entry:  242.00, macroFill: false, stale: false, keySignal: 'Cash logistics + ATM outsourcing; digital payment paradox winner; recurring cash flows', stance: 'ACCUMULATE' },
+  ],
+};
+
 // ── Style maps ────────────────────────────────────────────────────────────────
 
 const TIER_STYLE: Record<string, string> = {
@@ -136,21 +174,32 @@ export default function ScuttlebuttPage() {
     }
   }
 
-  // Tab state — 'aug26' + each API basket id
+  // Tab state — 'aug26' | 'sep26' | API basket ids
   const [activeTab, setActiveTab] = useState('aug26');
 
-  // Tabs: Aug 2026 first, then API baskets sorted newest-first
+  // API overrides the hardcoded Sep26 if a basket with id 'sep2026' is synced
+  const effectiveSep26 = useMemo(() =>
+    apiBaskets.find(b => b.id === 'sep2026') ?? SEP26_BASKET
+  , [apiBaskets]);
+
+  // Tabs: Aug 2026, Sep 2026, then any OTHER API baskets (not sep2026) newest-first
   const tabs = useMemo(() => {
-    const list = [{ id: 'aug26', label: 'Aug 2026' }];
-    for (const b of apiBaskets) list.push({ id: b.id, label: b.basketName });
+    const list = [
+      { id: 'aug26',  label: 'Aug 2026' },
+      { id: 'sep2026', label: 'Sep 2026' },
+    ];
+    for (const b of apiBaskets) {
+      if (b.id !== 'sep2026') list.push({ id: b.id, label: b.basketName });
+    }
     return list;
   }, [apiBaskets]);
 
-  // Collect ALL NSE symbols from Aug + all API baskets
+  // Collect ALL NSE symbols from Aug + Sep26 + all API baskets
   const allNseSymbols = useMemo(() => {
-    const aug = AUG_STOCKS.filter(s => !s.bse).map(s => s.symbol);
-    const api = apiBaskets.flatMap(b => b.stocks.filter(s => !s.bse && !s.macroFill).map(s => s.symbol));
-    return [...new Set([...aug, ...api])];
+    const aug  = AUG_STOCKS.filter(s => !s.bse).map(s => s.symbol);
+    const sep  = SEP26_BASKET.stocks.filter(s => !s.bse && !s.macroFill).map(s => s.symbol);
+    const api  = apiBaskets.flatMap(b => b.stocks.filter(s => !s.bse && !s.macroFill).map(s => s.symbol));
+    return [...new Set([...aug, ...sep, ...api])];
   }, [apiBaskets]);
 
   const creds       = useDhanCredentials();
@@ -215,9 +264,11 @@ export default function ScuttlebuttPage() {
     return { count, gainers: g, losers: l, avg: count > 0 ? total / count : null };
   }, [liveMap]);
 
-  // Active API basket
-  const activeApiBasket = useMemo(() =>
-    apiBaskets.find(b => b.id === activeTab), [apiBaskets, activeTab]);
+  // Active basket for the dynamic renderer (sep2026 uses effectiveSep26, others from API)
+  const activeApiBasket = useMemo(() => {
+    if (activeTab === 'sep2026') return effectiveSep26;
+    return apiBaskets.find(b => b.id === activeTab);
+  }, [apiBaskets, activeTab, effectiveSep26]);
 
   // Sort + summary for active API basket
   const { sortedApi, apiSummary } = useMemo(() => {
