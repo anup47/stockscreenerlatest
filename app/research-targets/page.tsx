@@ -12,7 +12,9 @@ interface ResearchRow {
   sector: string;
   stance: 'ACCUMULATE' | 'WATCH' | 'AVOID';
   researchCmp: number | null;
-  target: number | null;
+  target: number | null;       // baseTarget (alias)
+  baseTarget: number | null;
+  bullTarget: number | null;
   horizon: string | null;
   currency?: 'INR' | 'USD';
   note?: string;
@@ -100,7 +102,7 @@ function DayChg({ val }: { val: number | null }) {
   );
 }
 
-type SortKey = 'expectedReturn' | 'company' | 'sector' | 'livePrice' | 'target' | 'vsCmp' | 'changePct';
+type SortKey = 'expectedReturn' | 'company' | 'sector' | 'livePrice' | 'target' | 'bullTarget' | 'vsCmp' | 'changePct';
 
 const SECTORS = [
   'All', 'Pharma', 'Consumer Health', 'Consumer', 'Real Estate', 'Recycling',
@@ -183,6 +185,11 @@ export default function ResearchTargetsPage() {
       if (sortKey === 'target') {
         const av = a.target ?? (sortAsc ? Infinity : -Infinity);
         const bv = b.target ?? (sortAsc ? Infinity : -Infinity);
+        return sortAsc ? av - bv : bv - av;
+      }
+      if (sortKey === 'bullTarget') {
+        const av = a.bullTarget ?? (sortAsc ? Infinity : -Infinity);
+        const bv = b.bullTarget ?? (sortAsc ? Infinity : -Infinity);
         return sortAsc ? av - bv : bv - av;
       }
       if (sortKey === 'vsCmp') {
@@ -340,11 +347,12 @@ export default function ResearchTargetsPage() {
                   <SortTh k="company"        label="Company" />
                   <SortTh k="sector"         label="Sector" />
                   <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">Stance</th>
-                  <SortTh k="target"         label="Target" right />
+                  <SortTh k="target"         label="Base Tgt" right />
+                  <SortTh k="bullTarget"     label="Bull Tgt" right />
                   <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground text-center">Hor.</th>
                   <SortTh k="livePrice"      label="Live CMP" right />
                   <SortTh k="changePct"      label="Day %" right />
-                  <SortTh k="expectedReturn" label="Expected Return" right />
+                  <SortTh k="expectedReturn" label="Exp Return" right />
                   <SortTh k="vsCmp"          label="vs Report" right />
                   <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">Note</th>
                 </tr>
@@ -352,7 +360,7 @@ export default function ResearchTargetsPage() {
               <tbody className="divide-y divide-border">
                 {sorted.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={11} className="py-12 text-center text-muted-foreground text-sm">
+                    <td colSpan={12} className="py-12 text-center text-muted-foreground text-sm">
                       No stocks match the current filters.
                     </td>
                   </tr>
@@ -399,10 +407,18 @@ export default function ResearchTargetsPage() {
                         </span>
                       </td>
 
-                      {/* Target */}
+                      {/* Base Target */}
                       <td className="px-3 py-2.5 text-right tabular-nums text-sm font-medium">
-                        {row.target != null
-                          ? <>{cur}{fmt(row.target, row.target >= 100 ? 0 : 1)}</>
+                        {row.baseTarget != null
+                          ? <span className="text-slate-700">{cur}{fmt(row.baseTarget, row.baseTarget >= 100 ? 0 : 1)}</span>
+                          : <span className="text-muted-foreground text-xs">—</span>
+                        }
+                      </td>
+
+                      {/* Bull Target */}
+                      <td className="px-3 py-2.5 text-right tabular-nums text-sm font-medium">
+                        {row.bullTarget != null
+                          ? <span className="text-emerald-700 font-semibold">{cur}{fmt(row.bullTarget, row.bullTarget >= 100 ? 0 : 1)}</span>
                           : <span className="text-muted-foreground text-xs">—</span>
                         }
                       </td>
@@ -466,7 +482,7 @@ export default function ResearchTargetsPage() {
             {' '}· sorted by expected return to base-case target · stocks without targets sorted to bottom.
           </p>
           <p><span className="font-medium text-orange-500">vs Report</span> = % move since research was published (green = stock cheaper now, orange = stock has re-rated up).</p>
-          <p>Expected Return = (Target - Live CMP) / Live CMP × 100. 18M / 3Y targets not annualised — shown as absolute return over the stated horizon.</p>
+          <p>Expected Return = avg(<span className="text-slate-600">Base</span>, <span className="text-emerald-600 font-medium">Bull</span>) vs Live CMP. Falls back to whichever single target is set. Not annualised — shown as absolute return over the stated horizon.</p>
         </div>
 
       </div>
