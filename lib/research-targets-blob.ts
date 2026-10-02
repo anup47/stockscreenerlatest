@@ -9,6 +9,7 @@ export interface TargetOverride {
   horizon: string | null;
   note: string | null;
   sourceFile: string;
+  sourceModified?: string;
   syncedAt: string;
 }
 

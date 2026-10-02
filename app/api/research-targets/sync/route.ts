@@ -27,15 +27,17 @@ async function listResearchPdfs(token: string): Promise<Array<{ id: string; name
   const base = FOLDER_ID
     ? `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/items/${FOLDER_ID}/children`
     : `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/root:/${encodeURIComponent(FOLDER_PATH)}:/children`;
-  const res = await fetch(`${base}?$top=200&$select=id,name,folder,lastModifiedDateTime`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json() as {
-    value?: Array<{ id: string; name: string; folder?: unknown; lastModifiedDateTime?: string }>;
-    error?: { message?: string };
-  };
-  if (data.error) throw new Error(`Graph list: ${data.error.message}`);
-  return (data.value ?? [])
+  type Item = { id: string; name: string; folder?: unknown; lastModifiedDateTime?: string };
+  const items: Item[] = [];
+  let next: string | undefined = `${base}?$top=200&$select=id,name,folder,lastModifiedDateTime`;
+  while (next) {
+    const res = await fetch(next, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json() as { value?: Item[]; '@odata.nextLink'?: string; error?: { message?: string } };
+    if (data.error) throw new Error(`Graph list: ${data.error.message}`);
+    items.push(...(data.value ?? []));
+    next = data['@odata.nextLink'];
+  }
+  return items
     .filter(f => !f.folder && /\.pdf$/i.test(f.name) && !/scuttlebuttbasket/i.test(f.name))
     .map(f => ({ id: f.id, name: f.name, lastModified: f.lastModifiedDateTime ?? '' }))
     .sort((a, b) => a.lastModified.localeCompare(b.lastModified)); // oldest → newest, newest wins per symbol
@@ -160,7 +162,10 @@ export async function POST(req: Request) {
     let synced = 0;
     let fatal: string | null = null;
     const started = Date.now();
-    const pending = files.filter(f => !data.processedFiles.includes(f.name));
+    // Keyed by name + modified time so a report edited in place is re-read.
+    const keyOf = (f: { name: string; lastModified: string }) => `${f.name}|${f.lastModified}`;
+    const done = new Set(data.processedFiles);
+    const pending = files.filter(f => !done.has(keyOf(f)));
 
     for (const file of pending) {
       // Stay under the 60s function limit; the client re-calls until remaining hits 0.
@@ -172,7 +177,14 @@ export async function POST(req: Request) {
 
         if (!sym) {
           results.push(`skip: ${file.name} — no NSE symbol extracted`);
-          data.processedFiles.push(file.name);
+          data.processedFiles.push(keyOf(file));
+          continue;
+        }
+
+        const existing = data.overrides[sym];
+        if (existing?.sourceModified && existing.sourceModified > file.lastModified) {
+          results.push(`skip: ${file.name} — older than ${existing.sourceFile} for ${sym}`);
+          data.processedFiles.push(keyOf(file));
           continue;
         }
 
@@ -185,9 +197,10 @@ export async function POST(req: Request) {
           horizon:   extracted.horizon,
           note:      extracted.note,
           sourceFile: file.name,
+          sourceModified: file.lastModified,
           syncedAt:  new Date().toISOString(),
         };
-        data.processedFiles.push(file.name);
+        data.processedFiles.push(keyOf(file));
         synced++;
         results.push(`ok: ${file.name} → ${sym} (base: ${extracted.baseTarget ?? '—'}, bull: ${extracted.bullTarget ?? '—'})`);
       } catch (e) {
@@ -201,7 +214,8 @@ export async function POST(req: Request) {
 
     if (fatal) return NextResponse.json({ error: fatal }, { status: 502 });
 
-    const remaining = files.filter(f => !data.processedFiles.includes(f.name)).length;
+    const doneAfter = new Set(data.processedFiles);
+    const remaining = files.filter(f => !doneAfter.has(keyOf(f))).length;
     return NextResponse.json({
       synced,
       skipped:  files.length - pending.length,
