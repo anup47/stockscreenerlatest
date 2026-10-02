@@ -15,7 +15,22 @@ const PDF_DIR  = process.env.RESEARCH_PDF_DIR
 // 3b: ~45s/PDF on this CPU-only PC vs 3–12 min for 7b, with equal base-target accuracy in tests.
 const MODEL    = process.env.RESEARCH_LLM_MODEL || 'qwen2.5:3b';
 const BLOB_KEY = 'research-targets-overrides.json';
-const KNOWN    = researchList.map(r => ({ symbol: r.symbol.toUpperCase(), company: r.company }));
+const KNOWN    = researchList.map(r => ({ symbol: r.symbol.toUpperCase(), company: r.company, researchCmp: r.researchCmp }));
+
+// Guards against numbers that aren't share prices for this stock: a market cap read as CMP,
+// or a commodity report's $/tonne forecasts read as Hindalco targets. A bad CMP is dropped;
+// implausible targets reject the extraction (returns null).
+function sanitize(sym, ov) {
+  const listCmp = KNOWN.find(k => k.symbol === sym)?.researchCmp;
+  const fits = c => [ov.baseTarget, ov.bullTarget].filter(Boolean).every(t => t / c > 0.25 && t / c < 3.5);
+  if (listCmp) {
+    if (!fits(listCmp)) return null;
+    const cmpOk = !ov.researchCmp || (ov.researchCmp / listCmp > 0.4 && ov.researchCmp / listCmp < 2.5);
+    return cmpOk ? ov : { ...ov, researchCmp: null };
+  }
+  // No reference price (PDF-only stock): a CMP that disagrees with the targets is the usual misread.
+  return !ov.researchCmp || fits(ov.researchCmp) ? ov : { ...ov, researchCmp: null };
+}
 
 const args  = process.argv.slice(2);
 const opt   = k => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
@@ -163,6 +178,17 @@ async function main() {
   let dirty = kept.length !== data.processedFiles.length;
   data.processedFiles = kept;
 
+  // Re-check saved overrides (some were written before the sanity check existed).
+  for (const [sym, ov] of Object.entries(data.overrides)) {
+    const clean = sanitize(sym, ov);
+    if (clean === ov) continue;
+    log(clean
+      ? `${sym}: dropped implausible CMP ${ov.researchCmp} from ${ov.sourceFile}`
+      : `${sym}: removed implausible targets from ${ov.sourceFile} (base ${ov.baseTarget}, bull ${ov.bullTarget})`);
+    if (clean) data.overrides[sym] = clean; else delete data.overrides[sym];
+    dirty = true;
+  }
+
   const done = new Set(kept);
   const pending = files.filter(f => !done.has(keyOf(f)) && (!ONLY || ONLY.test(f.name))).slice(0, LIMIT);
   log(`${files.length} PDFs in folder, ${pending.length} to process with ${MODEL}${DRY ? ' (dry run)' : ''}`);
@@ -192,7 +218,7 @@ async function main() {
         else if (!sym || (baseTarget == null && bullTarget == null && !stance)) outcome = `skip (${secs}s): no ticker/targets found`;
         else if (existing?.sourceModified > file.lastModified) outcome = `skip: older than ${existing.sourceFile} for ${sym}`;
         else {
-          data.overrides[sym] = {
+          const override = sanitize(sym, {
             company: ex.company || sym,
             sector: ex.sector || null,
             baseTarget, bullTarget,
@@ -203,8 +229,12 @@ async function main() {
             sourceFile: file.name,
             sourceModified: file.lastModified,
             syncedAt: new Date().toISOString(),
-          };
-          outcome = `ok (${secs}s): ${sym} base ${baseTarget ?? '—'} bull ${bullTarget ?? '—'} ${stance ?? ''}`;
+          });
+          if (!override) outcome = `skip (${secs}s): implausible targets for ${sym} (base ${baseTarget}, bull ${bullTarget})`;
+          else {
+            data.overrides[sym] = override;
+            outcome = `ok (${secs}s): ${sym} base ${baseTarget ?? '—'} bull ${bullTarget ?? '—'} ${stance ?? ''}`;
+          }
         }
       }
 
