@@ -179,7 +179,7 @@ export default function ResearchTargetsPage() {
           ? { ...json, synced: acc.synced + json.synced, errors: acc.errors + json.errors, skipped: acc.skipped, results: [...acc.results, ...json.results] }
           : json;
         setSyncResult(acc);
-        if (json.remaining === 0 || json.synced + json.errors === 0) break;
+        if (json.remaining === 0 || json.synced === 0) break;
       }
       await load();
     } catch (e) {

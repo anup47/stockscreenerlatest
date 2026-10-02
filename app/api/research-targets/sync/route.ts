@@ -52,6 +52,8 @@ async function downloadFile(token: string, fileId: string): Promise<Buffer> {
 
 // ── Claude PDF extraction ─────────────────────────────────────────────────────
 
+class FatalSyncError extends Error {}
+
 function normaliseStance(raw: string | null): 'ACCUMULATE' | 'WATCH' | 'AVOID' | null {
   if (!raw) return null;
   const s = raw.toUpperCase();
@@ -115,7 +117,13 @@ Rules:
     }),
   });
 
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 200);
+    if (res.status === 401 || res.status === 403 || /credit balance/i.test(body)) {
+      throw new FatalSyncError(`Anthropic API: ${body}`);
+    }
+    throw new Error(`Claude ${res.status}: ${body}`);
+  }
   const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
   const text = json.content?.find(c => c.type === 'text')?.text ?? '';
   const match = text.match(/\{[\s\S]*\}/);
@@ -141,14 +149,16 @@ export async function GET() {
 }
 
 /** POST — scan OneDrive, extract new research PDFs, update blob */
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const token = await graphToken();
     const files  = await listResearchPdfs(token);
     const data   = await readTargetsBlob();
+    if (new URL(req.url).searchParams.get('reset') === '1') data.processedFiles = [];
 
     const results: string[] = [];
     let synced = 0;
+    let fatal: string | null = null;
     const started = Date.now();
     const pending = files.filter(f => !data.processedFiles.includes(f.name));
 
@@ -181,14 +191,15 @@ export async function POST() {
         synced++;
         results.push(`ok: ${file.name} → ${sym} (base: ${extracted.baseTarget ?? '—'}, bull: ${extracted.bullTarget ?? '—'})`);
       } catch (e) {
-        // Mark as processed so one bad PDF can't block the queue forever.
-        data.processedFiles.push(file.name);
+        if (e instanceof FatalSyncError) { fatal = e.message; break; }
         results.push(`error: ${file.name} — ${String(e).slice(0, 120)}`);
       }
     }
 
     data.lastSync = new Date().toISOString();
     await writeTargetsBlob(data);
+
+    if (fatal) return NextResponse.json({ error: fatal }, { status: 502 });
 
     const remaining = files.filter(f => !data.processedFiles.includes(f.name)).length;
     return NextResponse.json({
