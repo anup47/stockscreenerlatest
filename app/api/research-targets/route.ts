@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchEquityQuotes } from '@/lib/dhan-api';
+import { readTargetsBlob } from './sync/route';
 
 export const maxDuration = 60;
 
@@ -135,9 +136,28 @@ export async function GET(req: NextRequest) {
   const clientId    = req.headers.get('x-dhan-client-id')    ?? '';
   const accessToken = req.headers.get('x-dhan-access-token') ?? '';
 
+  // Load blob overrides (from OneDrive PDF sync) and merge onto hardcoded RESEARCH
+  const blobData = await readTargetsBlob().catch(() => null);
+  const overrides = blobData?.overrides ?? {};
+  const MERGED = RESEARCH.map(s => {
+    const ov = overrides[s.symbol.toUpperCase()];
+    if (!ov) return { ...s, fromSync: false as boolean, sourceFile: undefined as string | undefined };
+    return {
+      ...s,
+      baseTarget:  ov.baseTarget  ?? s.baseTarget,
+      bullTarget:  ov.bullTarget  ?? s.bullTarget,
+      researchCmp: ov.researchCmp ?? s.researchCmp,
+      stance:      (ov.stance as typeof s.stance) ?? s.stance,
+      horizon:     (ov.horizon as typeof s.horizon) ?? s.horizon,
+      note:        ov.note        ?? s.note,
+      fromSync:    true as boolean,
+      sourceFile:  ov.sourceFile  as string | undefined,
+    };
+  });
+
   // Dhan covers NSE equity stocks; BSE SME (.BO) and NYSE (USD) always via Yahoo
-  const nseStocks   = RESEARCH.filter(s => !s.yfSymbol.endsWith('.BO') && s.currency !== 'USD');
-  const nonNseStocks = RESEARCH.filter(s =>  s.yfSymbol.endsWith('.BO') || s.currency === 'USD');
+  const nseStocks   = MERGED.filter(s => !s.yfSymbol.endsWith('.BO') && s.currency !== 'USD');
+  const nonNseStocks = MERGED.filter(s =>  s.yfSymbol.endsWith('.BO') || s.currency === 'USD');
 
   // Parallel: Dhan for NSE (when creds provided) + Yahoo for BSE/NYSE
   const [dhanQuotes, yahooNonNse] = await Promise.all([
@@ -164,7 +184,7 @@ export async function GET(req: NextRequest) {
   }
   for (const [yfSym, lp] of yahooNseFall) prices.set(yfSym, lp);
 
-  const rows = RESEARCH.map(stock => {
+  const rows = MERGED.map(stock => {
     const live      = prices.get(stock.yfSymbol);
     const livePrice = live?.price     ?? null;
     const changePct = live?.changePct ?? null;
@@ -187,10 +207,14 @@ export async function GET(req: NextRequest) {
       ? ((livePrice - stock.researchCmp) / stock.researchCmp) * 100
       : null;
 
-    // Keep `target` for backward compat (equals baseTarget)
-    return { ...stock, target: stock.baseTarget, livePrice, changePct, expectedReturn, vsCmp };
+    return {
+      ...stock,
+      target: stock.baseTarget, // backward compat alias
+      livePrice, changePct, expectedReturn, vsCmp,
+    };
   });
 
   const source = (clientId && accessToken) ? 'dhan' : 'yahoo';
-  return NextResponse.json({ rows, fetchedAt: new Date().toISOString(), source });
+  const syncedCount = rows.filter(r => r.fromSync).length;
+  return NextResponse.json({ rows, fetchedAt: new Date().toISOString(), source, syncedCount });
 }

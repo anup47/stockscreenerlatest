@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Minus, Clock, Circle, ExternalLink } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Minus, Clock, Circle, ExternalLink, CloudDownload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 
@@ -22,12 +22,23 @@ interface ResearchRow {
   changePct: number | null;
   expectedReturn: number | null;
   vsCmp: number | null;
+  fromSync?: boolean;
+  sourceFile?: string;
+}
+
+interface SyncResult {
+  synced: number;
+  skipped: number;
+  errors: number;
+  total: number;
+  results: string[];
 }
 
 interface ApiResponse {
   rows: ResearchRow[];
   fetchedAt: string;
   source?: 'dhan' | 'yahoo';
+  syncedCount?: number;
 }
 
 function isMarketOpen(): boolean {
@@ -116,9 +127,14 @@ export default function ResearchTargetsPage() {
   const [data, setData]         = useState<ResearchRow[]>([]);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [priceSource, setPriceSource] = useState<'dhan' | 'yahoo' | null>(null);
+  const [syncedCount, setSyncedCount] = useState(0);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(false);
+
+  const [syncing, setSyncing]       = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [syncError, setSyncError]   = useState<string | null>(null);
 
   const [stanceFilter, setStanceFilter] = useState<'All' | 'ACCUMULATE' | 'WATCH' | 'AVOID'>('All');
   const [horizonFilter, setHorizonFilter] = useState<string>('All');
@@ -140,12 +156,30 @@ export default function ResearchTargetsPage() {
       setData(json.rows);
       setFetchedAt(json.fetchedAt);
       setPriceSource(json.source ?? null);
+      setSyncedCount(json.syncedCount ?? 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
   }, [dhan.isConfigured, dhan.headers]);
+
+  const runSync = useCallback(async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError(null);
+    try {
+      const res  = await fetch('/api/research-targets/sync', { method: 'POST' });
+      const json = await res.json() as SyncResult & { error?: string };
+      if (json.error) throw new Error(json.error);
+      setSyncResult(json);
+      await load();
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  }, [load]);
 
   useEffect(() => {
     if (!dhan.isHydrated) return; // wait for localStorage to load
@@ -245,6 +279,7 @@ export default function ResearchTargetsPage() {
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {counts.total} stocks · {counts.withTarget} with price targets · {counts.pricesOk} live prices loaded
+              {syncedCount > 0 && <span className="ml-2 text-blue-600 font-medium">· {syncedCount} updated from OneDrive PDFs</span>}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -264,6 +299,14 @@ export default function ResearchTargetsPage() {
               </div>
             )}
             <button
+              onClick={runSync}
+              disabled={syncing || loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-40"
+            >
+              <CloudDownload className={cn('size-3', syncing && 'animate-pulse')} />
+              {syncing ? 'Syncing…' : 'Sync from OneDrive'}
+            </button>
+            <button
               onClick={load}
               disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-40"
@@ -273,6 +316,28 @@ export default function ResearchTargetsPage() {
             </button>
           </div>
         </div>
+
+        {/* ── Sync result banner ──────────────────────────────────────────────── */}
+        {syncResult && (
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-semibold text-blue-800">
+                Sync complete — {syncResult.synced} new, {syncResult.skipped} skipped, {syncResult.errors} errors · {syncResult.total} stocks with PDF data
+              </p>
+              <button onClick={() => setSyncResult(null)} className="text-blue-400 hover:text-blue-600 text-xs">✕</button>
+            </div>
+            <div className="max-h-28 overflow-y-auto space-y-0.5">
+              {syncResult.results.filter(r => !r.startsWith('skip')).map((r, i) => (
+                <p key={i} className={cn('text-[11px] font-mono', r.startsWith('ok') ? 'text-emerald-700' : 'text-red-600')}>{r}</p>
+              ))}
+            </div>
+          </div>
+        )}
+        {syncError && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+            Sync failed: {syncError} — <button className="underline" onClick={() => setSyncError(null)}>Dismiss</button>
+          </div>
+        )}
 
         {/* ── Summary chips ──────────────────────────────────────────────────── */}
         <div className="flex flex-wrap gap-2 mb-4">
@@ -382,7 +447,15 @@ export default function ResearchTargetsPage() {
 
                       {/* Company */}
                       <td className="px-3 py-2.5">
-                        <div className="font-medium text-foreground whitespace-nowrap">{row.company}</div>
+                        <div className="font-medium text-foreground whitespace-nowrap flex items-center gap-1.5">
+                          {row.company}
+                          {row.fromSync && (
+                            <span title={`Auto-synced from: ${row.sourceFile ?? 'OneDrive PDF'}`}
+                              className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-600 border border-blue-200 shrink-0">
+                              PDF
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                           {row.symbol}
                           {isUsd && <span className="text-[10px] bg-blue-50 text-blue-500 px-1 rounded">NYSE</span>}
