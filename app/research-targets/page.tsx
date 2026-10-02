@@ -30,7 +30,6 @@ interface ApiResponse {
   rows: ResearchRow[];
   fetchedAt: string;
   source?: 'dhan' | 'yahoo';
-  syncedCount?: number;
   lastPdfSync?: string | null;
 }
 
@@ -53,6 +52,17 @@ function fmtPct(n: number): string {
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-IN', {
     timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
@@ -120,7 +130,7 @@ export default function ResearchTargetsPage() {
   const [data, setData]         = useState<ResearchRow[]>([]);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [priceSource, setPriceSource] = useState<'dhan' | 'yahoo' | null>(null);
-  const [syncedCount, setSyncedCount] = useState(0);
+  const syncedCount = data.filter(r => r.fromSync).length;
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState(false);
@@ -147,7 +157,6 @@ export default function ResearchTargetsPage() {
       setData(json.rows);
       setFetchedAt(json.fetchedAt);
       setPriceSource(json.source ?? null);
-      setSyncedCount(json.syncedCount ?? 0);
       setLastPdfSync(json.lastPdfSync ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
@@ -257,7 +266,7 @@ export default function ResearchTargetsPage() {
               {syncedCount > 0 && <span className="ml-2 text-blue-600 font-medium">· {syncedCount} updated from OneDrive PDFs</span>}
               {lastPdfSync && (
                 <span className="ml-2 text-xs" title="PDFs are read daily by the local Qwen sync on the office PC">
-                  · PDFs last read {new Date(lastPdfSync).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })} IST
+                  · PDFs last read {fmtDateTime(lastPdfSync)} IST
                 </span>
               )}
             </p>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { put, list } from '@vercel/blob';
+import { readJsonBlob, writeJsonBlob } from '@/lib/blob-json';
 
 export const maxDuration = 60;
 
@@ -174,22 +174,8 @@ Rules:
 
 const BLOB_KEY = 'scuttlebutt-baskets.json';
 
-async function readBlob(): Promise<BlobData> {
-  try {
-    const { blobs } = await list({ prefix: BLOB_KEY });
-    if (!blobs.length) return { version: 1, processedFiles: [], baskets: [] };
-    const res  = await fetch(blobs[0].url, { cache: 'no-store' });
-    return await res.json() as BlobData;
-  } catch {
-    return { version: 1, processedFiles: [], baskets: [] };
-  }
-}
-
-async function writeBlob(data: BlobData): Promise<void> {
-  await put(BLOB_KEY, JSON.stringify(data), {
-    access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true,
-  });
-}
+const readBlob  = () => readJsonBlob<BlobData>(BLOB_KEY, () => ({ version: 1, processedFiles: [], baskets: [] }));
+const writeBlob = (data: BlobData) => writeJsonBlob(BLOB_KEY, data);
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 

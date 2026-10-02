@@ -1,4 +1,5 @@
-import { list } from '@vercel/blob';
+import { unstable_cache } from 'next/cache';
+import { readJsonBlob } from './blob-json';
 
 // Written by scripts/sync-research-targets.mjs (local Ollama extraction).
 export interface TargetOverride {
@@ -22,15 +23,10 @@ export interface TargetsBlob {
   overrides: Record<string, TargetOverride>;
 }
 
-export const BLOB_KEY = 'research-targets-overrides.json';
-
-export async function readTargetsBlob(): Promise<TargetsBlob> {
-  try {
-    const { blobs } = await list({ prefix: BLOB_KEY });
-    if (!blobs.length) return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
-    const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, { cache: 'no-store' });
-    return await res.json() as TargetsBlob;
-  } catch {
-    return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
-  }
-}
+// The blob changes about once a day; caching keeps page refreshes from spending a Blob list() op each.
+export const readTargetsBlob = unstable_cache(
+  () => readJsonBlob<TargetsBlob>('research-targets-overrides.json',
+    () => ({ version: 1, processedFiles: [], lastSync: '', overrides: {} })),
+  ['research-targets-blob'],
+  { revalidate: 600 },
+);
