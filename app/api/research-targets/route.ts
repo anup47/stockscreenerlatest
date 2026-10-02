@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchEquityQuotes } from '@/lib/dhan-api';
-import { readTargetsBlob } from './sync/route';
+import { readTargetsBlob } from '@/lib/research-targets-blob';
 
 export const maxDuration = 60;
 

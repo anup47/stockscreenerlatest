@@ -1,28 +1,7 @@
 import { NextResponse } from 'next/server';
-import { put, list } from '@vercel/blob';
+import { readTargetsBlob, writeTargetsBlob } from '@/lib/research-targets-blob';
 
 export const maxDuration = 60;
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface TargetOverride {
-  company: string;
-  baseTarget: number | null;
-  bullTarget: number | null;
-  researchCmp: number | null;
-  stance: 'ACCUMULATE' | 'WATCH' | 'AVOID' | null;
-  horizon: string | null;
-  note: string | null;
-  sourceFile: string;
-  syncedAt: string;
-}
-
-export interface TargetsBlob {
-  version: number;
-  processedFiles: string[];
-  lastSync: string;
-  overrides: Record<string, TargetOverride>; // keyed by uppercase NSE symbol
-}
 
 // ── Graph helpers ─────────────────────────────────────────────────────────────
 
@@ -142,27 +121,6 @@ Rules:
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('No JSON in Claude response');
   return JSON.parse(match[0]);
-}
-
-// ── Blob helpers ──────────────────────────────────────────────────────────────
-
-export const BLOB_KEY = 'research-targets-overrides.json';
-
-export async function readTargetsBlob(): Promise<TargetsBlob> {
-  try {
-    const { blobs } = await list({ prefix: BLOB_KEY });
-    if (!blobs.length) return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
-    const res = await fetch(blobs[0].url, { cache: 'no-store' });
-    return await res.json() as TargetsBlob;
-  } catch {
-    return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
-  }
-}
-
-async function writeTargetsBlob(data: TargetsBlob): Promise<void> {
-  await put(BLOB_KEY, JSON.stringify(data), {
-    access: 'public', contentType: 'application/json', addRandomSuffix: false,
-  });
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────────
