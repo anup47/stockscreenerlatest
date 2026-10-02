@@ -30,6 +30,7 @@ interface SyncResult {
   synced: number;
   skipped: number;
   errors: number;
+  remaining: number;
   total: number;
   results: string[];
 }
@@ -169,10 +170,17 @@ export default function ResearchTargetsPage() {
     setSyncResult(null);
     setSyncError(null);
     try {
-      const res  = await fetch('/api/research-targets/sync', { method: 'POST' });
-      const json = await res.json() as SyncResult & { error?: string };
-      if (json.error) throw new Error(json.error);
-      setSyncResult(json);
+      let acc: SyncResult | null = null;
+      for (let i = 0; i < 30; i++) {
+        const res  = await fetch('/api/research-targets/sync', { method: 'POST' });
+        const json = await res.json() as SyncResult & { error?: string };
+        if (json.error) throw new Error(json.error);
+        acc = acc
+          ? { ...json, synced: acc.synced + json.synced, errors: acc.errors + json.errors, skipped: acc.skipped, results: [...acc.results, ...json.results] }
+          : json;
+        setSyncResult(acc);
+        if (json.remaining === 0 || json.synced + json.errors === 0) break;
+      }
       await load();
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : 'Sync failed');
@@ -322,7 +330,7 @@ export default function ResearchTargetsPage() {
           <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-xs font-semibold text-blue-800">
-                Sync complete — {syncResult.synced} new, {syncResult.skipped} skipped, {syncResult.errors} errors · {syncResult.total} stocks with PDF data
+                {syncing ? `Syncing… ${syncResult.remaining} PDFs left —` : 'Sync complete —'} {syncResult.synced} new, {syncResult.skipped} skipped, {syncResult.errors} errors · {syncResult.total} stocks with PDF data
               </p>
               <button onClick={() => setSyncResult(null)} className="text-blue-400 hover:text-blue-600 text-xs">✕</button>
             </div>

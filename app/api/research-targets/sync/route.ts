@@ -149,12 +149,12 @@ export async function POST() {
 
     const results: string[] = [];
     let synced = 0;
+    const started = Date.now();
+    const pending = files.filter(f => !data.processedFiles.includes(f.name));
 
-    for (const file of files) {
-      if (data.processedFiles.includes(file.name)) {
-        results.push(`skip: ${file.name}`);
-        continue;
-      }
+    for (const file of pending) {
+      // Stay under the 60s function limit; the client re-calls until remaining hits 0.
+      if (Date.now() - started > 40_000) break;
       try {
         const buf       = await downloadFile(token, file.id);
         const extracted = await extractTargets(buf);
@@ -181,6 +181,8 @@ export async function POST() {
         synced++;
         results.push(`ok: ${file.name} → ${sym} (base: ${extracted.baseTarget ?? '—'}, bull: ${extracted.bullTarget ?? '—'})`);
       } catch (e) {
+        // Mark as processed so one bad PDF can't block the queue forever.
+        data.processedFiles.push(file.name);
         results.push(`error: ${file.name} — ${String(e).slice(0, 120)}`);
       }
     }
@@ -188,10 +190,12 @@ export async function POST() {
     data.lastSync = new Date().toISOString();
     await writeTargetsBlob(data);
 
+    const remaining = files.filter(f => !data.processedFiles.includes(f.name)).length;
     return NextResponse.json({
       synced,
-      skipped:  files.length - synced - results.filter(r => r.startsWith('error')).length,
+      skipped:  files.length - pending.length,
       errors:   results.filter(r => r.startsWith('error')).length,
+      remaining,
       total:    Object.keys(data.overrides).length,
       results,
       overrides: data.overrides,
