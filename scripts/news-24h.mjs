@@ -12,7 +12,9 @@ import { put, head, BlobNotFoundError } from '@vercel/blob';
 import { ensureOllama, chatJson } from './ollama.mjs';
 import researchList from '../lib/research-list.json' with { type: 'json' };
 
-const MODEL      = process.env.NEWS_LLM_MODEL || process.env.RESEARCH_LLM_MODEL || 'qwen2.5:3b';
+// 7b, not the 3b used for PDFs: in A/B tests 3b discarded material stories as "unrelated" and
+// over-rated impact; news prompts are short, so 7b stays within the hourly budget.
+const MODEL      = process.env.NEWS_LLM_MODEL || 'qwen2.5:7b';
 const WINDOW_H   = 24;
 const LLM_BUDGET = (Number(process.env.NEWS_LLM_BUDGET_MIN) || 40) * 60_000;
 const BATCH      = 6;
@@ -281,15 +283,21 @@ function ruleClassify(it) {
   return { summary: it.kind === 'Filing' && it.detail ? it.detail.slice(0, 220) : it.headline, sentiment, impact, relevant: true, pending: true };
 }
 
-const LLM_PROMPT = `You are an equity research assistant for an Indian stock portfolio. For each numbered news item, return:
-- relevant: true if it is genuinely about the named company (for SECTOR/MACRO items: material to that sector or to Indian equities). false for namesakes, unrelated stories, or lists that only mention the company in passing.
-- summary: ONE crisp professional line, at most 30 words, saying what happened and why it matters for the stock. No hype, no "the article says".
-- sentiment, judged by impact on the stock's price or fundamentals:
-  Positive = order win, upgrade, profit growth, capacity expansion, regulatory approval, promoter/insider buying
-  Negative = downgrade, poor results, promoter selling, regulatory issue, accident/fire, litigation, pledging
-  Neutral = routine filings, conference/AGM notices, generic sector news
-- impact: 1 = noise/routine, 2 = minor, 3 = notable, 4 = material to estimates, 5 = clearly price-sensitive (results surprise, large order, M&A, regulatory action, rating change).
-Return results for every item, using its number as "n".
+const LLM_PROMPT = `You are a sell-side equity analyst screening news for an Indian stock portfolio. For each numbered item return:
+- relevant: true when the item concerns the named company's own business, results, orders, deals, management, regulators or stock, even if the company is only part of the story. For SECTOR/MACRO items: true only if it can move that sector's or Indian equities' earnings or valuations. false for namesakes (songs, people, places), items where the company is only a broker or commentator on ANOTHER company, tokenised/crypto copies of the stock, and bare quote pages.
+- summary: ONE professional line, at most 30 words: what happened, with the figure (Rs crore, %, $) when given, and why it matters for the stock. Do not just repeat the headline.
+- sentiment, by effect on this stock's price or fundamentals:
+  Positive = order win, upgrade or target raise, profit growth, capacity expansion, regulatory approval, promoter/insider buying, deal completed
+  Negative = downgrade or target cut, poor results, promoter selling, regulatory or legal action against the company, accident/fire, deal terminated or delayed, pledging
+  Neutral = routine filings (ESOP grants, retirements, meeting notices), conferences, generic sector news
+- impact on THIS stock:
+  1 = routine/noise (ESOPs, retirements, meeting notices, quote pages)
+  2 = minor, or a recap of old moves ("shares up X% in six months", stock-tip lists)
+  3 = notable but not estimate-changing (small order, analyst target change, senior hire)
+  4 = likely to change estimates (large order relative to revenue, results, guidance change, M&A update)
+  5 = clearly price-sensitive today (results surprise, transformational order or M&A, regulatory ban, major accident)
+  SECTOR and MACRO items are at most 3.
+Return a result for every item, using its number as "n".
 
 ITEMS:
 `;
@@ -324,12 +332,16 @@ async function classifyBatch(batch) {
   for (const r of results || []) {
     const it = batch[r.n - 1];
     if (!it) continue;
+    const impact = Math.min(5, Math.max(1, Math.round(r.impact) || it.impact));
     Object.assign(it, {
-      relevant: r.relevant !== false,
+      // Exchange filings and deals are about the company by definition.
+      relevant: it.kind === 'Filing' || it.kind === 'Deal' || r.relevant !== false,
       summary: (r.summary || '').trim() || it.summary,
       sentiment: ['Positive', 'Negative', 'Neutral'].includes(r.sentiment) ? r.sentiment : it.sentiment,
-      impact: Math.min(5, Math.max(1, Math.round(r.impact) || it.impact)),
+      // Sector/macro news rarely moves one stock on its own; the small model over-rates it.
+      impact: it.kind === 'Sector' || it.kind === 'Macro' ? Math.min(impact, 3) : impact,
       pending: false,
+      reviewedBy: MODEL,
     });
   }
 }
@@ -372,13 +384,15 @@ async function main() {
   const carried = prev.items.filter(i => Date.parse(i.time) >= since && !freshIds.has(i.id));
   const items = dedupe([...fresh, ...carried]);
 
-  // Reuse Qwen's earlier verdicts; everything new starts with a keyword-rule classification.
-  const reviewed = new Map(prev.items.filter(i => !i.pending).map(i => [i.id, i]));
+  // Reuse this model's earlier verdicts. New items start on keyword rules; items judged by another
+  // model keep that verdict but are queued for re-review.
+  const reviewed = new Map(prev.items.filter(i => !i.pending && i.reviewedBy === MODEL).map(i => [i.id, i]));
   for (const it of items) {
     if (it.kind === 'Price') continue;
     const c = reviewed.get(it.id);
-    if (c) Object.assign(it, { summary: c.summary, sentiment: c.sentiment, impact: c.impact, relevant: c.relevant, pending: false });
+    if (c) Object.assign(it, { summary: c.summary, sentiment: c.sentiment, impact: c.impact, relevant: c.relevant, pending: false, reviewedBy: MODEL });
     else if (it.pending === undefined) Object.assign(it, ruleClassify(it));
+    else if (it.reviewedBy !== MODEL) it.pending = true;
   }
 
   const publish = () => writeFeed(universe, items);

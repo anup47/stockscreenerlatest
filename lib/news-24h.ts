@@ -20,6 +20,7 @@ export interface NewsItem {
   impact: 1 | 2 | 3 | 4 | 5;
   pending: boolean;      // true = keyword-rule classification, Qwen hasn't reviewed it yet
   relevant: boolean;     // false = Qwen judged it a namesake/unrelated story; hidden in the tab
+  reviewedBy?: string;   // Ollama model that produced the verdict
   detail?: string;
 }
 

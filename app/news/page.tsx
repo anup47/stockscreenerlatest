@@ -60,7 +60,8 @@ export default function NewsPage() {
   const [minImpact, setMinImpact] = useState(1);
   const [ticker, setTicker]       = useState('All');
   const [kinds, setKinds]         = useState<Set<NewsKind>>(new Set(KINDS));
-  const [sortBy, setSortBy]       = useState<'time' | 'impact'>('time');
+  // Impact-first by default so company news isn't buried under hourly sector/peer stories.
+  const [sortBy, setSortBy]       = useState<'time' | 'impact'>('impact');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,7 +178,7 @@ export default function NewsPage() {
             )}
             <p className="mt-2 text-xs text-muted-foreground">
               {pulse.covered} of {feed?.stocks.length ?? 0} stocks have company-level updates · {pulse.quiet.length} with no material update
-              {pendingCount > 0 && <> · {pendingCount} items still on keyword rules, Qwen reviews them on the next run</>}
+              {pendingCount > 0 && <> · {pendingCount} provisional items, Qwen reviews them on the next run</>}
             </p>
           </div>
           <div>
@@ -323,7 +324,7 @@ function NewsRow({ item: i, onTicker }: { item: NewsItem; onTicker: (t: string) 
       <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{i.source}</td>
       <td className="px-3 py-2.5 text-xs text-foreground/90 min-w-[240px] max-w-[380px]">
         {i.summary}
-        {i.pending && <span className="ml-1 text-[10px] text-muted-foreground" title="Classified by keyword rules; Qwen reviews it on the next hourly run">· rules</span>}
+        {i.pending && <span className="ml-1 text-[10px] text-muted-foreground" title="Provisional verdict; Qwen reviews it on the next hourly run">· provisional</span>}
       </td>
       <td className="px-3 py-2.5">
         <span className={cn('inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border', s.pill)}>{i.sentiment}</span>
