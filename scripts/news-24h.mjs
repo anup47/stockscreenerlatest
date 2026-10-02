@@ -336,6 +336,25 @@ async function classifyBatch(batch) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
+async function writeFeed(universe, items) {
+  const feed = {
+    generatedAt: new Date().toISOString(),
+    windowHours: WINDOW_H,
+    model: MODEL,
+    stocks: universe.map(({ symbol, company, sector }) => ({ symbol, company, sector })),
+    items: [...items].sort((a, b) => b.time.localeCompare(a.time)),
+    health,
+  };
+  if (DRY) {
+    const file = path.join(os.tmpdir(), 'news-24h.json');
+    writeFileSync(file, JSON.stringify(feed, null, 2));
+    log(`dry run → ${file}`);
+  } else {
+    await put(FEED_KEY, JSON.stringify(feed), { access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true });
+    log(`published ${items.filter(i => i.relevant).length} items (${items.filter(i => i.pending).length} still on keyword rules)`);
+  }
+}
+
 async function main() {
   const t0 = Date.now();
   const [universe, prev] = await Promise.all([loadUniverse(), readJson(FEED_KEY, { items: [] })]);
@@ -362,7 +381,12 @@ async function main() {
     else if (it.pending === undefined) Object.assign(it, ruleClassify(it));
   }
 
+  const publish = () => writeFeed(universe, items);
   const queue = items.filter(i => i.pending);
+  // After a gap (first run, PC was off), publish the rule-based feed now rather than after Qwen's pass.
+  const prevAge = prev.generatedAt ? Date.now() - Date.parse(prev.generatedAt) : Infinity;
+  if (queue.length && !NO_LLM && prevAge > 2 * 3600_000) await publish();
+
   if (queue.length && !NO_LLM) {
     try {
       await ensureOllama(MODEL, log);
@@ -377,22 +401,7 @@ async function main() {
     } catch (e) { health.llm = `error: ${e.message}`; }
   }
 
-  const feed = {
-    generatedAt: new Date().toISOString(),
-    windowHours: WINDOW_H,
-    model: MODEL,
-    stocks: universe.map(({ symbol, company, sector }) => ({ symbol, company, sector })),
-    items: items.sort((a, b) => b.time.localeCompare(a.time)),
-    health,
-  };
-
-  if (DRY) {
-    const file = path.join(os.tmpdir(), 'news-24h.json');
-    writeFileSync(file, JSON.stringify(feed, null, 2));
-    log(`dry run → ${file}`);
-  } else {
-    await put(FEED_KEY, JSON.stringify(feed), { access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true });
-  }
+  await publish();
 
   const shown = items.filter(i => i.relevant);
   const count = s => shown.filter(i => i.sentiment === s).length;
