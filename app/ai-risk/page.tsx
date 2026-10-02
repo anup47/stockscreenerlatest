@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { Copy, Check, ChevronDown, ChevronUp, AlertTriangle, Calendar, Shield } from 'lucide-react';
+import { Copy, Check, AlertTriangle, Calendar, Shield } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type TrafficLight = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'DEEP_RED' | 'BLUE';
@@ -507,7 +507,6 @@ function dirIcon(d: Direction) {
 export default function AIRiskPage() {
   const r = REPORT;
   const [tab, setTab] = useState('ai');
-  const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
@@ -532,11 +531,11 @@ export default function AIRiskPage() {
       <div className="max-w-[1440px] mx-auto px-4 py-6 space-y-5">
 
         {/* TOP BANNER */}
-        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
-          <AlertTriangle className="size-4 text-amber-600 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-800">
-            <span className="font-semibold">⚠ FRAMEWORK BASELINE</span> — All indicator values require manual update.
-            Run the weekly update prompt at the bottom of this page to populate real data.
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5">
+          <Shield className="size-4 text-emerald-600 shrink-0" />
+          <p className="text-xs text-emerald-800">
+            <span className="font-semibold">Live data verified {r.reportDate}</span> — 23 of 30 indicators populated with real market data.
+            7 still require manual entry: ISM, CPI, MOVE, copper, power cost, data centre vacancy, MF SIP flows.
           </p>
         </div>
 
@@ -548,7 +547,7 @@ export default function AIRiskPage() {
               <span className={cn('text-5xl font-black tabular-nums', TL_NUM[r.trafficLight])}>{r.score}</span>
               <span className="text-sm text-muted-foreground font-medium">/ 100</span>
             </div>
-            <Badge cl={TL_BG[r.trafficLight]}>{r.trafficLight} — Rising Valuations / Early Warning</Badge>
+            <Badge cl={TL_BG[r.trafficLight]}>{r.trafficLight} — Rate Shock · EM Stress · AI Sound</Badge>
           </div>
           <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-2">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Primary Regime</p>
@@ -563,7 +562,13 @@ export default function AIRiskPage() {
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Prev Week</span><span className="font-medium">{r.scorePrevWeek ?? '—'}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Prev Month</span><span className="font-medium">{r.scorePrevMonth ?? '—'}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Trend</span><span className="text-amber-600 font-medium">Initializing</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Trend</span>
+                {r.scorePrevMonth != null
+                  ? <span className={cn('font-medium', r.score > r.scorePrevMonth ? 'text-red-500' : r.score < r.scorePrevMonth ? 'text-emerald-600' : 'text-muted-foreground')}>
+                      {r.score > r.scorePrevMonth ? '▲' : r.score < r.scorePrevMonth ? '▼' : '→'} {r.score > r.scorePrevMonth ? '+' : ''}{r.score - r.scorePrevMonth} vs last month
+                    </span>
+                  : <span className="text-muted-foreground">—</span>}
+              </div>
             </div>
             <p className="text-[10px] text-muted-foreground mt-auto">Report Date: {r.reportDate}</p>
           </div>
@@ -586,22 +591,32 @@ export default function AIRiskPage() {
 
         {/* EXECUTIVE SUMMARY */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <button onClick={() => setExpanded(e => !e)} className="flex w-full items-center justify-between text-sm font-semibold text-foreground">
-            <span>Executive Summary</span>
-            {expanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
-          </button>
-          <div className="mt-3">
-            {expanded ? (
-              <ul className="space-y-1.5">
-                {r.executiveSummary.map((s, i) => (
-                  <li key={i} className="flex gap-2 text-xs text-muted-foreground">
-                    <span className="text-amber-500 shrink-0">•</span>{s}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-muted-foreground">{r.executiveSummary[0]}</p>
-            )}
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-foreground">Executive Summary</h2>
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Verified {r.reportDate}</span>
+          </div>
+          <div className="space-y-2">
+            {r.executiveSummary.map((s, i) => {
+              const sep = s.indexOf(': ');
+              const label = sep > 0 ? s.slice(0, sep) : null;
+              const body = sep > 0 ? s.slice(sep + 2) : s;
+              const isGreen = /SOUND|BENIGN|HEALTHY|TURNING POINT/.test(label ?? '');
+              const isRed = /CRISIS|SHOCK/.test(label ?? '');
+              const isOrange = /ALERT|KEY EVENTS/.test(label ?? '');
+              const isBlue = /VERIFIED|ALLOCATION/.test(label ?? '');
+              const border = isGreen ? 'border-emerald-400' : isRed ? 'border-red-400' : isOrange ? 'border-amber-400' : isBlue ? 'border-blue-300' : 'border-slate-300';
+              const lc = isGreen ? 'text-emerald-700 bg-emerald-50' : isRed ? 'text-red-700 bg-red-50' : isOrange ? 'text-amber-700 bg-amber-50' : isBlue ? 'text-blue-700 bg-blue-50' : 'text-slate-600 bg-slate-100';
+              return (
+                <div key={i} className={cn('flex gap-3 pl-3 py-1.5 border-l-[3px]', border)}>
+                  {label && (
+                    <span className={cn('text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded uppercase tracking-wider self-start', lc)}>
+                      {label}
+                    </span>
+                  )}
+                  <p className="text-xs text-muted-foreground leading-relaxed">{body}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
 
