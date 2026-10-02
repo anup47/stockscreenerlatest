@@ -187,7 +187,7 @@ async function readBlob(): Promise<BlobData> {
 
 async function writeBlob(data: BlobData): Promise<void> {
   await put(BLOB_KEY, JSON.stringify(data), {
-    access: 'public', contentType: 'application/json', addRandomSuffix: false,
+    access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true,
   });
 }
 

@@ -25,7 +25,7 @@ export async function readTargetsBlob(): Promise<TargetsBlob> {
   try {
     const { blobs } = await list({ prefix: BLOB_KEY });
     if (!blobs.length) return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
-    const res = await fetch(blobs[0].url, { cache: 'no-store' });
+    const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, { cache: 'no-store' });
     return await res.json() as TargetsBlob;
   } catch {
     return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
@@ -34,6 +34,6 @@ export async function readTargetsBlob(): Promise<TargetsBlob> {
 
 export async function writeTargetsBlob(data: TargetsBlob): Promise<void> {
   await put(BLOB_KEY, JSON.stringify(data), {
-    access: 'public', contentType: 'application/json', addRandomSuffix: false,
+    access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true,
   });
 }
