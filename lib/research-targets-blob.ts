@@ -1,7 +1,9 @@
-import { put, list } from '@vercel/blob';
+import { list } from '@vercel/blob';
 
+// Written by scripts/sync-research-targets.mjs (local Ollama extraction).
 export interface TargetOverride {
   company: string;
+  sector?: string | null;
   baseTarget: number | null;
   bullTarget: number | null;
   researchCmp: number | null;
@@ -31,10 +33,4 @@ export async function readTargetsBlob(): Promise<TargetsBlob> {
   } catch {
     return { version: 1, processedFiles: [], lastSync: '', overrides: {} };
   }
-}
-
-export async function writeTargetsBlob(data: TargetsBlob): Promise<void> {
-  await put(BLOB_KEY, JSON.stringify(data), {
-    access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true,
-  });
 }

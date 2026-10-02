@@ -155,6 +155,26 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Stocks that only exist in synced PDFs get their own rows.
+  const listed = new Set(RESEARCH.map(s => s.symbol.toUpperCase()));
+  Object.entries(overrides)
+    .filter(([sym, ov]) => !listed.has(sym) && (ov.baseTarget != null || ov.bullTarget != null))
+    .forEach(([sym, ov], i) => MERGED.push({
+      id:          1000 + i,
+      company:     ov.company,
+      symbol:      sym,
+      yfSymbol:    /^\d+$/.test(sym) ? `${sym}.BO` : `${sym}.NS`,
+      sector:      ov.sector ?? 'Research',
+      stance:      ov.stance ?? 'WATCH',
+      researchCmp: ov.researchCmp,
+      baseTarget:  ov.baseTarget,
+      bullTarget:  ov.bullTarget,
+      horizon:     (ov.horizon as ResearchStock['horizon']) ?? null,
+      note:        ov.note ?? undefined,
+      fromSync:    true,
+      sourceFile:  ov.sourceFile,
+    }));
+
   // Dhan covers NSE equity stocks; BSE SME (.BO) and NYSE (USD) always via Yahoo
   const nseStocks   = MERGED.filter(s => !s.yfSymbol.endsWith('.BO') && s.currency !== 'USD');
   const nonNseStocks = MERGED.filter(s =>  s.yfSymbol.endsWith('.BO') || s.currency === 'USD');
@@ -216,5 +236,5 @@ export async function GET(req: NextRequest) {
 
   const source = (clientId && accessToken) ? 'dhan' : 'yahoo';
   const syncedCount = rows.filter(r => r.fromSync).length;
-  return NextResponse.json({ rows, fetchedAt: new Date().toISOString(), source, syncedCount });
+  return NextResponse.json({ rows, fetchedAt: new Date().toISOString(), source, syncedCount, lastPdfSync: blobData?.lastSync || null });
 }
