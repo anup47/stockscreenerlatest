@@ -23,7 +23,8 @@ for (const f of ['.env.production.local', '.env.local']) {
 const PDF_DIR  = process.env.RESEARCH_PDF_DIR
   || path.resolve(import.meta.dirname, '../../../AAStockWorld/New Research Dashboards');
 const OLLAMA   = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
-const MODEL    = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
+// 3b: ~45s/PDF on this CPU-only PC vs 3–12 min for 7b, with equal base-target accuracy in tests.
+const MODEL    = process.env.RESEARCH_LLM_MODEL || 'qwen2.5:3b';
 const WEBAPP   = process.env.WEBAPP_URL || 'https://stockscreenerlatest.vercel.app';
 const BLOB_KEY = 'research-targets-overrides.json';
 
@@ -77,7 +78,18 @@ async function pdfText(file) {
     excerpts += s + '\n';
   }
   const hasTargets = /target|bull case|\bbull\b/i.test(head + excerpts);
-  return { prompt: `${head}\n\n[Excerpts quoting prices]\n${excerpts}`, hasTargets, chars: pages.join('').length };
+  // Template phrases the small model tends to miss: "Bull Rs 3,389" and the cover-page stance.
+  // Price right after "Bull", excluding Rs-crore figures from P&L rows.
+  const bulls = [...pages.join(' ').matchAll(/\bbull(?:\s*case)?(?:\s*target)?[\s:|/-]{0,6}(?:rs\.?|₹)\s?([\d,]{2,})(?![\d,]*\s*(?:cr\b|crore|mn\b|bn\b|lakh))/gi)]
+    .map(m => Number(m[1].replace(/,/g, '')));
+  const stanceM = head.match(/\b(ACCUMULATE|BUY|HOLD|WATCH|AVOID|SELL|REDUCE)\b/);
+  return {
+    prompt: `${head}\n\n[Excerpts quoting prices]\n${excerpts}`,
+    hasTargets,
+    chars: pages.join('').length,
+    regexBulls: bulls,
+    regexStance: stanceM?.[1] ?? null,
+  };
 }
 
 // ── Local LLM ────────────────────────────────────────────────────────────────
@@ -214,7 +226,7 @@ async function main() {
     const t0 = Date.now();
     const tag = `[${i + 1}/${pending.length}] ${file.name}`;
     try {
-      const { prompt, hasTargets, chars } = await pdfText(path.join(PDF_DIR, file.name));
+      const { prompt, hasTargets, chars, regexBulls, regexStance } = await pdfText(path.join(PDF_DIR, file.name));
       if (chars < 300 || !hasTargets) {
         log(`${tag} — skip: ${chars < 300 ? 'no extractable text (scanned PDF?)' : 'no price target mentioned'}`);
         data.processedFiles.push(keyOf(file)); skipped++;
@@ -222,8 +234,11 @@ async function main() {
       }
 
       const ex  = await extract(prompt);
+      // The cover-page stance is authoritative in this report template.
+      ex.stance = regexStance || ex.stance;
       const sym = ex.isSingleStockReport ? resolveSymbol(ex, known) : null;
-      const baseTarget = num(ex.baseTarget), bullTarget = num(ex.bullTarget);
+      const baseTarget = num(ex.baseTarget);
+      const bullTarget = num(ex.bullTarget) ?? regexBulls.find(b => !baseTarget || b > baseTarget) ?? null;
       const secs = ((Date.now() - t0) / 1000).toFixed(0);
 
       if (!sym || (baseTarget == null && bullTarget == null && !normaliseStance(ex.stance))) {
