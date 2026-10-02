@@ -2,29 +2,16 @@
 // publishes them to the Vercel Blob read by /research-targets.
 // Usage: node scripts/sync-research-targets.mjs [--limit N] [--only REGEX] [--reset] [--dry-run]
 
+import './load-env.mjs';
 import { readdir, stat, readFile } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { put, list } from '@vercel/blob';
+import { ensureOllama, chatJson } from './ollama.mjs';
+import { put, head, BlobNotFoundError } from '@vercel/blob';
 import { extractText, getDocumentProxy } from 'unpdf';
 import researchList from '../lib/research-list.json' with { type: 'json' };
 
-// Load env files ourselves: .env.local has a UTF-8 BOM, which breaks `node --env-file`.
-// .env.production.local (from `vercel env pull`) comes first so its live blob token wins.
-for (const f of ['.env.production.local', '.env.local']) {
-  const envFile = path.resolve(import.meta.dirname, '..', f);
-  if (!existsSync(envFile)) continue;
-  for (const line of readFileSync(envFile, 'utf8').replace(/^﻿/, '').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/i);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
-  }
-}
-
 const PDF_DIR  = process.env.RESEARCH_PDF_DIR
   || path.resolve(import.meta.dirname, '../../../AAStockWorld/New Research Dashboards');
-// Node on Windows resolves `localhost` to ::1, which Ollama doesn't listen on.
-const OLLAMA   = (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/$/, '').replace('//localhost', '//127.0.0.1');
 // 3b: ~45s/PDF on this CPU-only PC vs 3–12 min for 7b, with equal base-target accuracy in tests.
 const MODEL    = process.env.RESEARCH_LLM_MODEL || 'qwen2.5:3b';
 const BLOB_KEY = 'research-targets-overrides.json';
@@ -43,9 +30,9 @@ const log = (...m) => console.log(new Date().toISOString().slice(11, 19), ...m);
 
 async function readBlob() {
   const empty = { version: 1, processedFiles: [], lastSync: '', overrides: {} };
-  const { blobs } = await list({ prefix: BLOB_KEY });
-  if (!blobs.length) return empty;
-  const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, { cache: 'no-store' });
+  const meta = await head(BLOB_KEY).catch(e => { if (e instanceof BlobNotFoundError) return null; throw e; });
+  if (!meta) return empty;
+  const res = await fetch(`${meta.url}?t=${Date.now()}`, { cache: 'no-store' });
   return res.ok ? await res.json() : empty;
 }
 
@@ -126,45 +113,7 @@ const PROMPT = `You are reading text extracted from an Indian equity research re
 - note: the one-line investment thesis, under 100 characters.
 Prices are plain numbers in rupees (no commas or symbols) unless the stock is US-listed. Use null for anything not in the text — never guess numbers.`;
 
-async function extract(text) {
-  const res = await fetch(`${OLLAMA}/api/chat`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    // Streaming: Node's fetch drops a request whose headers take >5 min, which slow CPU runs hit.
-    body: JSON.stringify({
-      model: MODEL,
-      stream: true,
-      format: SCHEMA,
-      options: { temperature: 0, num_ctx: 4096 },
-      messages: [{ role: 'user', content: `${PROMPT}\n\nREPORT TEXT:\n${text}` }],
-    }),
-    signal: AbortSignal.timeout(15 * 60_000),
-  });
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  let out = '', buf = '';
-  const decoder = new TextDecoder();
-  for await (const chunk of res.body) {
-    buf += decoder.decode(chunk, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) if (line.trim()) out += JSON.parse(line).message?.content ?? '';
-  }
-  if (buf.trim()) out += JSON.parse(buf).message?.content ?? '';
-  return JSON.parse(out);
-}
-
-async function assertOllama() {
-  const ping = () => fetch(`${OLLAMA}/api/tags`).catch(() => null);
-  let res = await ping();
-  if (!res?.ok) {
-    log('Ollama not running — starting `ollama serve`');
-    spawn('ollama', ['serve'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    for (let i = 0; i < 30 && !res?.ok; i++) { await new Promise(r => setTimeout(r, 1000)); res = await ping(); }
-  }
-  if (!res?.ok) throw new Error(`Ollama is not reachable at ${OLLAMA} — start the Ollama app and retry.`);
-  const { models } = await res.json();
-  if (!models.some(m => m.name === MODEL)) throw new Error(`Model ${MODEL} not installed — run: ollama pull ${MODEL}`);
-}
+const extract = text => chatJson(MODEL, `${PROMPT}\n\nREPORT TEXT:\n${text}`, SCHEMA);
 
 // ── Normalisation ────────────────────────────────────────────────────────────
 
@@ -219,7 +168,7 @@ async function main() {
   log(`${files.length} PDFs in folder, ${pending.length} to process with ${MODEL}${DRY ? ' (dry run)' : ''}`);
 
   let ok = 0, skipped = 0, failed = 0;
-  if (pending.length) await assertOllama();
+  if (pending.length) await ensureOllama(MODEL, log);
 
   for (const [i, file] of pending.entries()) {
     const t0 = Date.now();
