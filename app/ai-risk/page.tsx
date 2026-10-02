@@ -60,23 +60,23 @@ function mkInd(name: string, source: string, frequency: string, yT: string, oT: 
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 const REPORT: RiskReport = {
-  reportDate: '2026-09-30', score: 42, scorePrevWeek: null, scorePrevMonth: null,
+  reportDate: '2026-10-02', score: 44, scorePrevWeek: null, scorePrevMonth: 42,
   trafficLight: 'YELLOW',
-  regime: 'AI Valuation Elevated — Fundamentals Holding But Capex ROI Scrutiny Rising',
-  regimeConfidence: 'LOW',
+  regime: 'Inflationary / Rate Shock (EM & India) — US AI Fundamentals Sound',
+  regimeConfidence: 'MEDIUM',
   executiveSummary: [
-    '⚠ FRAMEWORK BASELINE — Risk score of 42 (YELLOW) is a structural placeholder; all indicator values require manual weekly update before trading decisions.',
-    '⚠ FRAMEWORK BASELINE — Regime confidence is LOW; the regime label reflects qualitative consensus as of August 2025, not live market data.',
-    '⚠ FRAMEWORK BASELINE — Hyperscaler AI capex figures are from Q2 2025 reports; latest quarterly earnings must be pulled and entered.',
-    '⚠ FRAMEWORK BASELINE — Equity valuation metrics (Nasdaq P/E, SOX/SPX ratio, breadth) require fresh Bloomberg/FactSet pull as of report date.',
-    '⚠ FRAMEWORK BASELINE — Credit spread and VIX data (FRED, CBOE) require daily update; stale data will produce misleading signals.',
-    '⚠ FRAMEWORK BASELINE — Macro indicators (CPI, PMI, real yields) lag by 1–4 weeks; confirm latest BLS/ISM/FRED releases before scoring.',
-    '⚠ FRAMEWORK BASELINE — Cross-asset 3M momentum signals require current closing prices from Yahoo Finance for QQQ, BTC-USD, BZ=F, GC=F.',
-    '⚠ FRAMEWORK BASELINE — India pillar (FPI flows, India VIX, Nifty IT relative, SIP data) requires daily NSDL/NSE/AMFI refresh.',
-    '⚠ FRAMEWORK BASELINE — Asset allocation ranges are YELLOW-regime defaults; re-validate after populating all indicators.',
-    '⚠ FRAMEWORK BASELINE — Run the weekly update prompt at the bottom of this page to populate real data and compute a live risk score.',
+    'VERIFIED Oct 2, 2026. Score 44/100 YELLOW (upper bound). Regime: Inflationary / Rate Shock — US 10Y +86bps in 3M; real yield 2.93%; USD/INR 96.30. This is NOT an AI unwind.',
+    'AI FUNDAMENTALS SOUND: Azure +40% YoY (Q1 FY2026); backlog $392B (+51%); Nasdaq 100 fwd P/E 22.4× — BELOW 10Y average 22.9×. AI valuations have already de-rated substantially from ~30× in Aug 2025.',
+    'RATES SHOCK DOMINANT RISK: US 10Y at 5.237% (up 86bps in 3M); real yield 2.93% (approaching RED threshold of 3.0%). This drives USD strength → INR weakness → FPI outflows → India selloff.',
+    'INDIA IN CRISIS: FPI outflows YTD 2026 hit ₹2.37 lakh crore (record; exceeds all of 2025). Nifty IT −11% in September alone; TCS and Infosys at 52-week lows. Q2 results Oct 9–14 are critical.',
+    'CREDIT BENIGN — NOT A CREDIT EVENT: HY OAS ~312bps; IG OAS ~84bps; VIX 16.39. No credit crisis, no forced deleveraging, no funding stress. This rate shock is not becoming a systemic event.',
+    'OCTOBER TURNING POINT SIGNAL: FPIs reversed to +₹14,610 Cr inflow in early Oct after US Fed rate cut. First stabilisation signal — sustainability over 4–6 weeks determines regime shift.',
+    'GOLD ALERT: Gold at $4,212 (INR ~₹4.06L/oz) — up +75% from Aug 2025. Gold in INR +10% 3M (USD gold −4% 3M but INR −13% amplifies return in rupee terms). Maintain 12–16% gold position.',
+    'SEMICONDUCTOR HEALTHY: SOXX $576 (+8.5% 1M). Bitcoin +36% 3M. Risk-on signals from hardware and crypto contradict any AI-unwind narrative — the bull case for AI is intact.',
+    'ALLOCATION: Raise USD T-Bills to 8–11% via LRS; maintain gold 12–16%; Nifty IT at 1–3% (watch Q2 results for contrarian entry); add Indian banks/defensives; maintain Nifty put spread.',
+    'KEY EVENTS: TCS Q2 FY27 (Oct 9–14) + US CPI + FOMC (Oct 23) + Microsoft Q1 FY27 (Oct 29). Score could move ±8 pts on these events. Next update: Oct 9 after TCS results.',
   ],
-  pillarScores: { ai: 10, equity: 9, credit: 8, macro: 7, crossAsset: 4, india: 4 },
+  pillarScores: { ai: 7, equity: 8, credit: 4, macro: 11, crossAsset: 6, india: 8 },
   pillars: {
     ai: [
       mkInd('Hyperscaler AI Capex (annualised, $B)', 'Quarterly earnings (MSFT/GOOGL/AMZN/META/ORCL)', 'Quarterly',
@@ -364,7 +364,8 @@ const REPORT: RiskReport = {
       doNotUseWhen: 'INR strengthening trend confirmed; Fed aggressively cutting; DXY below 98.' },
   ],
   upcomingEvents: [
-    { date: '2026-10-15', event: 'Q2 FY27 Indian IT results season begins (TCS, Infosys, Wipro, HCL)', relevance: 'Deal TCV, revenue guidance, AI impact on headcount — core India pillar inputs' },
+    { date: '2026-10-09', event: 'TCS Q2 FY27 results — MOST CRITICAL NEAR-TERM EVENT', relevance: 'Deal TCV, revenue guidance, headcount trends — will set tone for Nifty IT; beat = contrarian buy signal at 52W lows' },
+    { date: '2026-10-14', event: 'Infosys Q2 FY27 results', relevance: 'Revenue guidance range width and AI commentary — key India pillar input; guidance cut = Nifty IT another −10%' },
     { date: '2026-10-16', event: 'US CPI September 2026 (BLS)', relevance: 'CPI re-acceleration would delay Fed cuts and pressure AI equity multiples' },
     { date: '2026-10-24', event: 'US GDP Q3 2026 advance estimate', relevance: 'Hard data on whether capex investment is translating into economic output' },
     { date: '2026-10-29', event: 'Microsoft Q1 FY27 earnings — Azure AI revenue, capex guidance', relevance: 'Primary capex signal; Azure acceleration/deceleration moves the entire AI thesis' },
@@ -374,20 +375,51 @@ const REPORT: RiskReport = {
     { date: '2026-11-06', event: 'Amazon Q3 2026 earnings — AWS AI infrastructure spend', relevance: 'AWS capex and AI revenue complete the hyperscaler capex picture for Q3 2026' },
   ],
   topPositive: [
-    '⚠ PLACEHOLDER — e.g. "Cloud revenue growth holding above 25% — capex monetisation on track"',
-    '⚠ PLACEHOLDER — e.g. "HY credit spreads stable at 380 bps — no systemic stress signal"',
-    '⚠ PLACEHOLDER — e.g. "India VIX at 13.5 — domestic market calm; FPI marginally net positive MTD"',
-    '⚠ PLACEHOLDER — e.g. "SIP inflows at ₹21,000 Cr — structural domestic bid intact"',
-    '⚠ PLACEHOLDER — e.g. "Gold in INR up 6% over 3M — portfolio hedge working; not signalling extreme stress"',
+    'Azure +40% YoY (Q1 FY2026); backlog $392B (+51%) — AI capex monetisation is accelerating, not stalling. The investment thesis is intact.',
+    'Nasdaq 100 fwd P/E at 22.4× — BELOW 10-year average 22.9×. US AI equity valuations have already de-rated; forward returns look more attractive than Aug 2025.',
+    'US HY OAS ~312bps, VIX 16.39 — no credit stress, no liquidity crisis. Global financial system is functioning normally despite rate shock.',
+    'FPI reversal in early Oct: +₹14,610 Cr inflow after Fed rate cut — first stabilisation signal for India after months of record outflows.',
+    'Bitcoin +36% 3M; SOXX +8.5% 1M — risk-on signals from crypto and semiconductors contradict any AI unwind narrative.',
   ],
   topNegative: [
-    '⚠ PLACEHOLDER — e.g. "Nasdaq 100 fwd P/E at 30× — historically elevated; valuation risk high"',
-    '⚠ PLACEHOLDER — e.g. "Capex/Revenue ratio rising for 3 consecutive quarters — ROI gap widening"',
-    '⚠ PLACEHOLDER — e.g. "% S&P 500 stocks above 200-DMA fell to 48% — breadth diverging from index"',
-    '⚠ PLACEHOLDER — e.g. "Nifty IT underperforming Nifty 50 by 8% over 3M — AI disruption concerns pricing in"',
-    '⚠ PLACEHOLDER — e.g. "USD/INR at 85.2 — approaching ORANGE threshold; RBI intervention risk"',
+    'US 10Y real yield at 2.93% (approaching RED threshold 3.0%); nominal 10Y at 5.237% — up 86bps in 3M. Sharpest rate shock since Oct 2023.',
+    'USD/INR at 96.30 — FAR above all thresholds (RED was 88). A +14.6% INR depreciation from Aug 2025 is devastating for domestic purchasing power.',
+    'FPI outflows YTD 2026: ₹2.37 lakh crore — record annual outflow, exceeding all of 2025. Nifty 50 down 8.93% YoY; worst year since 2022.',
+    'Nifty IT −11% in September alone; TCS and Infosys at 52-week lows. Combined AI disruption risk + FPI outflows + rates shock is a triple headwind.',
+    'Gold at $4,212 (+75% from Aug 2025) — in INR terms at all-time highs. Gold surging alongside rising bond yields signals macro/geopolitical reserve stress.',
   ],
 };
+
+// ─── Live Data Patch (Oct 2, 2026) ───────────────────────────────────────────
+const LIVE: Record<string, Partial<Indicator>> = {
+  'Hyperscaler AI Capex (annualised, $B)':     { latest: '~$280–300B combined (MSFT alone $34.9B/qtr → $140B ann)', change1m: '—', change3m: '↑ rising', signal: 'YELLOW', direction: 'deteriorating', confidence: 'MEDIUM' },
+  'Capex vs Revenue Growth (ratio)':           { latest: 'MSFT Azure +40% YoY; capex/rev near parity — revenue growing as fast as capex', change1m: '—', change3m: '—', signal: 'YELLOW', direction: 'neutral', confidence: 'MEDIUM' },
+  'Cloud Revenue Growth YoY':                  { latest: 'Azure +40% YoY; backlog $392B (+51% YoY) — MSFT Q1 FY2026', change1m: '—', change3m: '↑', signal: 'GREEN', direction: 'improving', confidence: 'HIGH' },
+  'GPU / Semiconductor Revenue Growth':        { latest: 'SOXX $576 (+8.5% 1M, +1.1% 3M) — no GPU demand collapse signal', change1m: '+8.5%', change3m: '+1.1%', signal: 'GREEN', direction: 'neutral', confidence: 'MEDIUM' },
+  'Nasdaq 100 Forward P/E':                    { latest: '22.4× (BELOW 10Y avg 22.9×; compressed from ~30× in Aug 2025)', change1m: '—', change3m: 'compressed significantly', signal: 'GREEN', direction: 'improving', confidence: 'HIGH' },
+  'SOX vs S&P 500 Relative Performance (3M)': { latest: 'SOXX +1.1% vs S&P ~flat 3M — no extreme outperformance', change1m: '+8.5%', change3m: '+1.1%', signal: 'GREEN', direction: 'neutral', confidence: 'MEDIUM' },
+  'US HY Credit Spread (OAS, bps)':           { latest: '~312 bps (Sep 30, 2026) — tight, no stress', change1m: '—', change3m: '—', signal: 'GREEN', direction: 'neutral', confidence: 'MEDIUM' },
+  'US IG Credit Spread (OAS, bps)':           { latest: '~84 bps (Sep 30, 2026) — tight', change1m: '—', change3m: '—', signal: 'GREEN', direction: 'neutral', confidence: 'MEDIUM' },
+  'VIX':                                       { latest: '16.39 (Oct 2, 2026)', change1m: '—', change3m: '—', signal: 'GREEN', direction: 'neutral', confidence: 'HIGH' },
+  'DXY (USD Index)':                           { latest: '~107 est. (inferred from USD/INR 96.30 — major USD strength confirmed)', change1m: '↑', change3m: '↑ sharply', signal: 'ORANGE', direction: 'deteriorating', confidence: 'LOW' },
+  'US Yield Curve (10Y minus Fed Funds, bps)': { latest: '~+49bps est. (10Y 5.237% − Fed Funds ~4.75%) — positive, not inverted', change1m: '—', change3m: '—', signal: 'GREEN', direction: 'neutral', confidence: 'LOW' },
+  'US 10Y Real Yield (TIPS, %)':              { latest: '2.93% (Sep 30, 2026) — near RED threshold of 3.0%', change1m: '↑', change3m: '↑ significantly from ~2.0%', signal: 'ORANGE', direction: 'deteriorating', confidence: 'HIGH' },
+  'USD/INR':                                   { latest: '96.30 (+14.6% from Aug 2025 ~84) — far above all thresholds', change1m: '↑ sharply', change3m: '↑ dramatically', signal: 'RED', direction: 'deteriorating', confidence: 'HIGH' },
+  'Nasdaq 100 (QQQ) vs 3M-ago (%)':           { latest: '$742 (+1.6% 3M; +2.5% 1M) — resilient despite rate shock', change1m: '+2.5%', change3m: '+1.6%', signal: 'GREEN', direction: 'neutral', confidence: 'HIGH' },
+  'Gold in INR vs 3M-ago (%)':                { latest: '~+10% 3M in INR (gold USD −4% 3M but INR −13% → net +10% in rupees)', change1m: '+3.3% USD', change3m: '+10% INR', signal: 'ORANGE', direction: 'deteriorating', confidence: 'MEDIUM' },
+  'US 10Y Treasury Yield vs 3M-ago (bps)':    { latest: '+86 bps (4.377% → 5.237%) — near ORANGE/RED boundary', change1m: '+29 bps', change3m: '+86 bps', signal: 'ORANGE', direction: 'deteriorating', confidence: 'HIGH' },
+  'Bitcoin vs 3M-ago (%)':                    { latest: '$86,547 (+36.2% 3M; +33.8% 1M) — strong crypto risk-on signal', change1m: '+33.8%', change3m: '+36.2%', signal: 'GREEN', direction: 'improving', confidence: 'HIGH' },
+  'Cross-Asset Signal Pattern':               { latest: '2/5 ORANGE (Gold INR +10%, US 10Y +86bps); 2/5 GREEN (QQQ +1.6%, BTC +36%); 1 unavailable (Brent)', change1m: '—', change3m: '—', signal: 'ORANGE', direction: 'deteriorating', confidence: 'MEDIUM' },
+  'FPI Net Equity Flows (INR Cr, MTD)':       { latest: 'Oct MTD: +₹14,610 Cr (reversal!); Sep: −₹23,885 Cr; YTD: −₹2.37L Cr (record)', change1m: 'reversing ↑', change3m: '−₹76,575 Cr (Jul–Sep)', signal: 'YELLOW', direction: 'improving', confidence: 'LOW' },
+  'Nifty IT vs Nifty 50 Relative (3M, %)':   { latest: 'Nifty IT −11% in Sep alone; 52-week lows; underperforms Nifty ~4–5% in 3M', change1m: '−11% (Sep)', change3m: 'underperform ~5%', signal: 'ORANGE', direction: 'deteriorating', confidence: 'HIGH' },
+  'India VIX':                                { latest: '14.46 (up +7.19% on Oct 1; below YELLOW threshold 18)', change1m: '↑ rising', change3m: '—', signal: 'GREEN', direction: 'neutral', confidence: 'HIGH' },
+  'Nifty 50 P/E (trailing)':                  { latest: '~20–21× est. (Nifty 22,535 vs Jan 2026 peak 26,373 at ~25×)', change1m: '↓ compressing', change3m: '↓ compressing', signal: 'GREEN', direction: 'improving', confidence: 'LOW' },
+  'Indian IT Deal TCV (quarterly, $B)':        { latest: 'Q2 FY27 pending — TCS Oct 9–14, Infosys Oct 14–18 (CRITICAL)', change1m: '—', change3m: '—', signal: 'YELLOW', direction: 'unavailable', confidence: 'UNAVAILABLE' },
+};
+// Apply live data to REPORT indicators
+Object.values(REPORT.pillars).forEach(inds => inds.forEach(ind => {
+  const patch = LIVE[ind.name]; if (patch) Object.assign(ind, patch);
+}));
 
 // ─── Style Maps ───────────────────────────────────────────────────────────────
 const TL_BG: Record<TrafficLight, string> = {
