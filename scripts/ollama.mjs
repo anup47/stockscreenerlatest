@@ -1,5 +1,17 @@
 // Shared local-Ollama helpers for the office-PC scripts.
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+
+// Inference runs in Ollama's own processes, not ours, so lowering this script's priority
+// isn't enough. Lowering the server also covers model runners it spawns later (Windows
+// children inherit below-normal priority from their parent).
+function lowerOllamaPriority() {
+  if (process.platform !== 'win32') return;
+  try {
+    execFileSync('powershell', ['-NoProfile', '-Command',
+      "Get-Process -Name ollama,llama-server,ollama_llama_server -ErrorAction SilentlyContinue | ForEach-Object { try { $_.PriorityClass = 'BelowNormal' } catch {} }"],
+      { stdio: 'ignore', windowsHide: true, timeout: 20_000 });
+  } catch { /* priority is a nicety; never fail the run over it */ }
+}
 
 // Node on Windows resolves `localhost` to ::1, which Ollama doesn't listen on.
 export const OLLAMA = (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434')
@@ -17,6 +29,7 @@ export async function ensureOllama(model, log = console.log) {
   if (!res?.ok) throw new Error(`Ollama is not reachable at ${OLLAMA} — start the Ollama app and retry.`);
   const { models } = await res.json();
   if (!models.some(m => m.name === model)) throw new Error(`Model ${model} not installed — run: ollama pull ${model}`);
+  lowerOllamaPriority();
 }
 
 // One structured-output chat call. Streams because Node's fetch drops a request whose

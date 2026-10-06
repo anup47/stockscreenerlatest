@@ -16,7 +16,10 @@ import researchList from '../lib/research-list.json' with { type: 'json' };
 // over-rated impact; news prompts are short, so 7b stays within the hourly budget.
 const MODEL      = process.env.NEWS_LLM_MODEL || 'qwen2.5:7b';
 const WINDOW_H   = 24;
-const LLM_BUDGET = (Number(process.env.NEWS_LLM_BUDGET_MIN) || 40) * 60_000;
+// Kept short so the CPU-only PC stays usable; unreviewed items carry over to the next hour.
+const LLM_BUDGET = (Number(process.env.NEWS_LLM_BUDGET_MIN) || 15) * 60_000;
+// Qwen reviews stock-specific items only; sector/macro stories keep keyword-rule verdicts.
+const QWEN_KINDS = new Set(['Company', 'Filing', 'Deal']);
 const BATCH      = 6;
 const FEED_KEY   = 'news-24h.json';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
@@ -393,10 +396,12 @@ async function main() {
     if (c) Object.assign(it, { summary: c.summary, sentiment: c.sentiment, impact: c.impact, relevant: c.relevant, pending: false, reviewedBy: MODEL });
     else if (it.pending === undefined) Object.assign(it, ruleClassify(it));
     else if (it.reviewedBy !== MODEL) it.pending = true;
+    if (!QWEN_KINDS.has(it.kind)) it.pending = false;
   }
 
   const publish = () => writeFeed(universe, items);
-  const queue = items.filter(i => i.pending);
+  // Newest first, so a short budget always covers what just happened.
+  const queue = items.filter(i => i.pending).sort((a, b) => b.time.localeCompare(a.time));
   // After a gap (first run, PC was off), publish the rule-based feed now rather than after Qwen's pass.
   const prevAge = prev.generatedAt ? Date.now() - Date.parse(prev.generatedAt) : Infinity;
   if (queue.length && !NO_LLM && prevAge > 2 * 3600_000) await publish();

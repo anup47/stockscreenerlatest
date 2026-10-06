@@ -110,7 +110,10 @@ export default function NewsPage() {
   }, [items, sentiment, minImpact, kinds, ticker, sortBy]);
 
   const total = pulse.pos + pulse.neg + pulse.neu;
-  const stale = feed?.generatedAt ? Date.now() - Date.parse(feed.generatedAt) > 2 * 3600_000 : false;
+  // Built hourly 7 am–8 pm IST, so a 12-hour overnight gap is expected.
+  const istHour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false })) % 24;
+  const staleAfterH = istHour >= 8 && istHour < 21 ? 2 : 13;
+  const stale = feed?.generatedAt ? Date.now() - Date.parse(feed.generatedAt) > staleAfterH * 3600_000 : false;
   const pendingCount = items.filter(i => i.pending).length;
   const selectedStock = feed?.stocks.find(s => s.symbol === ticker);
 
@@ -139,12 +142,12 @@ export default function NewsPage() {
           <div className="flex items-center gap-3">
             {stale && (
               <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium border bg-amber-50 text-amber-700 border-amber-200"
-                title="The feed is rebuilt hourly by a scheduled task on the office PC. It pauses while that PC is off.">
+                title="The feed is rebuilt hourly, 7 am–8 pm IST, by a scheduled task on the office PC. It pauses while that PC is off.">
                 <AlertTriangle className="size-3" /> Not updated for {ago(feed!.generatedAt)}
               </span>
             )}
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock className="size-3" /> Auto-refresh hourly
+              <Clock className="size-3" /> Updates hourly, 7 am–8 pm IST
             </span>
             <button onClick={load} disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-40">
