@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import type { SupplyDemandSnapshot } from '@/lib/supply-demand-types';
 import type { SupplyDemandTracker, TrackedStory, StoryStatus, StoryUpdate } from '@/lib/supply-demand-tracker';
 import { todayIST } from '@/lib/supply-demand-tracker';
+import GpuMarketPanel from '@/app/components/GpuMarketPanel';
 
 // ── localStorage ──────────────────────────────────────────────────────────────
 const SNAPSHOT_KEY = 'sd-snapshot';
@@ -759,6 +760,8 @@ export default function SupplyDemandPage() {
             ))}
           </div>
         )}
+
+        <GpuMarketPanel />
 
         {/* ── Filter tabs + search ── */}
         {tracker && tracker.stories.length > 0 && (

@@ -1,6 +1,7 @@
 'use client';
-import React, { useState, ReactNode } from 'react';
+import React, { useState, useEffect, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { gpuRiskSignal, type GpuMarket } from '@/lib/gpu-market';
 import { Copy, Check, AlertTriangle, Calendar, Shield } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -49,6 +50,21 @@ interface RiskReport {
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
+// The only indicator fed live (from /api/gpu-market); the rest are updated weekly by hand.
+const GPU_RENT_IND = 'GPU Rental Price Index (cloud compute)';
+
+function gpuIndicatorPatch(g: GpuMarket): Partial<Indicator> {
+  const { signal, direction } = gpuRiskSignal(g);
+  const fmt = (x: number | null) => (x == null ? 'n/a' : `${x > 0 ? '+' : ''}${x}%`);
+  const h100 = g.models.find(m => m.slug === 'nvidia-h100');
+  return {
+    latest: `${fmt(g.index.chg52w)} YoY${h100 ? ` · H100 $${h100.price}/GPU-hr` : ''} (wk ${g.asOf})`,
+    change1m: fmt(g.index.chg4w),
+    change3m: fmt(g.index.chg13w),
+    signal, direction, confidence: 'HIGH',
+  };
+}
+
 function mkInd(name: string, source: string, frequency: string, yT: string, oT: string, rT: string, why: string): Indicator {
   return {
     name, latest: '⚠ UPDATE REQUIRED', change1m: '—', change3m: '—',
@@ -91,6 +107,9 @@ const REPORT: RiskReport = {
       mkInd('GPU / Semiconductor Revenue Growth', 'NVDA / AMD quarterly earnings', 'Quarterly',
         'NVDA guidance miss >5%', 'NVDA miss >10% or AMD share gains sharply', 'NVDA revenue decline QoQ; data centre segment down',
         'The GPU supply chain is the clearest real-time signal of AI demand; inventory build or booking cancellations precede any AI capex pullback by 1–2 quarters.'),
+      mkInd(GPU_RENT_IND, 'GetDeploying weekly GPU price dataset (CC BY 4.0), live', 'Weekly',
+        'Index down YoY, or −5% in 4 weeks', 'Down >15% YoY or >10% in 13 weeks', 'Down >30% YoY or >20% in 13 weeks (compute glut)',
+        'Median on-demand rent across ~100 cloud GPU models and 88 providers. Rents fall when installed capacity outruns real usage — the most direct, weekly read on AI over-build, well before it shows up in hyperscaler capex guidance.'),
       mkInd('Data Centre Vacancy Rate', 'CBRE / JLL real estate reports', 'Quarterly',
         'Vacancy rising from historic lows', 'Vacancy >10% nationally / new supply outpacing take-up', 'Vacancy >15% or major developer cancellations',
         'Rising vacancy in primary hyperscale markets signals over-investment and compresses pricing power for power/land landlords.'),
@@ -508,6 +527,14 @@ export default function AIRiskPage() {
   const r = REPORT;
   const [tab, setTab] = useState('ai');
   const [copied, setCopied] = useState(false);
+  const [gpu, setGpu] = useState<GpuMarket | null>(null);
+
+  useEffect(() => {
+    fetch('/api/gpu-market')
+      .then(res => (res.ok ? res.json() : null))
+      .then(setGpu)
+      .catch(() => {});
+  }, []);
 
   const copy = () => {
     navigator.clipboard.writeText(WEEKLY_PROMPT);
@@ -524,7 +551,8 @@ export default function AIRiskPage() {
     { key: 'india', label: 'India', score: r.pillarScores.india, max: 10 },
   ];
 
-  const indicators = r.pillars[tab] ?? [];
+  const indicators = (r.pillars[tab] ?? []).map(ind =>
+    ind.name === GPU_RENT_IND && gpu ? { ...ind, ...gpuIndicatorPatch(gpu) } : ind);
 
   return (
     <div className="min-h-screen bg-background">
@@ -534,7 +562,7 @@ export default function AIRiskPage() {
         <div className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5">
           <Shield className="size-4 text-emerald-600 shrink-0" />
           <p className="text-xs text-emerald-800">
-            <span className="font-semibold">Live data verified {r.reportDate}</span> — 23 of 30 indicators populated with real market data.
+            <span className="font-semibold">Live data verified {r.reportDate}</span> — 23 of 30 indicators populated with real market data, plus a live GPU rental price index (AI Capex pillar).
             7 still require manual entry: ISM, CPI, MOVE, copper, power cost, data centre vacancy, MF SIP flows.
           </p>
         </div>
