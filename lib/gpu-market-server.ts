@@ -1,19 +1,15 @@
 import { unstable_cache } from 'next/cache';
-import { GPU_DATASET_URL, summarizeGpuMarket, type GpuMarket, type GpuPriceRow } from './gpu-market';
+import { readJsonBlob } from './blob-json';
+import type { GpuMarket } from './gpu-market';
 
-// The dataset (~4 MB) updates daily; only the ~4 KB summary is cached.
-// A failed fetch throws and is not cached, so the next request retries.
+// Published by scripts/gpu-market.mjs on the office PC: GetDeploying blocks Vercel's IPs,
+// so the dataset can't be fetched from here. Throws (uncached) until the first publish.
 export const getGpuMarket = unstable_cache(
   async (): Promise<GpuMarket> => {
-    const res = await fetch(GPU_DATASET_URL, {
-      cache: 'no-store',
-      headers: { 'User-Agent': 'StockScreener research dashboard' },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!res.ok) throw new Error(`GetDeploying dataset HTTP ${res.status}`);
-    const { data } = await res.json() as { data: GpuPriceRow[] };
-    return summarizeGpuMarket(data);
+    const market = await readJsonBlob<GpuMarket | null>('gpu-market.json', () => null);
+    if (!market) throw new Error('GPU market summary not published yet');
+    return market;
   },
   ['gpu-market'],
-  { revalidate: 6 * 3600 },
+  { revalidate: 3600 },
 );
