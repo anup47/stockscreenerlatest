@@ -331,7 +331,8 @@ async function classifyBatch(batch) {
     const detail = it.detail ? ` | Detail: ${it.detail.slice(0, 300)}` : '';
     return `${i + 1}. [${it.kind}] ${who} | ${it.headline} (${it.source})${detail}`;
   });
-  const { results } = await chatJson(MODEL, LLM_PROMPT + lines.join('\n'), LLM_SCHEMA);
+  // A batch normally takes ~1–2 min; cap it so one stuck call can't hold the run for hours.
+  const { results } = await chatJson(MODEL, LLM_PROMPT + lines.join('\n'), LLM_SCHEMA, { timeoutMs: 4 * 60_000 });
   for (const r of results || []) {
     const it = batch[r.n - 1];
     if (!it) continue;
@@ -399,32 +400,37 @@ async function main() {
     if (!QWEN_KINDS.has(it.kind)) it.pending = false;
   }
 
+  // Publish the fresh fetch straight away: Qwen runs at low priority and can crawl while the
+  // PC is busy or asleep, and the tab shouldn't wait on it.
   const publish = () => writeFeed(universe, items);
+  await publish();
+
   // Newest first, so a short budget always covers what just happened.
   const queue = items.filter(i => i.pending).sort((a, b) => b.time.localeCompare(a.time));
-  // After a gap (first run, PC was off), publish the rule-based feed now rather than after Qwen's pass.
-  const prevAge = prev.generatedAt ? Date.now() - Date.parse(prev.generatedAt) : Infinity;
-  if (queue.length && !NO_LLM && prevAge > 2 * 3600_000) await publish();
-
+  let reviewed = 0;
   if (queue.length && !NO_LLM) {
     try {
       await ensureOllama(MODEL, log);
-      let done = 0;
+      // Wall-clock checks: after a sleep, Date.now() jumps past the budget and the loop stops.
       for (let i = 0; i < queue.length && Date.now() - t0 < LLM_BUDGET; i += BATCH) {
         const batch = queue.slice(i, i + BATCH);
         await classifyBatch(batch).catch(e => log(`Qwen batch failed: ${String(e).slice(0, 150)}`));
-        done += batch.length;
-        if (done % 30 === 0 || done >= queue.length) log(`Qwen reviewed ${done}/${queue.length}`);
+        reviewed += batch.filter(it => !it.pending).length;
       }
+      log(`Qwen reviewed ${reviewed}/${queue.length}`);
       health.llm = `ok (${MODEL}, ${items.filter(i => i.pending).length} left for next run)`;
     } catch (e) { health.llm = `error: ${e.message}`; }
   }
 
-  await publish();
+  if (reviewed) await publish();
 
   const shown = items.filter(i => i.relevant);
   const count = s => shown.filter(i => i.sentiment === s).length;
   log(`Done in ${((Date.now() - t0) / 1000).toFixed(0)}s: ${shown.length} items (${count('Positive')} positive, ${count('Negative')} negative, ${count('Neutral')} neutral) · ${JSON.stringify(health)}`);
 }
+
+// Task Scheduler's time limit kills the wrapper, not this process, so enforce our own: an orphaned
+// run would otherwise hold the log file and overlap the next hour's run.
+setTimeout(() => { log('stopping: 25-minute run limit reached'); process.exit(2); }, 25 * 60_000).unref();
 
 main().catch(e => { log('fatal:', e.message); process.exit(1); });

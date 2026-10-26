@@ -63,8 +63,8 @@ export default function NavBar() {
           <span className="text-xs font-bold tracking-tight text-foreground whitespace-nowrap">StockScreener</span>
         </div>
 
-        {/* Row 1 tabs */}
-        <div className="flex items-stretch flex-1">
+        {/* Row 1 tabs — scroll within the bar on narrow windows instead of widening the page */}
+        <div className="flex items-stretch flex-1 min-w-0 overflow-x-auto [scrollbar-width:none]">
           {ROW1.map(({ label, href }) => (
             <TabLink key={href} label={label} href={href} active={path === href} />
           ))}
@@ -86,7 +86,7 @@ export default function NavBar() {
       </div>
 
       {/* Row 2 */}
-      <div className="flex items-stretch">
+      <div className="flex items-stretch overflow-x-auto [scrollbar-width:none]">
         {ROW2.map(({ label, href }) => (
           <TabLink key={href} label={label} href={href} active={path === href} />
         ))}
