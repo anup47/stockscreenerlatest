@@ -255,30 +255,34 @@ export default function NewsPage() {
         </div>
 
         {/* ── Table ──────────────────────────────────────────────────────────── */}
+        {/* Three fixed columns so the table always fits the screen without sideways scrolling. */}
         <div className="rounded-xl border border-border overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 border-b border-border">
-                <tr className="text-left">
-                  {['Time', 'Ticker', 'Company', 'Headline', 'Source', 'Summary', 'Sentiment', 'Impact', 'Link'].map(h => (
-                    <th key={h} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(i => <NewsRow key={i.id} item={i} onTicker={setTicker} />)}
-                {rows.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-sm text-muted-foreground">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[104px] sm:w-[130px]" />
+              <col />
+              <col className="w-[96px] sm:w-[120px]" />
+            </colgroup>
+            <thead className="bg-muted/50 border-b border-border">
+              <tr className="text-left">
+                {['When · Ticker', 'News', 'Signal'].map(h => (
+                  <th key={h} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(i => <NewsRow key={i.id} item={i} onTicker={setTicker} />)}
+              {rows.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={3} className="px-3 py-8 text-center text-sm text-muted-foreground">
                       {selectedStock
                         ? <><span className="font-semibold text-foreground">{selectedStock.symbol}</span> · {selectedStock.company}: No material update in the last 24H</>
-                        : feed?.generatedAt ? 'No items match these filters.' : 'The feed has not been built yet. It appears after the first hourly run on the office PC.'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      : feed?.generatedAt ? 'No items match these filters.' : 'The feed has not been built yet. It appears after the first hourly run on the office PC.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* ── No material update ─────────────────────────────────────────────── */}
@@ -309,36 +313,46 @@ export default function NewsPage() {
   );
 }
 
+const sameText = (a: string, b: string) => {
+  const n = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return n(a) === n(b) || n(a).startsWith(n(b)) || n(b).startsWith(n(a));
+};
+
 function NewsRow({ item: i, onTicker }: { item: NewsItem; onTicker: (t: string) => void }) {
   const s = SENT_STYLE[i.sentiment];
+  // Provisional items carry the headline as their summary; don't print it twice.
+  const showSummary = i.summary && !sameText(i.summary, i.headline);
   return (
     <tr className={cn('border-b border-border/60 last:border-0 border-l-4 align-top hover:bg-muted/30', s.row)}>
-      <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap tabular-nums">{fmtTime(i.time)}</td>
-      <td className="px-3 py-2.5 whitespace-nowrap">
+      <td className="px-3 py-2.5">
+        <div className="text-[11px] text-muted-foreground tabular-nums">{fmtTime(i.time)}</div>
         <button onClick={() => i.tickers.length === 1 && onTicker(i.tickers[0])}
-          className={cn('text-xs font-semibold', i.tickers.length === 1 ? 'text-foreground hover:underline' : 'text-muted-foreground cursor-default')}
-          title={i.tickers.length > 1 ? `Bears on: ${i.tickers.join(', ')}` : undefined}>
+          className={cn('mt-0.5 block max-w-full truncate text-xs font-semibold text-left',
+            i.tickers.length === 1 ? 'text-foreground hover:underline' : 'text-muted-foreground cursor-default')}
+          title={i.tickers.length > 1 ? `Bears on: ${i.tickers.join(', ')}` : `Show only ${i.label}`}>
           {i.label}
         </button>
-        <div className="text-[10px] text-muted-foreground">{KIND_LABEL[i.kind]}</div>
+        <div className="text-[10px] text-muted-foreground truncate">{KIND_LABEL[i.kind]}</div>
       </td>
-      <td className="px-3 py-2.5 text-xs text-foreground/80 min-w-[120px]">{i.company}</td>
-      <td className="px-3 py-2.5 text-xs text-foreground min-w-[220px] max-w-[340px]">{i.headline}</td>
-      <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{i.source}</td>
-      <td className="px-3 py-2.5 text-xs text-foreground/90 min-w-[240px] max-w-[380px]">
-        {i.summary}
-        {i.pending && <span className="ml-1 text-[10px] text-muted-foreground" title="Provisional verdict; Qwen reviews it on the next hourly run">· provisional</span>}
+      <td className="px-3 py-2.5 min-w-0">
+        {i.link ? (
+          <a href={i.link} target="_blank" rel="noopener noreferrer"
+            className="group text-[13px] font-medium leading-snug text-foreground hover:underline break-words">
+            {i.headline}
+            <ExternalLink className="ml-1 inline size-3 align-[-1px] text-muted-foreground group-hover:text-foreground" />
+          </a>
+        ) : (
+          <span className="text-[13px] font-medium leading-snug text-foreground break-words">{i.headline}</span>
+        )}
+        {showSummary && <p className="mt-1 text-xs leading-snug text-foreground/75 break-words">{i.summary}</p>}
+        <p className="mt-1 text-[11px] text-muted-foreground truncate">
+          {i.company} · {i.source}
+          {i.pending && <span title="Provisional verdict; Qwen reviews it on the next hourly run"> · provisional</span>}
+        </p>
       </td>
       <td className="px-3 py-2.5">
         <span className={cn('inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border', s.pill)}>{i.sentiment}</span>
-      </td>
-      <td className="px-3 py-2.5 whitespace-nowrap"><ImpactDots n={i.impact} /></td>
-      <td className="px-3 py-2.5">
-        {i.link && (
-          <a href={i.link} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground" title="Open source">
-            <ExternalLink className="size-3.5" />
-          </a>
-        )}
+        <div className="mt-1.5"><ImpactDots n={i.impact} /></div>
       </td>
     </tr>
   );
