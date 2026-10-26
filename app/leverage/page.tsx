@@ -302,8 +302,9 @@ export default function LeveragePage() {
             </div>
           </Panel>
 
-          {/* minmax(0,1fr): plain 1fr lets a chart's SVG width widen its column over its neighbour. */}
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {/* Full-width rows: 262 weekly bars need the width, and a chart beside another can keep
+              the full-row width it measured before the grid split, spilling over its neighbour. */}
+          <div className="space-y-5">
             {/* ── Chart 3: dominance ─────────────────────────────────────────── */}
             <Panel title="MTF vs futures OI dominance" note="Share of combined leverage each week.">
               <div className="h-64 w-full min-w-0 overflow-hidden">
