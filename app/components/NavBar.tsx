@@ -21,6 +21,7 @@ const ROW2 = [
   { label: 'Targets',        href: '/research-targets' },
   { label: '24H News',       href: '/news' },
   { label: 'AI Risk',        href: '/ai-risk' },
+  { label: 'Leverage',       href: '/leverage' },
   { label: 'Nifty 50',      href: '/nifty50' },
   { label: 'Sensex 30',     href: '/sensex30' },
   { label: 'Scuttlebutt',    href: '/scuttlebutt' },
