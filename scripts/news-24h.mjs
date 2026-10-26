@@ -407,7 +407,7 @@ async function main() {
 
   // Newest first, so a short budget always covers what just happened.
   const queue = items.filter(i => i.pending).sort((a, b) => b.time.localeCompare(a.time));
-  let reviewed = 0;
+  let reviewedNow = 0;
   if (queue.length && !NO_LLM) {
     try {
       await ensureOllama(MODEL, log);
@@ -415,14 +415,14 @@ async function main() {
       for (let i = 0; i < queue.length && Date.now() - t0 < LLM_BUDGET; i += BATCH) {
         const batch = queue.slice(i, i + BATCH);
         await classifyBatch(batch).catch(e => log(`Qwen batch failed: ${String(e).slice(0, 150)}`));
-        reviewed += batch.filter(it => !it.pending).length;
+        reviewedNow += batch.filter(it => !it.pending).length;
       }
-      log(`Qwen reviewed ${reviewed}/${queue.length}`);
+      log(`Qwen reviewed ${reviewedNow}/${queue.length}`);
       health.llm = `ok (${MODEL}, ${items.filter(i => i.pending).length} left for next run)`;
     } catch (e) { health.llm = `error: ${e.message}`; }
   }
 
-  if (reviewed) await publish();
+  if (reviewedNow) await publish();
 
   const shown = items.filter(i => i.relevant);
   const count = s => shown.filter(i => i.sentiment === s).length;
