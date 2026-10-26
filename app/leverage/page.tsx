@@ -260,8 +260,8 @@ export default function LeveragePage() {
 
           {/* ── Chart 1: levels ──────────────────────────────────────────────── */}
           <Panel title="MTF, futures OI and combined leverage" note="₹ lakh crore, weekly (last trading day of each week).">
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-72 w-full min-w-0 overflow-hidden">
+              <ResponsiveContainer width="99%" height="100%">
                 <LineChart data={series} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                   <XAxis dataKey="week" tickFormatter={tickWeek} minTickGap={40} tick={{ fontSize: 11 }} />
@@ -278,8 +278,8 @@ export default function LeveragePage() {
 
           {/* ── Chart 2: % of market cap ─────────────────────────────────────── */}
           <Panel title="Leverage as % of total market cap" note={`Combined leverage ÷ NSE market cap, with the Nifty 50 (right axis). Dashed line: the ${a.threshold.pct}th-percentile level used above.`}>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-72 w-full min-w-0 overflow-hidden">
+              <ResponsiveContainer width="99%" height="100%">
                 <ComposedChart data={series} margin={{ top: 5, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="levFill" x1="0" y1="0" x2="0" y2="1">
@@ -302,14 +302,15 @@ export default function LeveragePage() {
             </div>
           </Panel>
 
-          <div className="grid gap-5 xl:grid-cols-2">
+          {/* minmax(0,1fr): plain 1fr lets a chart's SVG width widen its column over its neighbour. */}
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             {/* ── Chart 3: dominance ─────────────────────────────────────────── */}
             <Panel title="MTF vs futures OI dominance" note="Share of combined leverage each week.">
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-64 w-full min-w-0 overflow-hidden">
+                <ResponsiveContainer width="99%" height="100%">
                   <BarChart data={series} barCategoryGap={0} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                     <XAxis dataKey="week" tickFormatter={tickWeek} minTickGap={40} tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} width={40} domain={[0, 100]} tickFormatter={v => `${v}%`} />
+                    <YAxis tick={{ fontSize: 11 }} width={46} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={v => `${v}%`} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={l => `Week ending ${fmtWeek(String(l))}`} formatter={v => `${Number(v).toFixed(1)}%`} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar isAnimationActive={false} dataKey="mtfShare" name="MTF" stackId="s" fill={C.mtf} />
