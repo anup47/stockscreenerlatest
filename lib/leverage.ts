@@ -46,8 +46,9 @@ const r1 = (x: number | null) => (x == null || !Number.isFinite(x) ? null : Math
 const pctChg = (a: number | null | undefined, b: number | null | undefined) => (a && b != null ? ((b - a) / a) * 100 : null);
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
+// Share of values strictly below x: "higher than N% of weeks" (a week can't exceed itself).
 export function percentileRank(values: number[], x: number) {
-  return values.length ? (values.filter(v => v <= x).length / values.length) * 100 : 0;
+  return values.length ? (values.filter(v => v < x).length / values.length) * 100 : 0;
 }
 
 export function quantile(values: number[], q: number) {

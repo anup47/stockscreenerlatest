@@ -107,7 +107,8 @@ export default function LeveragePage() {
     mtfShare: (w.mtf! / w.combined!) * 100, futShare: (w.fut! / w.combined!) * 100,
   })), [complete, range]);
 
-  // Heatmap: each cell's percentile within the full 5-year history of that metric.
+  // Heatmap colour = rank within these 52 weeks, so week-to-week shifts stay visible even when the
+  // whole year sits near 5-year highs; the 5-year percentile is in each cell's tooltip.
   const heatRows = useMemo(() => {
     const last52 = complete.slice(-52);
     const rows: { label: string; f: (w: LeverageWeek) => number; fmt: (v: number) => string }[] = [
@@ -118,7 +119,15 @@ export default function LeveragePage() {
     ];
     return rows.map(r => {
       const all = complete.map(r.f);
-      return { ...r, cells: last52.map(w => ({ week: w.week, v: r.f(w), p: percentileRank(all, r.f(w)) })) };
+      const year = last52.map(r.f);
+      const lo = Math.min(...year), hi = Math.max(...year);
+      return {
+        ...r,
+        cells: last52.map(w => {
+          const v = r.f(w);
+          return { week: w.week, v, p: hi > lo ? ((v - lo) / (hi - lo)) * 100 : 50, p5y: percentileRank(all, v) };
+        }),
+      };
     });
   }, [complete]);
 
@@ -171,7 +180,7 @@ export default function LeveragePage() {
 
         {a && h && (<>
           {/* ── KPIs ─────────────────────────────────────────────────────────── */}
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(230px,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(230px,1fr))]">
             <Kpi label="Total MTF book" value={crore(a.latest.mtf)} color={C.mtf}
               sub={`NSE ${crore(a.latest.mtfNse)} · BSE ${crore(a.latest.mtfBse)}`}>
               <ChangeChips c={a.change.mtf} />
@@ -181,11 +190,11 @@ export default function LeveragePage() {
               <ChangeChips c={a.change.fut} />
             </Kpi>
             <Kpi label="Combined leverage" value={crore(a.latest.combined)} color={C.combined}
-              sub={`${lakhCr(a.latest.combined)} · ${a.rank.combined}th percentile of ${a.years} yrs`}>
+              sub={`${lakhCr(a.latest.combined)} · above ${a.rank.combined}% of weeks in ${a.years} yrs`}>
               <ChangeChips c={a.change.combined} />
             </Kpi>
             <Kpi label="% of total market cap" value={`${a.latest.levPct!.toFixed(2)}%`} color={C.lev}
-              sub={`of ${lakhCr(a.latest.mcap)} NSE market cap · ${a.rank.levPct}th percentile`}>
+              sub={`of ${lakhCr(a.latest.mcap)} NSE market cap · above ${a.rank.levPct}% of weeks`}>
               <ChangeChips c={a.change.levPctPts} unit=" pp" digits={2} />
             </Kpi>
           </div>
@@ -259,9 +268,9 @@ export default function LeveragePage() {
                   <YAxis tick={{ fontSize: 11 }} width={44} tickFormatter={v => v.toFixed(1)} />
                   <Tooltip contentStyle={tooltipStyle} labelFormatter={l => `Week ending ${fmtWeek(String(l))}`} formatter={v => `₹${Number(v).toFixed(2)} lakh Cr`} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="mtfL" name="MTF book" stroke={C.mtf} dot={false} strokeWidth={2} />
-                  <Line type="monotone" dataKey="futL" name="Futures OI" stroke={C.fut} dot={false} strokeWidth={2} />
-                  <Line type="monotone" dataKey="combL" name="Combined" stroke={C.combined} dot={false} strokeWidth={2.5} />
+                  <Line isAnimationActive={false} type="monotone" dataKey="mtfL" name="MTF book" stroke={C.mtf} dot={false} strokeWidth={2} />
+                  <Line isAnimationActive={false} type="monotone" dataKey="futL" name="Futures OI" stroke={C.fut} dot={false} strokeWidth={2} />
+                  <Line isAnimationActive={false} type="monotone" dataKey="combL" name="Combined" stroke={C.combined} dot={false} strokeWidth={2.5} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -286,8 +295,8 @@ export default function LeveragePage() {
                     formatter={(v, name) => (name === 'Nifty 50' ? Math.round(Number(v)).toLocaleString('en-IN') : `${Number(v).toFixed(2)}%`)} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <ReferenceLine yAxisId="lev" y={a.threshold.level} stroke={C.lev} strokeDasharray="4 4" />
-                  <Area yAxisId="lev" type="monotone" dataKey="levPct" name="Leverage % of mkt cap" stroke={C.lev} fill="url(#levFill)" strokeWidth={2} />
-                  <Line yAxisId="nifty" type="monotone" dataKey="nifty" name="Nifty 50" stroke={C.nifty} dot={false} strokeWidth={1.5} />
+                  <Area isAnimationActive={false} yAxisId="lev" type="monotone" dataKey="levPct" name="Leverage % of mkt cap" stroke={C.lev} fill="url(#levFill)" strokeWidth={2} />
+                  <Line isAnimationActive={false} yAxisId="nifty" type="monotone" dataKey="nifty" name="Nifty 50" stroke={C.nifty} dot={false} strokeWidth={1.5} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -303,15 +312,15 @@ export default function LeveragePage() {
                     <YAxis tick={{ fontSize: 11 }} width={40} domain={[0, 100]} tickFormatter={v => `${v}%`} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={l => `Week ending ${fmtWeek(String(l))}`} formatter={v => `${Number(v).toFixed(1)}%`} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="mtfShare" name="MTF" stackId="s" fill={C.mtf} />
-                    <Bar dataKey="futShare" name="Futures OI" stackId="s" fill={C.fut} />
+                    <Bar isAnimationActive={false} dataKey="mtfShare" name="MTF" stackId="s" fill={C.mtf} />
+                    <Bar isAnimationActive={false} dataKey="futShare" name="Futures OI" stackId="s" fill={C.fut} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </Panel>
 
             {/* ── Chart 4: heatmap ───────────────────────────────────────────── */}
-            <Panel title="Leverage intensity — last 52 weeks" note={`Each cell's percentile within the full ${a.years}-year history: pale = low, red = high.`}>
+            <Panel title="Leverage intensity — last 52 weeks" note={`Pale = the year's lowest week, red = its highest. Hover a cell for where it sits in ${a.years} years of history (this year: ${a.rank.levPct >= 80 ? 'near the top' : 'mid-range'}).`}>
               <div className="space-y-1.5">
                 {heatRows.map(r => (
                   <div key={r.label} className="grid grid-cols-[88px_1fr] items-center gap-2">
@@ -319,7 +328,7 @@ export default function LeveragePage() {
                     <div className="grid gap-px" style={{ gridTemplateColumns: `repeat(${r.cells.length}, minmax(0, 1fr))` }}>
                       {r.cells.map(c => (
                         <div key={c.week} className="h-7 rounded-[2px]" style={{ background: heat(c.p) }}
-                          title={`${fmtWeek(c.week)} · ${r.fmt(c.v)} · ${Math.round(c.p)}th percentile`} />
+                          title={`${fmtWeek(c.week)} · ${r.fmt(c.v)} · higher than ${Math.round(c.p5y)}% of the last ${a.years} years`} />
                       ))}
                     </div>
                   </div>
