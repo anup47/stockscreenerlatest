@@ -78,15 +78,15 @@ export default function LeverageTables({ history }: { history: LeverageHistory }
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="border-b border-border bg-muted/40">
-                <tr>{['Band', 'Range', 'Weeks', 'Nifty +4W', '+13W', '+26W', '% down'].map(h => <th key={h} className={th} title={h === '% down' ? 'Share of weeks where the Nifty was lower 13 weeks later' : undefined}>{h}</th>)}</tr>
+                <tr>{['Band', 'Lev % range', 'Wks', 'Nifty +4W', '+13W', '+26W', '% down'].map(h => <th key={h} className={th} title={h === '% down' ? 'Share of weeks where the Nifty was lower 13 weeks later' : undefined}>{h}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-border/60">
                 {regimes.map(r => {
                   const current = nowLev != null && nowLev >= r.from && nowLev <= r.to;
                   return (
                     <tr key={r.label} className={cn('hover:bg-muted/30', current && 'bg-amber-50')}>
-                      <td className={cn(td, 'font-medium')}>{r.label}{current && <span className="ml-1 text-[10px] font-semibold text-amber-700">NOW</span>}</td>
-                      <td className={td}>{r.from.toFixed(2)}–{r.to.toFixed(2)}%</td>
+                      <td className={cn(td, 'font-medium')}>{r.label}{current && <span className="ml-1 text-[10px] font-semibold text-amber-700">◀ now</span>}</td>
+                      <td className={td}>{r.from.toFixed(2)}–{r.to.toFixed(2)}</td>
                       <td className={td}>{r.weeks}</td>
                       <td className={cn(td, tone(r.fwd4))}>{signed(r.fwd4)}</td>
                       <td className={cn(td, tone(r.fwd13))}>{signed(r.fwd13)}</td>
