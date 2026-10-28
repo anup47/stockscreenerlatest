@@ -66,6 +66,90 @@ export function pearson(xs: number[], ys: number[]) {
   return sxx && syy ? Math.round((sxy / Math.sqrt(sxx * syy)) * 100) / 100 : null;
 }
 
+// ── Table/chart helpers (all operate on complete weeks, oldest first) ─────────
+
+export const completeWeeks = (h: LeverageHistory) => h.weeks.filter(x => x.combined != null && x.levPct != null);
+
+const fwdNifty = (w: LeverageWeek[], i: number, k: number) =>
+  i + k < w.length && w[i].nifty && w[i + k].nifty ? r1(pctChg(w[i].nifty, w[i + k].nifty)) : null;
+
+export interface YearRow {
+  year: number; weeks: number; avgLev: number; maxLev: number; minLev: number;
+  mtfEnd: number; futEnd: number; combEnd: number; mtfGrowth: number | null; futGrowth: number | null; niftyRet: number | null;
+}
+
+// Calendar-year summary; growth and Nifty return run from the prior year's last week.
+export function yearlySummary(h: LeverageHistory): YearRow[] {
+  const w = completeWeeks(h);
+  const years = [...new Set(w.map(x => Number(x.week.slice(0, 4))))];
+  return years.map(year => {
+    const rows = w.filter(x => Number(x.week.slice(0, 4)) === year);
+    const prev = w.filter(x => Number(x.week.slice(0, 4)) === year - 1).at(-1);
+    const last = rows.at(-1)!, lev = rows.map(x => x.levPct!);
+    return {
+      year, weeks: rows.length,
+      avgLev: Math.round((lev.reduce((s, x) => s + x, 0) / lev.length) * 100) / 100,
+      maxLev: Math.max(...lev), minLev: Math.min(...lev),
+      mtfEnd: last.mtf!, futEnd: last.fut!, combEnd: last.combined!,
+      mtfGrowth: r1(pctChg(prev?.mtf, last.mtf)), futGrowth: r1(pctChg(prev?.fut, last.fut)), niftyRet: r1(pctChg(prev?.nifty, last.nifty)),
+    };
+  });
+}
+
+export interface RegimeRow { label: string; from: number; to: number; weeks: number; fwd4: number | null; fwd13: number | null; fwd26: number | null; down13: number | null }
+
+// Weeks bucketed by leverage % (quintiles of the period) with the Nifty's forward returns.
+export function regimeTable(h: LeverageHistory, buckets = 5): RegimeRow[] {
+  const w = completeWeeks(h), lev = w.map(x => x.levPct!);
+  const edges = Array.from({ length: buckets + 1 }, (_, i) => quantile(lev, i / buckets));
+  const names = ['Lowest', 'Low', 'Middle', 'High', 'Highest'];
+  return Array.from({ length: buckets }, (_, b) => {
+    const idx = w.map((_, i) => i).filter(i => lev[i] >= edges[b] && (b === buckets - 1 ? lev[i] <= edges[b + 1] : lev[i] < edges[b + 1]));
+    const avg = (k: number) => r1(mean(idx.map(i => fwdNifty(w, i, k)).filter((x): x is number => x != null)));
+    const f13 = idx.map(i => fwdNifty(w, i, 13)).filter((x): x is number => x != null);
+    return {
+      label: buckets === 5 ? names[b] : `Q${b + 1}`, from: Math.round(edges[b] * 100) / 100, to: Math.round(edges[b + 1] * 100) / 100,
+      weeks: idx.length, fwd4: avg(4), fwd13: avg(13), fwd26: avg(26),
+      down13: f13.length ? Math.round((f13.filter(x => x < 0).length / f13.length) * 100) : null,
+    };
+  });
+}
+
+export interface MoveRow { week: string; chgPct: number; chgCr: number; niftyWk: number | null; niftyNext4: number | null; levPct: number }
+
+// Largest week-on-week falls in combined leverage (deleveraging episodes).
+export function biggestUnwinds(h: LeverageHistory, n = 10): MoveRow[] {
+  const w = completeWeeks(h);
+  const rows: MoveRow[] = [];
+  for (let i = 1; i < w.length; i++) {
+    rows.push({
+      week: w[i].week, chgPct: r1(pctChg(w[i - 1].combined, w[i].combined))!, chgCr: w[i].combined! - w[i - 1].combined!,
+      niftyWk: r1(pctChg(w[i - 1].nifty, w[i].nifty)), niftyNext4: fwdNifty(w, i, 4), levPct: w[i].levPct!,
+    });
+  }
+  return rows.sort((a, b) => a.chgPct - b.chgPct).slice(0, n);
+}
+
+// Rolling correlation between weekly % changes in combined leverage and the Nifty 50.
+export function rollingCorrelation(h: LeverageHistory, window = 26): { week: string; corr: number | null }[] {
+  const w = completeWeeks(h);
+  const lev: number[] = [], nif: number[] = [], weeks: string[] = [];
+  for (let i = 1; i < w.length; i++) {
+    lev.push(pctChg(w[i - 1].combined, w[i].combined) ?? 0);
+    nif.push(pctChg(w[i - 1].nifty, w[i].nifty) ?? 0);
+    weeks.push(w[i].week);
+  }
+  return weeks.map((week, i) => ({ week, corr: i + 1 >= window ? pearson(lev.slice(i + 1 - window, i + 1), nif.slice(i + 1 - window, i + 1)) : null }))
+    .filter(r => r.corr != null);
+}
+
+// Leverage level against the Nifty's next-13-week return, for a scatter plot.
+export function levVsForward(h: LeverageHistory, k = 13): { week: string; levPct: number; fwd: number }[] {
+  const w = completeWeeks(h);
+  return w.map((x, i) => ({ week: x.week, levPct: x.levPct!, fwd: fwdNifty(w, i, k) }))
+    .filter((r): r is { week: string; levPct: number; fwd: number } => r.fwd != null);
+}
+
 export function analyseLeverage(h: LeverageHistory, thresholdPct = 80): LeverageAnalysis | null {
   const w = h.weeks.filter(x => x.combined != null && x.levPct != null);
   if (w.length < 8) return null;

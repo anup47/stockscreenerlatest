@@ -2,23 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ResponsiveContainer, LineChart, Line, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
+  LineChart, Line, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
   CartesianGrid, Legend, ReferenceLine, ComposedChart,
 } from 'recharts';
 import { Gauge, RefreshCw, AlertTriangle, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { analyseLeverage, percentileRank, type LeverageHistory, type LeverageWeek, type Change } from '@/lib/leverage';
+import { C, crore, lakhCr, fmtWeek, tickWeek, signed, tooltipStyle, Panel, ChartBox } from './ui';
+import MoreCharts from './MoreCharts';
+import LeverageTables from './Tables';
 
-// Series colours, used consistently across KPIs, charts and the heatmap legend.
-const C = { mtf: '#0d9488', fut: '#6366f1', combined: '#111827', lev: '#d97706', nifty: '#94a3b8' };
 const RANGES = { '1Y': 52, '3Y': 156, '5Y': 9999 } as const;
 type RangeKey = keyof typeof RANGES;
-
-const crore = (v: number | null | undefined) => (v == null ? '—' : `₹${Math.round(v).toLocaleString('en-IN')} Cr`);
-const lakhCr = (v: number | null | undefined, d = 2) => (v == null ? '—' : `₹${(v / 1e5).toFixed(d)} lakh Cr`);
-const fmtWeek = (s: string) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-const tickWeek = (s: string) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit', timeZone: 'UTC' });
-const signed = (v: number | null, unit = '%', d = 1) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(d)}${unit}`);
 
 function ChangeChips({ c, unit = '%', digits = 1, invert = false }: { c: Change; unit?: string; digits?: number; invert?: boolean }) {
   return (
@@ -51,16 +46,6 @@ function Kpi({ label, value, sub, color, children }: { label: string; value: str
   );
 }
 
-function Panel({ title, note, children, className }: { title: string; note?: string; children: React.ReactNode; className?: string }) {
-  return (
-    <section className={cn('rounded-xl border border-border bg-card p-4 shadow-sm min-w-0', className)}>
-      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-      {note && <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{note}</p>}
-      {children}
-    </section>
-  );
-}
-
 function Insight({ q, tone, children }: { q: string; tone: 'high' | 'low' | 'neutral'; children: React.ReactNode }) {
   const bar = { high: 'border-l-amber-500', low: 'border-l-emerald-500', neutral: 'border-l-slate-300' }[tone];
   return (
@@ -79,7 +64,6 @@ function heat(p: number) {
   return `rgb(${a.map((x, k) => Math.round(x + (b[k] - x) * f)).join(',')})`;
 }
 
-const tooltipStyle = { fontSize: 12, borderRadius: 8, borderColor: 'hsl(var(--border))' };
 
 export default function LeveragePage() {
   const [h, setH] = useState<LeverageHistory | null>(null);
@@ -260,9 +244,9 @@ export default function LeveragePage() {
 
           {/* ── Chart 1: levels ──────────────────────────────────────────────── */}
           <Panel title="MTF, futures OI and combined leverage" note="₹ lakh crore, weekly (last trading day of each week).">
-            <div className="h-72 w-full min-w-0 overflow-hidden">
-              <ResponsiveContainer width="99%" height="100%">
-                <LineChart data={series} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+            <ChartBox h="h-72">
+              {({ width, height }) => (
+                <LineChart width={width} height={height} data={series} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                   <XAxis dataKey="week" tickFormatter={tickWeek} minTickGap={40} tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} width={44} tickFormatter={v => v.toFixed(1)} />
@@ -272,15 +256,15 @@ export default function LeveragePage() {
                   <Line isAnimationActive={false} type="monotone" dataKey="futL" name="Futures OI" stroke={C.fut} dot={false} strokeWidth={2} />
                   <Line isAnimationActive={false} type="monotone" dataKey="combL" name="Combined" stroke={C.combined} dot={false} strokeWidth={2.5} />
                 </LineChart>
-              </ResponsiveContainer>
-            </div>
+              )}
+            </ChartBox>
           </Panel>
 
           {/* ── Chart 2: % of market cap ─────────────────────────────────────── */}
           <Panel title="Leverage as % of total market cap" note={`Combined leverage ÷ NSE market cap, with the Nifty 50 (right axis). Dashed line: the ${a.threshold.pct}th-percentile level used above.`}>
-            <div className="h-72 w-full min-w-0 overflow-hidden">
-              <ResponsiveContainer width="99%" height="100%">
-                <ComposedChart data={series} margin={{ top: 5, right: 4, left: 0, bottom: 0 }}>
+            <ChartBox h="h-72">
+              {({ width, height }) => (
+                <ComposedChart width={width} height={height} data={series} margin={{ top: 5, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="levFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={C.lev} stopOpacity={0.35} />
@@ -298,8 +282,8 @@ export default function LeveragePage() {
                   <Area isAnimationActive={false} yAxisId="lev" type="monotone" dataKey="levPct" name="Leverage % of mkt cap" stroke={C.lev} fill="url(#levFill)" strokeWidth={2} />
                   <Line isAnimationActive={false} yAxisId="nifty" type="monotone" dataKey="nifty" name="Nifty 50" stroke={C.nifty} dot={false} strokeWidth={1.5} />
                 </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+              )}
+            </ChartBox>
           </Panel>
 
           {/* Full-width rows: 262 weekly bars need the width, and a chart beside another can keep
@@ -307,9 +291,9 @@ export default function LeveragePage() {
           <div className="space-y-5">
             {/* ── Chart 3: dominance ─────────────────────────────────────────── */}
             <Panel title="MTF vs futures OI dominance" note="Share of combined leverage each week.">
-              <div className="h-64 w-full min-w-0 overflow-hidden">
-                <ResponsiveContainer width="99%" height="100%">
-                  <BarChart data={series} barCategoryGap={0} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+              <ChartBox h="h-64">
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={series} barCategoryGap={0} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                     <XAxis dataKey="week" tickFormatter={tickWeek} minTickGap={40} tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} width={46} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={v => `${v}%`} />
                     <Tooltip contentStyle={tooltipStyle} labelFormatter={l => `Week ending ${fmtWeek(String(l))}`} formatter={v => `${Number(v).toFixed(1)}%`} />
@@ -317,8 +301,8 @@ export default function LeveragePage() {
                     <Bar isAnimationActive={false} dataKey="mtfShare" name="MTF" stackId="s" fill={C.mtf} />
                     <Bar isAnimationActive={false} dataKey="futShare" name="Futures OI" stackId="s" fill={C.fut} />
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </ChartBox>
             </Panel>
 
             {/* ── Chart 4: heatmap ───────────────────────────────────────────── */}
@@ -346,6 +330,9 @@ export default function LeveragePage() {
               </div>
             </Panel>
           </div>
+
+          <MoreCharts history={h} range={RANGES[range]} />
+          <LeverageTables history={h} />
 
           {/* ── Sources ──────────────────────────────────────────────────────── */}
           <footer className="text-[11px] text-muted-foreground space-y-1">
