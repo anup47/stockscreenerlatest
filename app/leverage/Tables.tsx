@@ -7,6 +7,8 @@ import { completeWeeks, yearlySummary, regimeTable, biggestUnwinds, type Leverag
 import { Panel, fmtWeek, lakhCr, signed, tone, th, td } from './ui';
 
 const pctChg = (a?: number | null, b?: number | null) => (a && b != null ? ((b - a) / a) * 100 : null);
+// Bare ₹ lakh crore figure; the unit is stated once in the table note so the table fits on screen.
+const lk = (v: number | null | undefined, d = 2) => (v == null ? '—' : (v / 1e5).toFixed(d));
 
 function downloadCsv(h: LeverageHistory) {
   const cols = ['week', 'mtfDate', 'mtf', 'mtfNse', 'mtfBse', 'futDate', 'futStock', 'futIndex', 'fut', 'combined', 'mcap', 'mcapEstimated', 'levPct', 'nifty', 'nifty500'] as const;
@@ -29,7 +31,7 @@ export default function LeverageTables({ history }: { history: LeverageHistory }
   return (
     <div className="space-y-5">
       {/* ── Weekly data ──────────────────────────────────────────────────── */}
-      <Panel title="Weekly data" note="Last trading day of each week. Change columns are week-on-week."
+      <Panel title="Weekly data" note="₹ lakh crore, last trading day of each week. Δ columns are week-on-week."
         action={
           <div className="flex items-center gap-2">
             <button onClick={() => setRowsShown(n => (n === 12 ? 52 : 12))} className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted">
@@ -43,21 +45,21 @@ export default function LeverageTables({ history }: { history: LeverageHistory }
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="border-b border-border bg-muted/40">
-              <tr>{['Week ending', 'MTF', 'Δ', 'Stock fut.', 'Index fut.', 'Futures OI', 'Δ', 'Combined', 'Δ', 'Mkt cap', '% of mcap', 'Nifty 50', 'Δ'].map((h, i) => <th key={i} className={th}>{h}</th>)}</tr>
+              <tr>{['Week ending', 'MTF', 'Δ', 'Stock fut.', 'Index fut.', 'Futures', 'Δ', 'Combined', 'Δ', 'Mkt cap', 'Lev %', 'Nifty 50', 'Δ'].map((h, i) => <th key={i} className={th}>{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {recent.map(({ w, prev }) => (
                 <tr key={w.week} className="hover:bg-muted/30">
                   <td className={cn(td, 'font-medium')}>{fmtWeek(w.week)}</td>
-                  <td className={td}>{lakhCr(w.mtf)}</td>
+                  <td className={td}>{lk(w.mtf)}</td>
                   <td className={cn(td, tone(pctChg(prev?.mtf, w.mtf)))}>{signed(pctChg(prev?.mtf, w.mtf))}</td>
-                  <td className={td}>{lakhCr(w.futStock)}</td>
-                  <td className={td}>{lakhCr(w.futIndex)}</td>
-                  <td className={td}>{lakhCr(w.fut)}</td>
+                  <td className={td}>{lk(w.futStock)}</td>
+                  <td className={td}>{lk(w.futIndex)}</td>
+                  <td className={td}>{lk(w.fut)}</td>
                   <td className={cn(td, tone(pctChg(prev?.fut, w.fut)))}>{signed(pctChg(prev?.fut, w.fut))}</td>
-                  <td className={cn(td, 'font-semibold')}>{lakhCr(w.combined)}</td>
+                  <td className={cn(td, 'font-semibold')}>{lk(w.combined)}</td>
                   <td className={cn(td, tone(pctChg(prev?.combined, w.combined)))}>{signed(pctChg(prev?.combined, w.combined))}</td>
-                  <td className={td}>{lakhCr(w.mcap, 1)}{w.mcapEstimated && <span className="text-muted-foreground" title="Moved from the nearest NSE month-end figure by the Nifty 500"> *</span>}</td>
+                  <td className={td}>{lk(w.mcap, 1)}{w.mcapEstimated && <span className="text-muted-foreground" title="Moved from the nearest NSE month-end figure by the Nifty 500">*</span>}</td>
                   <td className={cn(td, 'font-semibold')}>{w.levPct?.toFixed(2)}%</td>
                   <td className={td}>{w.nifty?.toLocaleString('en-IN', { maximumFractionDigits: 0 }) ?? '—'}</td>
                   <td className={cn(td, tone(pctChg(prev?.nifty, w.nifty)))}>{signed(pctChg(prev?.nifty, w.nifty))}</td>
@@ -72,11 +74,11 @@ export default function LeverageTables({ history }: { history: LeverageHistory }
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* ── Regimes ────────────────────────────────────────────────────── */}
         <Panel title="Leverage regimes and what the Nifty did next"
-          note="Weeks split into five equal groups by leverage % of market cap, with the Nifty 50's average return over the following weeks.">
+          note="Weeks split into five equal groups by leverage % of market cap, with the Nifty 50's average return over the following weeks. % down: share of weeks the Nifty was lower 13 weeks later.">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="border-b border-border bg-muted/40">
-                <tr>{['Leverage band', 'Range', 'Weeks', 'Nifty +4W', '+13W', '+26W', '13W down'].map(h => <th key={h} className={th}>{h}</th>)}</tr>
+                <tr>{['Band', 'Range', 'Weeks', 'Nifty +4W', '+13W', '+26W', '% down'].map(h => <th key={h} className={th} title={h === '% down' ? 'Share of weeks where the Nifty was lower 13 weeks later' : undefined}>{h}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-border/60">
                 {regimes.map(r => {
