@@ -1,7 +1,6 @@
 'use client';
 
 // Shared formatting and layout pieces for the Leverage tab.
-import { useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 // Series colours, used consistently across KPIs, charts, tables and the heatmap legend.
@@ -33,23 +32,7 @@ export function Panel({ title, note, children, className, action }: { title: str
   );
 }
 
-// Measures its own box after layout and hands the chart exact pixel dimensions. Recharts'
-// ResponsiveContainer can size itself before a grid column settles and then overflow it.
-export function ChartBox({ h = 'h-72', children }: { h?: string; children: (size: { width: number; height: number }) => React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => setSize(s => (s && s.width === el.clientWidth && s.height === el.clientHeight ? s : { width: el.clientWidth, height: el.clientHeight }));
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    window.addEventListener('resize', measure);
-    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
-  }, []);
-  return <div ref={ref} className={cn(h, 'w-full min-w-0 overflow-hidden')}>{size && size.width > 0 && children(size)}</div>;
-}
+export { default as ChartBox } from '@/app/components/ChartBox';
 
 export const th = 'px-2.5 py-2 text-left text-[11px] font-semibold text-muted-foreground whitespace-nowrap';
 export const td = 'px-2.5 py-1.5 tabular-nums whitespace-nowrap';

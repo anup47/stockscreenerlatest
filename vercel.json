@@ -2,6 +2,12 @@
   "functions": {
     "app/api/screen/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/update-commodities/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/update-commodities", "schedule": "30 3 * * *" }
+  ]
 }
