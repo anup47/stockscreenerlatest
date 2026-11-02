@@ -160,7 +160,7 @@ export default function BigPlayerTrackerPage() {
               <thead className="text-[11px] uppercase tracking-wider text-muted-foreground border-y border-border bg-muted/30">
                 <tr>
                   {['Date', 'Close', 'Vol vs 20D', 'Avg Trade Size', 'Delivery%', 'Close vs VWAP', 'Verdict', 'Score', 'Confidence'].map((h, i) => (
-                    <th key={h} className={cn('px-3 py-2 font-semibold', i === 0 || i === 6 ? 'text-left' : 'text-right')}>{h}</th>
+                    <th key={h} className={cn('px-3 py-2 font-semibold whitespace-nowrap', i === 0 || i === 6 ? 'text-left' : 'text-right')}>{h}</th>
                   ))}
                 </tr>
               </thead>

@@ -102,7 +102,11 @@ export async function GET(req: NextRequest) {
   const analysed = analyse(sessions, days, intraday);
   // NSE bulk/block deals on each day (collected from the first PC run onwards).
   const dealsFile = await readDeals(index.updatedAt);
-  const stockDeals = dealsFile?.deals[symbol] ?? [];
+  // A block trade large enough to be a bulk deal is listed in both NSE files; keep the block entry.
+  const all = dealsFile?.deals[symbol] ?? [];
+  const sig = (x: { d: string; client: string; side: string; qty: number; price: number }) => `${x.d}|${x.client}|${x.side}|${x.qty}|${x.price}`;
+  const blocks = new Set(all.filter(x => x.kind === 'block').map(sig));
+  const stockDeals = all.filter(x => x.kind === 'block' || !blocks.has(sig(x)));
   const rows = analysed.rows.map(r => ({ ...r, deals: stockDeals.filter(x => x.d === r.d) }));
   const body = {
     symbol, name, secId: secId || null, asOf: sessions.at(-1)?.d, latestNseDate: index.dates.at(-1), publishedAt: index.updatedAt,
