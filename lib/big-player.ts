@@ -18,6 +18,11 @@ export interface BhavIndex { updatedAt: string; dates: string[]; stocks: Record<
 // One row per symbol: ';'-joined days aligned to `dates`, each "o,h,l,c,vwap,vol,trades,delivQty,series" or '' (no trade).
 export interface BhavShard { dates: string[]; rows: Record<string, string> }
 
+// NSE bulk and block deals, collected daily by the PC (NSE only publishes the latest day's file).
+export const DEALS_KEY = 'big-player/deals.json';
+export interface Deal { d: string; kind: 'block' | 'bulk'; client: string; side: 'BUY' | 'SELL'; qty: number; price: number }
+export interface DealsFile { from: string; to: string; deals: Record<string, Deal[]> }
+
 export interface Session { d: string; o: number; h: number; l: number; c: number; vwap: number; vol: number; trades: number; delivQty: number | null; series: string }
 
 export const encodeSession = (s: Omit<Session, 'd'>) =>

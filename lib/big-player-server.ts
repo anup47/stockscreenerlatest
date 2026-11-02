@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache';
 import { readJsonBlob } from './blob-json';
-import { INDEX_KEY, shardKey, type BhavIndex, type BhavShard } from './big-player';
+import { generateTOTP } from './totp';
+import { INDEX_KEY, DEALS_KEY, shardKey, type BhavIndex, type BhavShard, type DealsFile } from './big-player';
 
 // The PC publishes once per trading day; the index's updatedAt keys the shard cache so a new day shows up
 // as soon as the index cache (30 min) refreshes.
@@ -9,6 +10,34 @@ export const readBhavShard = unstable_cache(
   (i: number, _version: string) => readJsonBlob<BhavShard | null>(shardKey(i), () => null),
   ['big-player-shard'], { revalidate: 86400 },
 );
+export const readDeals = unstable_cache(
+  (_version: string) => readJsonBlob<DealsFile | null>(DEALS_KEY, () => null),
+  ['big-player-deals'], { revalidate: 86400 },
+);
+
+// ── Server-side Dhan credentials ─────────────────────────────────────────────
+// DHAN_ACCESS_TOKEN expires after about a day. When DHAN_PIN and DHAN_TOTP_SECRET are also set, an expired
+// token is replaced by a freshly generated one, held in this server instance's memory only (never stored).
+let renewed: { token: string; at: number } | null = null;
+
+export function envDhanCreds(): { clientId: string; accessToken: string } | null {
+  const clientId = process.env.DHAN_CLIENT_ID;
+  if (!clientId) return null;
+  const accessToken = renewed && Date.now() - renewed.at < 20 * 3600_000 ? renewed.token : process.env.DHAN_ACCESS_TOKEN;
+  if (accessToken) return { clientId, accessToken };
+  return process.env.DHAN_PIN && process.env.DHAN_TOTP_SECRET ? { clientId, accessToken: '' } : null;
+}
+
+export async function renewEnvToken(): Promise<string | null> {
+  const clientId = process.env.DHAN_CLIENT_ID, pin = process.env.DHAN_PIN, secret = process.env.DHAN_TOTP_SECRET;
+  if (!clientId || !pin || !secret) return null;
+  const url = `https://auth.dhan.co/app/generateAccessToken?dhanClientId=${encodeURIComponent(clientId)}&pin=${encodeURIComponent(pin)}&totp=${generateTOTP(secret)}`;
+  const res = await fetch(url, { method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(10_000) });
+  const body = await res.json().catch(() => null) as { accessToken?: string } | null;
+  if (!res.ok || !body?.accessToken) return null;
+  renewed = { token: body.accessToken, at: Date.now() };
+  return body.accessToken;
+}
 
 // ── Dhan HQ v2 charts ────────────────────────────────────────────────────────
 

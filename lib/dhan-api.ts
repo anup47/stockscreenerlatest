@@ -795,6 +795,7 @@ async function loadScripMaster(symbol: string, expiry: string): Promise<Map<stri
 
     const col = (name: string) => rawHeaders.indexOf(name);
     const iSecId   = col('SEM_SMST_SECURITY_ID');
+    const iExch    = col('SEM_EXM_EXCH_ID');
     const iSeg     = col('SEM_SEGMENT');
     const iInstr   = col('SEM_INSTRUMENT_NAME');
     const iExpiry  = col('SEM_EXPIRY_DATE');
@@ -812,14 +813,15 @@ async function loadScripMaster(symbol: string, expiry: string): Promise<Map<stri
       if (!line.trim() || !line.includes(upperSym)) continue;
 
       const cols = line.split(',');
-      if (cols[iSeg]?.trim() !== 'NSE_FO') continue;
+      // Dhan's master marks NSE derivatives as exchange "NSE", segment "D" (not "NSE_FO").
+      if (cols[iExch]?.trim() !== 'NSE' || cols[iSeg]?.trim() !== 'D') continue;
 
       const instr = cols[iInstr]?.trim() ?? '';
       if (instr !== 'OPTIDX' && instr !== 'OPTSTK') continue;
 
-      // Match underlying via trading symbol (SM_SYMBOL_NAME is "BHELOPT" not "BHEL")
+      // Match underlying via trading symbol, e.g. "BHEL-May2026-440-CE" (the dash keeps NIFTY from matching NIFTYNXT50)
       const tradingSymbol = cols[iTrading]?.trim() ?? '';
-      if (!tradingSymbol.toUpperCase().startsWith(upperSym)) continue;
+      if (!tradingSymbol.toUpperCase().startsWith(`${upperSym}-`)) continue;
 
       // Normalise expiry: "2026-05-29 15:30:00" → "2026-05-29"
       const rawExp = (iExpiry >= 0 ? cols[iExpiry] : '') ?? '';
@@ -1152,19 +1154,22 @@ async function loadNseEqMaster(): Promise<Map<string, number>> {
     const rawHdr = lines[0].replace(/^﻿/, '');
     const hdrs   = rawHdr.split(',').map(h => h.trim().replace(/['"]/g, ''));
 
+    const iExch    = hdrs.indexOf('SEM_EXM_EXCH_ID');
     const iSecId   = hdrs.indexOf('SEM_SMST_SECURITY_ID');
     const iSeg     = hdrs.indexOf('SEM_SEGMENT');
     const iInstr   = hdrs.indexOf('SEM_INSTRUMENT_NAME');
     const iTrading = hdrs.indexOf('SEM_TRADING_SYMBOL');
 
-    if ([iSecId, iSeg, iInstr, iTrading].some(i => i < 0)) return _eqMasterCache ?? new Map();
+    if ([iExch, iSecId, iSeg, iInstr, iTrading].some(i => i < 0)) return _eqMasterCache ?? new Map();
 
     const map = new Map<string, number>();
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
       const c = line.split(',');
-      if (c[iSeg]?.trim()   !== 'NSE_EQ')   continue;
+      // Dhan's master marks NSE cash stocks as exchange "NSE", segment "E" (not "NSE_EQ").
+      if (c[iExch]?.trim()  !== 'NSE')      continue;
+      if (c[iSeg]?.trim()   !== 'E')        continue;
       if (c[iInstr]?.trim() !== 'EQUITY')   continue;
       const sym   = c[iTrading]?.trim().replace(/['"]/g, '').toUpperCase();
       const secId = parseInt(c[iSecId]?.trim().replace(/['"]/g, '') ?? '', 10);
@@ -1190,7 +1195,7 @@ export interface EquityQuote {
   changePct: number;
 }
 
-type DhanMfQuote = Record<string, number>;
+type DhanMfQuote = Record<string, number> & { ohlc?: { open?: number; high?: number; low?: number; close?: number } };
 type DhanMfResponse = { data?: { NSE_EQ?: Record<string, DhanMfQuote> } };
 
 export async function fetchEquityQuotes(
@@ -1236,8 +1241,9 @@ export async function fetchEquityQuotes(
         const sym   = secIdToSym.get(secId);
         if (!sym) continue;
         const ltp       = Number(q['last_price']        ?? q['ltp']         ?? 0);
-        const prevClose = Number(q['close']             ?? q['prev_close_price'] ?? q['previousClose'] ?? 0);
-        const change    = Number(q['ch']                ?? q['change']      ?? (prevClose > 0 ? ltp - prevClose : 0));
+        // v2 /marketfeed/quote nests the previous close under ohlc and reports net_change.
+        const prevClose = Number(q.ohlc?.close ?? q['close'] ?? q['prev_close_price'] ?? q['previousClose'] ?? 0);
+        const change    = Number(q['net_change']        ?? q['ch']          ?? q['change'] ?? (prevClose > 0 ? ltp - prevClose : 0));
         const changePct = Number(q['chp']               ?? q['change_percent'] ?? (prevClose > 0 ? change / prevClose * 100 : 0));
         result.set(sym, { symbol: sym, secId, ltp, prevClose, change, changePct });
       }

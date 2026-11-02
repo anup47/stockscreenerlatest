@@ -4,13 +4,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Radar, Search, AlertTriangle, PlugZap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
-import { RULES, type DayResult, type Summary, type Verdict } from '@/lib/big-player';
+import { RULES, type DayResult as BaseDay, type Deal, type Summary, type Verdict } from '@/lib/big-player';
 import { PriceVolumeChart, VolumeRatioChart, TradeSizeScatter, VERDICT_COLOR, type Bar } from './Charts';
 
+type DayResult = BaseDay & { deals: Deal[] };
 interface Result {
   symbol: string; name: string; secId: number | null; asOf: string; latestNseDate: string; publishedAt: string;
   days: number; rows: DayResult[]; summary: Summary; bars: Bar[]; barsSource: string;
-  dhan: { status: string; message: string; credsFrom?: string };
+  dhan: { status: string; message: string; credsFrom?: string }; dealsFrom: string | null;
 }
 
 const RANGES = [10, 20, 40, 60];
@@ -166,7 +167,7 @@ export default function BigPlayerTrackerPage() {
               <tbody className="divide-y divide-border/60">
                 {rowsDesc.map(r => (
                   <tr key={r.d} className={ROW_STYLE[r.verdict]}>
-                    <td className="px-3 py-2 whitespace-nowrap font-medium">{fmtDate(r.d)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap font-medium">{fmtDate(r.d)}<DealBadges deals={r.deals} /></td>
                     <td className="px-3 py-2 text-right tabular-nums">{r.c.toLocaleString('en-IN')}<div className={cn('text-[11px]', (r.chgPct ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{pct(r.chgPct, true)}</div></td>
                     <td className={cn('px-3 py-2 text-right tabular-nums', r.volRatio > RULES.bigVol && 'font-semibold')}>{r.volRatio.toFixed(2)}×</td>
                     <td className="px-3 py-2 text-right tabular-nums">
@@ -187,7 +188,7 @@ export default function BigPlayerTrackerPage() {
               {rowsDesc.map(r => (
                 <li key={r.d} className={cn('px-4 py-3', ROW_STYLE[r.verdict])}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-sm">{fmtDate(r.d)} <span className="font-normal tabular-nums">· {r.c.toLocaleString('en-IN')}</span>
+                    <span className="font-semibold text-sm">{fmtDate(r.d)}<DealBadges deals={r.deals} /> <span className="font-normal tabular-nums">· {r.c.toLocaleString('en-IN')}</span>
                       <span className={cn('ml-1 text-xs', (r.chgPct ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{pct(r.chgPct, true)}</span></span>
                     <span className={cn('text-sm font-bold tabular-nums', r.score > 0 ? 'text-emerald-700' : r.score < 0 ? 'text-red-700' : 'text-muted-foreground')}>{r.score > 0 ? '+' : ''}{r.score}</span>
                   </div>
@@ -202,6 +203,8 @@ export default function BigPlayerTrackerPage() {
               ))}
             </ul>
           </section>
+
+          <DealsCard rows={data.rows} from={data.dealsFrom} />
 
           {/* ── Charts ──────────────────────────────────────────────────────── */}
           <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -232,13 +235,47 @@ export default function BigPlayerTrackerPage() {
               Retail churn: small trades with the price within ±{RULES.flatPct}%. Score −5…+5 = direction (close in range, close vs VWAP, buy/sell split) × footprint (trade size, delivery, volume).
               Confidence: how far the day clears its rule&apos;s thresholds and whether the price signals agree; lower when fewer than 10 earlier sessions exist.</p>
             <p><b>Sources.</b> Trades, delivery and VWAP: NSE full bhavcopy (sec_bhavdata_full), refreshed by the office PC after NSE publishes it around 6 pm IST.
-              Price candles and 1-minute intraday flow: DhanHQ v2 when connected. Block and bulk deals are not separated out.</p>
+              Price candles and 1-minute intraday flow: DhanHQ v2 when connected. Bulk and block deals: NSE daily files, collected since {data.dealsFrom ? fmtDate(data.dealsFrom) : 'the first PC run'}.</p>
           </footer>
         </>)}
 
         {!data && !error && loading && <div className="h-40 rounded-xl border border-border bg-muted/40 animate-pulse" />}
       </div>
     </div>
+  );
+}
+
+function DealBadges({ deals }: { deals: Deal[] }) {
+  const kinds = [...new Set(deals.map(d => d.kind))];
+  return <>{kinds.map(k => (
+    <span key={k} title={deals.filter(d => d.kind === k).map(d => `${d.side} ${d.qty.toLocaleString('en-IN')} @ ${d.price} — ${d.client}`).join('\n')}
+      className="ml-1.5 rounded bg-indigo-100 px-1 py-px text-[10px] font-semibold uppercase text-indigo-700 align-middle">{k}</span>
+  ))}</>;
+}
+
+// Named bulk/block deals in the window: the one place the exchange says who traded.
+function DealsCard({ rows, from }: { rows: DayResult[]; from: string | null }) {
+  const deals = rows.flatMap(r => r.deals).sort((a, b) => b.d.localeCompare(a.d) || b.qty * b.price - a.qty * a.price);
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <h3 className="text-sm font-semibold">Bulk and block deals in this window</h3>
+        <span className="text-[11px] text-muted-foreground">NSE names the buyer or seller · collected since {from ? fmtDate(from) : '—'}</span>
+      </div>
+      {deals.length === 0 ? <p className="text-sm text-muted-foreground">None reported{from && rows[0] && from > rows[0].d ? ` since ${fmtDate(from)}` : ''}.</p> : (
+        <ul className="divide-y divide-border/60">
+          {deals.map((d, i) => (
+            <li key={i} className="py-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+              <span className="w-14 shrink-0 text-xs text-muted-foreground">{fmtDate(d.d)}</span>
+              <span className="rounded bg-indigo-100 px-1 py-px text-[10px] font-semibold uppercase text-indigo-700">{d.kind}</span>
+              <span className={cn('text-xs font-bold', d.side === 'BUY' ? 'text-emerald-700' : 'text-red-700')}>{d.side}</span>
+              <span className="min-w-0 flex-1 font-medium">{d.client}</span>
+              <span className="tabular-nums text-xs text-muted-foreground">{d.qty.toLocaleString('en-IN')} sh @ ₹{d.price.toLocaleString('en-IN')} · {inr(d.qty * d.price)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
