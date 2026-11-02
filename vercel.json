@@ -5,9 +5,15 @@
     },
     "app/api/update-commodities/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/big-player/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
-    { "path": "/api/update-commodities", "schedule": "30 3 * * *" }
+    {
+      "path": "/api/update-commodities",
+      "schedule": "30 3 * * *"
+    }
   ]
 }

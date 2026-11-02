@@ -23,6 +23,7 @@ const ROW2 = [
   { label: 'AI Risk',        href: '/ai-risk' },
   { label: 'Leverage',       href: '/leverage' },
   { label: 'Commodities',    href: '/commodities' },
+  { label: 'Big Players',    href: '/big-player-tracker' },
   { label: 'Nifty 50',      href: '/nifty50' },
   { label: 'Sensex 30',     href: '/sensex30' },
   { label: 'Scuttlebutt',    href: '/scuttlebutt' },
