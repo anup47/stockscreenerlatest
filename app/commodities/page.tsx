@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { CODES, type CommoditiesFeed, type CommodityCode } from '@/lib/commodities/types';
 import FundamentalSheet from './FundamentalSheet';
 import TechChart from './TechChart';
-import { Prediction, TechPanels, SIGNAL_STYLE } from './Outlook';
+import { Prediction, TechPanels, EquityReadThrough, SIGNAL_STYLE } from './Outlook';
 
 type Tab = 'fundamental' | 'technical' | 'news';
 const TABS: { key: Tab; label: string }[] = [
@@ -130,8 +130,9 @@ export default function CommoditiesPage() {
             </div>
           </div>
 
-          {/* ── Prediction ──────────────────────────────────────────────────── */}
+          {/* ── Prediction and equity read-through ──────────────────────────── */}
           <Prediction c={c} />
+          <EquityReadThrough c={c} />
         </>)}
 
         {feed && (

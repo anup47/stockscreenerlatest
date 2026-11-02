@@ -1,6 +1,6 @@
 // Pure analytics for the Commodity Tracker: technical indicators (also used client-side),
 // seasonality, news tagging, the 1–7 day signal and the 12-month scenario path.
-import type { Bar, CommodityCode, CommodityNews, Cot, DailyRow, ForecastMonth, SeasonalMonth, Signal, SignalComponent } from './types';
+import type { Backtest, BacktestBucket, Bar, CommodityCode, CommodityNews, Cot, CotPoint, DailyRow, EquityLink, ForecastMonth, SeasonalMonth, Signal, SignalComponent } from './types';
 import type { RawNews } from './sources';
 
 const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / (xs.length || 1);
@@ -190,6 +190,90 @@ export function computeSignal(x: SignalInputs): Signal {
     range7d: { low: r2(centre * (1 - sd)), high: r2(centre * (1 + sd)) },
     components: comps,
   };
+}
+
+// ── Backtest of the 1–7 day signal ───────────────────────────────────────────
+
+type Pt = { date: string; value: number };
+// Index of the last point dated on or before `d` (series sorted ascending), or −1.
+function idxAsOf(s: Pt[], d: string) {
+  let lo = 0, hi = s.length - 1, ans = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (s[m].date <= d) { ans = m; lo = m + 1; } else hi = m - 1; }
+  return ans;
+}
+const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+
+// Percentile of the latest managed-money net within the trailing 3 years of reports.
+export function cotAsOf(rows: CotPoint[], released: string): Cot | null {
+  const usable = rows.filter(r => r.date <= released);
+  if (usable.length < 20) return null;
+  const latest = usable.at(-1)!, window = usable.filter(r => r.date > addDays(latest.date, -3 * 365));
+  return { latest, netPctile3y: Math.round((window.filter(r => r.mmNet < latest.mmNet).length / window.length) * 100), history: window, source: 'CFTC' };
+}
+
+export function backtestSignal(x: { code: CommodityCode; bars: Bar[]; cotRows: CotPoint[]; dxy: Pt[]; ry: Pt[]; years?: number; horizon?: number }): Backtest | null {
+  const H = x.horizon ?? 7, precious = PRECIOUS.has(x.code);
+  const start = addDays(x.bars.at(-1)!.d, -Math.round((x.years ?? 5) * 365.25));
+  const fwds: Record<'BUY' | 'SELL' | 'HOLD', number[]> = { BUY: [], SELL: [], HOLD: [] };
+  const all: number[] = [];
+  let from = '', to = '';
+  for (let t = 200; t + H < x.bars.length; t++) {
+    const d = x.bars[t].d;
+    if (d < start) continue;
+    const i = idxAsOf(x.dxy, d), j = idxAsOf(x.ry, d);
+    // Same rules as the live signal; COT counts only once released (Tuesday data, out Friday).
+    const s = computeSignal({
+      code: x.code,
+      bars: x.bars.slice(0, t + 1),
+      history: precious ? [] : x.bars.slice(t - 3, t + 1).map(b => ({ lmeStock: b.s ?? null, cash3mPct: b.m3 ? ((b.c - b.m3) / b.m3) * 100 : null }) as DailyRow),
+      cot: x.cotRows.length ? cotAsOf(x.cotRows, addDays(d, -3)) : null,
+      dxyChange1d: i > 0 ? (x.dxy[i].value / x.dxy[i - 1].value - 1) * 100 : null,
+      realYieldChange5d: j >= 5 ? x.ry[j].value - x.ry[j - 5].value : null,
+    });
+    const fwd = (x.bars[t + H].c / x.bars[t].c - 1) * 100;
+    fwds[s.label].push(fwd); all.push(fwd);
+    from ||= d; to = d;
+  }
+  if (all.length < 100) return null;
+  const bucket = (v: number[], win: (f: number) => boolean): BacktestBucket => ({
+    n: v.length, hitPct: v.length ? Math.round((v.filter(win).length / v.length) * 100) : null, avgFwd: v.length ? r2(mean(v)) : null,
+  });
+  return {
+    from, to, horizonDays: H,
+    buy: bucket(fwds.BUY, f => f > 0), sell: bucket(fwds.SELL, f => f < 0), hold: bucket(fwds.HOLD, () => false),
+    baseUpPct: Math.round((all.filter(f => f > 0).length / all.length) * 100), baseAvgFwd: r2(mean(all)),
+    excluded: precious ? ['ETF holdings (no history)', 'SGE premium'] : ['SHFE inventory'],
+  };
+}
+
+// ── Indian equity read-through ───────────────────────────────────────────────
+
+const fridayOf = (d: string) => addDays(d, 4 - ((new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7));
+function weekly(points: Pt[]) {
+  const m = new Map<string, number>();
+  for (const p of points) m.set(fridayOf(p.date), p.value);  // last value of each week wins
+  return m;
+}
+function corrBeta(a: number[], b: number[]) {
+  const ma = mean(a), mb = mean(b);
+  let cov = 0, va = 0, vb = 0;
+  for (let i = 0; i < a.length; i++) { cov += (a[i] - ma) * (b[i] - mb); va += (a[i] - ma) ** 2; vb += (b[i] - mb) ** 2; }
+  return { corr: va && vb ? r2(cov / Math.sqrt(va * vb)) : null, beta: vb ? r2(cov / vb) : null };
+}
+const ret = (s: Pt[], days: number) => (s.length > days ? r2((s.at(-1)!.value / s.at(-1 - days)!.value - 1) * 100) : null);
+
+// Stock vs the metal's rupee price: weekly correlation/beta over ~2 years, plus 1M and 3M moves.
+export function equityLink(meta: { symbol: string; name: string; relation: string }, stock: Bar[], metalInr: Pt[]): EquityLink {
+  const sp = stock.map(b => ({ date: b.d, value: b.c }));
+  const ws = weekly(sp), wm = weekly(metalInr);
+  const weeks = [...ws.keys()].filter(k => wm.has(k)).sort().slice(-105);
+  const rs: number[] = [], rm: number[] = [];
+  for (let i = 1; i < weeks.length; i++) {
+    rs.push(ws.get(weeks[i])! / ws.get(weeks[i - 1])! - 1);
+    rm.push(wm.get(weeks[i])! / wm.get(weeks[i - 1])! - 1);
+  }
+  const { corr, beta } = rs.length >= 30 ? corrBeta(rs, rm) : { corr: null, beta: null };
+  return { ...meta, price: sp.at(-1)?.value ?? null, corr, beta, ret1m: ret(sp, 21), ret3m: ret(sp, 63), metal1m: ret(metalInr, 21), metal3m: ret(metalInr, 63) };
 }
 
 // ── 12-month scenario path ───────────────────────────────────────────────────

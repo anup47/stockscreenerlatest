@@ -21,6 +21,40 @@ function Card({ title, note, children, className }: { title: string; note?: stri
   );
 }
 
+// How the same rules would have done over five years, against simply holding the metal.
+function BacktestTable({ c }: { c: CommodityState }) {
+  const b = c.backtest!;
+  const edge = (b.buy.hitPct ?? 0) - b.baseUpPct;
+  const sellEdge = (b.sell.hitPct ?? 0) - (100 - b.baseUpPct);
+  const verdict = edge >= 5 || sellEdge >= 5
+    ? 'Some edge over always being long; still treat as one input among several.'
+    : 'No reliable edge: BUY calls barely beat always being long and SELL calls were not better than chance. Treat the score as context, not a trading signal.';
+  const row = (label: string, x: typeof b.buy, win: string) => (
+    <tr key={label}>
+      <td className="py-1 pr-2 font-medium">{label}</td>
+      <td className="py-1 pr-2 tabular-nums">{x.n}</td>
+      <td className="py-1 pr-2 tabular-nums">{x.hitPct == null ? '—' : `${x.hitPct}%`} <span className="text-muted-foreground">{win}</span></td>
+      <td className={cn('py-1 tabular-nums', (x.avgFwd ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{signed(x.avgFwd)}</td>
+    </tr>
+  );
+  return (
+    <div className="mt-3 rounded-lg border border-border p-3">
+      <p className="text-xs font-semibold">Backtest: the same rules, daily, {b.from.slice(0, 4)}–{b.to.slice(0, 4)}</p>
+      <table className="mt-1.5 w-full text-xs">
+        <thead><tr className="text-left text-muted-foreground"><th className="font-medium">Signal</th><th className="font-medium">Days</th><th className="font-medium">Right</th><th className="font-medium">Avg next {b.horizonDays}d</th></tr></thead>
+        <tbody>
+          {row('BUY', b.buy, '(rose)')}
+          {row('SELL', b.sell, '(fell)')}
+          <tr><td className="py-1 pr-2 font-medium">HOLD</td><td className="py-1 pr-2 tabular-nums">{b.hold.n}</td><td className="py-1 pr-2 text-muted-foreground">—</td><td className="py-1 tabular-nums">{signed(b.hold.avgFwd)}</td></tr>
+          <tr className="border-t border-border/60 text-muted-foreground"><td className="py-1 pr-2">All days</td><td /><td className="py-1 pr-2">{b.baseUpPct}% rose</td><td className="py-1 tabular-nums">{signed(b.baseAvgFwd)}</td></tr>
+        </tbody>
+      </table>
+      <p className={cn('mt-1.5 text-[11px] font-medium', edge >= 5 || sellEdge >= 5 ? 'text-emerald-700' : 'text-amber-700')}>{verdict}</p>
+      <p className="mt-1 text-[10px] text-muted-foreground">No look-ahead: COT counts from its Friday release. Scored as zero throughout (no history): {b.excluded.join(', ')}.</p>
+    </div>
+  );
+}
+
 // Short-run signal breakdown and the 12-month scenario path.
 export function Prediction({ c }: { c: CommodityState }) {
   const s = c.signal;
@@ -46,6 +80,7 @@ export function Prediction({ c }: { c: CommodityState }) {
             </tbody>
           </table>
           <p className="mt-2 text-[10px] text-muted-foreground">BUY at +3 or more, SELL at −3 or less. Dollar, inventory and ETF moves score ±2; extreme speculator positioning ∓3 (contrarian). Not investment advice.</p>
+          {c.backtest && <BacktestTable c={c} />}
         </Card>
 
         <Card title="12-month scenario path" note={`Monthly base case with a ±1σ range from one-year volatility. Drift = half the 10-year seasonal average + fundamental and macro tilts (fading after a quarter). Price in ${c.unit}.`}>
@@ -73,6 +108,40 @@ export function Prediction({ c }: { c: CommodityState }) {
           </p>
         </Card>
     </div>
+  );
+}
+
+// Indian stocks linked to the metal: how closely they have tracked its rupee price.
+export function EquityReadThrough({ c }: { c: CommodityState }) {
+  if (!c.equities?.length) return null;
+  const strength = (r: number | null) => (r == null ? '—' : Math.abs(r) >= 0.5 ? 'Strong' : Math.abs(r) >= 0.3 ? 'Moderate' : 'Weak');
+  return (
+    <Card title={`Indian stocks linked to ${c.name.toLowerCase()}`}
+      note={`Weekly correlation and beta against ${c.name.toLowerCase()} in rupees over ~2 years (beta 0.8 = stock moved ~0.8% per 1% metal move), plus recent moves side by side.`}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/40"><tr>{['Stock', 'Price ₹', 'Correlation', 'Beta', '1M stock', '1M metal', '3M stock', '3M metal'].map(h => <th key={h} className="px-2 py-1.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{h}</th>)}</tr></thead>
+          <tbody className="divide-y divide-border/60">
+            {c.equities.map(e => (
+              <tr key={e.symbol} className="align-top">
+                <td className="px-2 py-1.5 min-w-[180px]">
+                  <div className="font-semibold">{e.name}</div>
+                  <div className="text-[10px] text-muted-foreground leading-snug">{e.relation}</div>
+                </td>
+                <td className="px-2 py-1.5 tabular-nums">{e.price?.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</td>
+                <td className="px-2 py-1.5 tabular-nums whitespace-nowrap">{e.corr ?? '—'} <span className="text-muted-foreground">{strength(e.corr)}</span></td>
+                <td className="px-2 py-1.5 tabular-nums">{e.beta ?? '—'}</td>
+                <td className={cn('px-2 py-1.5 tabular-nums', (e.ret1m ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{signed(e.ret1m)}</td>
+                <td className={cn('px-2 py-1.5 tabular-nums', (e.metal1m ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{signed(e.metal1m)}</td>
+                <td className={cn('px-2 py-1.5 tabular-nums', (e.ret3m ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{signed(e.ret3m)}</td>
+                <td className={cn('px-2 py-1.5 tabular-nums', (e.metal3m ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>{signed(e.metal3m)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">Source: Yahoo Finance (NSE daily closes). Correlation measures co-movement, not causation; weak links mean company-specific factors dominate.</p>
+    </Card>
   );
 }
 

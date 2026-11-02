@@ -3,7 +3,8 @@
 export type CommodityCode = 'GOLD' | 'SILVER' | 'ALUMINIUM' | 'ZINC';
 export const CODES: CommodityCode[] = ['GOLD', 'SILVER', 'ALUMINIUM', 'ZINC'];
 
-export interface Bar { d: string; o?: number; h?: number; l?: number; c: number }
+// m3 / s: LME 3-month price and warehouse stock, carried on base-metal bars for backtests.
+export interface Bar { d: string; o?: number; h?: number; l?: number; c: number; m3?: number | null; s?: number | null }
 
 // One cell of the fundamental sheet. `available: false` means no free automated source exists;
 // the UI shows the source name instead of a number rather than inventing one.
@@ -58,6 +59,21 @@ export interface Signal {
 
 export interface ForecastMonth { month: string; base: number; low: number; high: number; changePct: number; driver: string; risk: string }
 
+export interface BacktestBucket { n: number; hitPct: number | null; avgFwd: number | null }
+export interface Backtest {
+  from: string; to: string; horizonDays: number;
+  buy: BacktestBucket; sell: BacktestBucket; hold: BacktestBucket;
+  baseUpPct: number;          // share of all days the metal was higher after the horizon
+  baseAvgFwd: number;
+  excluded: string[];         // signal inputs with no history (scored zero throughout)
+}
+
+export interface EquityLink {
+  symbol: string; name: string; relation: string;
+  price: number | null; corr: number | null; beta: number | null;   // weekly, 2 years, vs metal in ₹
+  ret1m: number | null; ret3m: number | null; metal1m: number | null; metal3m: number | null;
+}
+
 export interface CommodityState {
   code: CommodityCode;
   name: string;
@@ -74,6 +90,8 @@ export interface CommodityState {
   news: CommodityNews[];
   signal: Signal;
   forecast: ForecastMonth[];
+  backtest: Backtest | null;
+  equities: EquityLink[];
 }
 
 export interface CommoditiesFeed {

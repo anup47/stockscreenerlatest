@@ -2,7 +2,30 @@
 // previous feed so long LME histories and ETF-holding readings accumulate instead of re-downloading.
 import { CODES, type Bar, type CommoditiesFeed, type CommodityCode, type CommodityState, type Cot, type Curve, type DailyRow, type Metric } from './types';
 import { yahooDaily, yahooLast, westmetall, fredSeries, treasury10y, blsCpi, cftcCot, isharesTonnes, googleNews, type LmeDay, type RawNews } from './sources';
-import { seasonality, tagNews, computeSignal, forecast12m, PRECIOUS } from './analytics';
+import { seasonality, tagNews, computeSignal, forecast12m, backtestSignal, cotAsOf, equityLink, PRECIOUS } from './analytics';
+
+// NSE stocks whose earnings move with each metal (Yahoo symbols).
+const EQUITY_LINKS: Record<CommodityCode, { symbol: string; name: string; relation: string }[]> = {
+  GOLD: [
+    { symbol: 'TITAN.NS', name: 'Titan', relation: 'Largest jeweller; gold is its main input and its price drives jewellery demand' },
+    { symbol: 'KALYANKJIL.NS', name: 'Kalyan Jewellers', relation: 'Jeweller; inventory gains when gold rises' },
+    { symbol: 'MUTHOOTFIN.NS', name: 'Muthoot Finance', relation: 'Gold-loan lender; loan book grows with the gold price' },
+    { symbol: 'MANAPPURAM.NS', name: 'Manappuram Finance', relation: 'Gold-loan lender' },
+  ],
+  SILVER: [
+    { symbol: 'HINDZINC.NS', name: 'Hindustan Zinc', relation: "India's largest silver producer (by-product of zinc-lead mining)" },
+    { symbol: 'VEDL.NS', name: 'Vedanta', relation: 'Parent of Hindustan Zinc' },
+  ],
+  ALUMINIUM: [
+    { symbol: 'NATIONALUM.NS', name: 'NALCO', relation: 'Integrated bauxite-alumina-aluminium producer; most direct LME exposure' },
+    { symbol: 'HINDALCO.NS', name: 'Hindalco', relation: 'Primary aluminium in India plus Novelis rolling (conversion margin)' },
+    { symbol: 'VEDL.NS', name: 'Vedanta', relation: "India's largest primary aluminium producer" },
+  ],
+  ZINC: [
+    { symbol: 'HINDZINC.NS', name: 'Hindustan Zinc', relation: "India's dominant integrated zinc producer" },
+    { symbol: 'VEDL.NS', name: 'Vedanta', relation: 'Parent of Hindustan Zinc' },
+  ],
+};
 
 interface Spec {
   name: string; unit: string; inrUnit: string; priceSource: string; priceUrl: string;
@@ -78,10 +101,11 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
   const now = new Date();
   const year = now.getUTCFullYear();
 
-  // LME history: full 10-year backfill once, then only the current year (and last year in January).
+  // LME history: full 10-year backfill once (or when stored bars predate the 3M/stock fields),
+  // then only the current year (and last year in January).
   const lmeYears = (code: CommodityCode) => {
-    const have = prev?.commodities?.[code]?.bars?.[0]?.d;
-    const covered = have && Number(have.slice(0, 4)) <= year - 10;
+    const first = prev?.commodities?.[code]?.bars?.[0];
+    const covered = first && Number(first.d.slice(0, 4)) <= year - 10 && first.s !== undefined;
     return covered ? (now.getUTCMonth() === 0 ? [year - 1, year] : [year]) : Array.from({ length: 11 }, (_, i) => year - 10 + i);
   };
   const lmeFetch = async (code: CommodityCode) => {
@@ -93,16 +117,20 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
   };
 
   const today = new Date(Date.now() + 5.5 * 3600_000);
-  const [gold, silver, dxyBars, inrBars, dgs10, dfii10, cpi, al, zn, cotG, cotS, iau, slv, ...rest] = await Promise.all([
+  const equitySymbols = [...new Set(CODES.flatMap(c => EQUITY_LINKS[c].map(e => e.symbol)))];
+  const [gold, silver, dxyBars, inrBars, dgs10, dfii10, cpi, al, zn, cotG, cotS, iau, slv, copper, equityBars, ...rest] = await Promise.all([
     safe('Yahoo gold', yahooDaily('GC=F')), safe('Yahoo silver', yahooDaily('SI=F')),
-    safe('Yahoo DXY', yahooDaily('DX-Y.NYB', '2y')), safe('Yahoo USD/INR', yahooDaily('INR=X', '2y')),
+    // Six years of dollar and real yields so the 5-year signal backtest has its inputs.
+    safe('Yahoo DXY', yahooDaily('DX-Y.NYB', '6y')), safe('Yahoo USD/INR', yahooDaily('INR=X', '2y')),
     // Official Treasury and BLS feeds first; FRED (same data) as a fallback.
     safe('US 10Y (Treasury)', treasury10y('nominal', [year - 1, year]).catch(() => fredSeries('DGS10'))),
-    safe('US 10Y real (Treasury)', treasury10y('real', [year - 1, year]).catch(() => fredSeries('DFII10'))),
+    safe('US 10Y real (Treasury)', treasury10y('real', Array.from({ length: 6 }, (_, i) => year - 5 + i)).catch(() => fredSeries('DFII10'))),
     safe('US CPI (BLS)', blsCpi().catch(() => fredSeries('CPIAUCSL'))),
     safe('LME aluminium', lmeFetch('ALUMINIUM')), safe('LME zinc', lmeFetch('ZINC')),
-    safe('CFTC gold', cftcCot('088691')), safe('CFTC silver', cftcCot('084691')),
+    safe('CFTC gold', cftcCot('088691', 270)), safe('CFTC silver', cftcCot('084691', 270)),
     safe('IAU holdings', isharesTonnes(SPECS.GOLD.etf!.url)), safe('SLV holdings', isharesTonnes(SPECS.SILVER.etf!.url)),
+    safe('Yahoo copper', yahooDaily('HG=F', '2y')),
+    safe('NSE stocks (Yahoo)', Promise.all(equitySymbols.map(s => yahooDaily(s, '3y').then(b => [s, b] as const).catch(() => [s, [] as Bar[]] as const))).then(r => new Map(r))),
     ...(['GOLD', 'SILVER'] as const).flatMap(c => curveSymbols(SPECS[c].curve!.root, SPECS[c].curve!.months, today).map(s => safe(`Curve ${s.symbol}`, yahooLast(s.symbol).then(p => ({ code: c, ...s, price: p }))))),
     // Base-metal news flow is thin, so look back two days for them.
     ...CODES.map(c => safe(`News ${c}`, googleNews(SPECS[c].news, 40, PRECIOUS.has(c) ? 1 : 2))),
@@ -124,6 +152,19 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
   const ryChange5d = dfii10 && dfii10.length > 5 ? dfii10.at(-1)!.value - dfii10.at(-6)!.value : null;
   const ryChange3m = dfii10 && dfii10.length > 64 ? dfii10.at(-1)!.value - dfii10.at(-64)!.value : null;
 
+  // Cross-metal ratios from the latest common dates (k = 0 latest, 1 the session before).
+  const ratioAt = (a: Bar[] | null, b: Bar[] | null, k: number, scale = 1) => {
+    if (!a || !b) return null;
+    const bm = new Map(b.map(x => [x.d, x.c]));
+    const common = a.filter(x => bm.has(x.d));
+    const row = common.at(-1 - k);
+    return row ? r2((row.c / bm.get(row.d)!) * scale) : null;
+  };
+  const gsRatio = (k: number) => ratioAt(gold, silver, k);
+  const cuAu = (k: number) => ratioAt(copper, gold, k, 1000);
+  const pair = (key: string, label: string, value: number | null, prevV: number | null, unit: string, source: string, extra: Partial<Metric> = {}): Metric =>
+    ({ key, label, value, prev: prevV, unit, source, available: value != null, frequency: 'daily', ...extra });
+
   const out = {} as Record<CommodityCode, CommodityState>;
   for (const code of CODES) {
     const spec = SPECS[code], old = prev?.commodities?.[code];
@@ -134,12 +175,12 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
     let lme: Map<string, LmeDay> = new Map();
     if (precious) bars = (code === 'GOLD' ? gold : silver) ?? old?.bars ?? [];
     else {
+      // Base-metal bars carry the LME 3-month price and stock, so history and backtests share them.
       const fresh = (code === 'ALUMINIUM' ? al : zn) ?? [];
       const merged = new Map<string, Bar>((old?.bars ?? []).map(b => [b.d, b]));
-      for (const r of fresh) merged.set(r.date, { d: r.date, c: r.cash });
+      for (const r of fresh) merged.set(r.date, { d: r.date, c: r.cash, m3: r.m3, s: r.stock });
       bars = [...merged.values()].sort((a, b) => a.d.localeCompare(b.d));
-      lme = new Map((old?.history ?? []).filter(h => h.lmeCash != null).map(h => [h.date, { date: h.date, cash: h.lmeCash!, m3: h.lme3m, stock: h.lmeStock }]));
-      for (const r of fresh) lme.set(r.date, r);
+      lme = new Map(bars.map(b => [b.d, { date: b.d, cash: b.c, m3: b.m3 ?? null, stock: b.s ?? null }]));
     }
     if (bars.length < 30) { health[code] = 'error: not enough price history'; if (old) out[code] = old; continue; }
 
@@ -160,12 +201,9 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
       };
     });
 
-    const cotRows = code === 'GOLD' ? cotG : code === 'SILVER' ? cotS : null;
-    let cot: Cot | null = null;
-    if (cotRows?.length) {
-      const nets = cotRows.map(r => r.mmNet), latest = cotRows.at(-1)!;
-      cot = { latest, netPctile3y: Math.round((nets.filter(n => n < latest.mmNet).length / nets.length) * 100), history: cotRows, source: 'CFTC Commitments of Traders (disaggregated)' };
-    }
+    const cotRows = (code === 'GOLD' ? cotG : code === 'SILVER' ? cotS : null) ?? [];
+    const cotLatest = cotRows.length ? cotAsOf(cotRows, '9999-12-31') : null;
+    const cot: Cot | null = cotLatest && { ...cotLatest, source: 'CFTC Commitments of Traders (disaggregated)' };
 
     let curve: Curve | null = null;
     const cq = curveQuotes.filter((q): q is NonNullable<typeof q> => !!q && q.code === code);
@@ -225,6 +263,12 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
       m('dxy', 'Dollar index (DXY)', 'dxy', '', 'Yahoo Finance (DX-Y.NYB)', { higherIsBullish: false }),
       m('us10y', 'US 10-year yield', 'us10y', '%', 'US Treasury daily yield curve (10 Yr)', { sourceUrl: 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve', higherIsBullish: precious ? false : undefined }),
       m('realYield', 'US 10-year real yield (TIPS)', 'realYield', '%', 'US Treasury daily real yield curve (10 Yr)', { sourceUrl: 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_real_yield_curve', higherIsBullish: precious ? false : undefined }),
+      ...(precious ? [
+        pair('gsRatio', 'Gold/silver ratio (oz of silver per oz of gold)', gsRatio(0), gsRatio(1), '', 'COMEX gold ÷ COMEX silver (Yahoo Finance)', { higherIsBullish: code === 'GOLD' }),
+      ] : [
+        pair('copper', 'Copper (USD/lb) — global growth gauge', copper?.at(-1)?.c ?? null, copper?.at(-2)?.c ?? null, 'USD/lb', 'COMEX copper futures (Yahoo Finance)', { higherIsBullish: true }),
+        pair('cuAu', 'Copper/gold ratio ×1000 — growth vs fear', cuAu(0), cuAu(1), '', 'COMEX copper ÷ COMEX gold; rising = risk-on, supportive for industrial metals', { higherIsBullish: true }),
+      ]),
       ...(precious ? [{ key: 'real10yCpi', label: 'Real yield (10Y − CPI YoY)', value: last.us10y != null && cpiYoy != null ? r2(last.us10y - cpiYoy) : null, prev: prevRow?.us10y != null && cpiYoy != null ? r2(prevRow.us10y - cpiYoy) : null, unit: '%', source: `Treasury 10Y − BLS CPI-U YoY (${cpiYoy ?? '—'}%)`, asOf: last.date, available: last.us10y != null && cpiYoy != null, higherIsBullish: false, frequency: 'daily' } as Metric] : []),
     ];
 
@@ -232,11 +276,18 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
     const signal = computeSignal({ code, bars, history, cot, dxyChange1d, realYieldChange5d: ryChange5d });
     const { months: forecast } = forecast12m({ code, bars, seasonal, history, cot, dxyChange3m, realYieldChange3m: ryChange3m });
     const news = newsByCode[code]?.length ? tagNews(code, newsByCode[code]) : old?.news ?? [];
+    const backtest = backtestSignal({
+      code, bars, cotRows,
+      dxy: dxyBars ? barsToSeries(dxyBars) : [], ry: dfii10 ?? [],
+    });
+    // Metal in ₹ (same units as the parity row) for the stock comparisons.
+    const metalInr = bars.slice(-800).flatMap(b => { const fx = inrAt(b.d); return fx ? [{ date: b.d, value: spec.toInr(b.c, fx) }] : []; });
+    const equities = EQUITY_LINKS[code].map(e => equityLink(e, equityBars?.get(e.symbol) ?? [], metalInr)).filter(e => e.price != null);
 
     out[code] = {
       code, name: spec.name, unit: spec.unit, inrUnit: spec.inrUnit, priceSource: spec.priceSource,
       latest: { date: last.date, price: last.price!, changePct: prevRow?.price ? r2(((last.price! - prevRow.price) / prevRow.price) * 100) : null },
-      bars, metrics, history, cot, curve, seasonal, news, signal, forecast,
+      bars, metrics, history, cot, curve, seasonal, news, signal, forecast, backtest, equities,
     };
   }
 
