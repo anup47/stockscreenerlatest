@@ -64,6 +64,35 @@ export async function fredSeries(id: string): Promise<{ date: string; value: num
     .filter(r => Number.isFinite(r.value) && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
 }
 
+// ── US Treasury daily yield curves (official; FRED times out from Vercel) ────
+
+export async function treasury10y(kind: 'nominal' | 'real', years: number[]): Promise<{ date: string; value: number }[]> {
+  const type = kind === 'nominal' ? 'daily_treasury_yield_curve' : 'daily_treasury_real_yield_curve';
+  const out: { date: string; value: number }[] = [];
+  for (const y of years) {
+    const csv = await getText(`https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/${y}/all?type=${type}&field_tdr_date_value=${y}&page&_format=csv`);
+    const [hdr, ...lines] = csv.trim().split('\n');
+    const col = hdr.split(',').map(h => h.replace(/"/g, '').trim().toUpperCase()).indexOf('10 YR');
+    if (col < 0) throw new Error('Treasury: no 10 Yr column');
+    for (const l of lines) {
+      const f = l.split(','), [m, d, yy] = f[0].split('/'), v = Number(f[col]);
+      if (yy && Number.isFinite(v)) out.push({ date: `${yy}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`, value: v });
+    }
+  }
+  if (!out.length) throw new Error('Treasury: no rows');
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// CPI-U, all items (not seasonally adjusted) — monthly, for year-on-year inflation.
+export async function blsCpi(): Promise<{ date: string; value: number }[]> {
+  const j = JSON.parse(await getText('https://api.bls.gov/publicAPI/v1/timeseries/data/CUUR0000SA0'));
+  const data = j.Results?.series?.[0]?.data as { year: string; period: string; value: string }[] | undefined;
+  if (!data?.length) throw new Error('BLS: no CPI data');
+  return data.filter(r => /^M(0[1-9]|1[0-2])$/.test(r.period))
+    .map(r => ({ date: `${r.year}-${r.period.slice(1)}-01`, value: Number(r.value) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ── CFTC Commitments of Traders (disaggregated, futures only) ────────────────
 
 export async function cftcCot(marketCode: string, weeks = 160): Promise<CotPoint[]> {

@@ -137,7 +137,7 @@ export default function CommoditiesPage() {
         {feed && (
           <footer className="text-[11px] text-muted-foreground space-y-1">
             <p><b>Sources.</b> Prices: COMEX via Yahoo Finance (gold, silver), LME official cash via westmetall.com (aluminium, zinc). LME 3-month and stocks: westmetall.com.
-              Macro: FRED (10Y, real yield, CPI), Yahoo Finance (DXY, USD/INR). Positioning: CFTC COT. ETF holdings: iShares IAU/SLV. News: Google News.</p>
+              Macro: US Treasury (10Y and real yield), BLS (CPI), Yahoo Finance (DXY, USD/INR). Positioning: CFTC COT. ETF holdings: iShares IAU/SLV. News: Google News.</p>
             {failing.length > 0 && <p className="text-amber-700">Last update had issues with: {failing.map(([k]) => k).join(', ')}.</p>}
           </footer>
         )}

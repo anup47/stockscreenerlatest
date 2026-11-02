@@ -127,7 +127,7 @@ export default function FundamentalSheet({ c }: { c: CommodityState }) {
         </div>
         <p className="px-3 py-2 text-[10px] text-muted-foreground border-t border-border">
           Sources: price — {c.priceSource}; LME — westmetall.com (LME official prices and stocks); ETF — iShares trust holdings (recorded daily from the day tracking began);
-          USD/INR and DXY — Yahoo Finance; yields — FRED. Green/red arrows show whether the move is bullish or bearish for the metal; grey where the link is ambiguous.
+          USD/INR and DXY — Yahoo Finance; yields — US Treasury daily curves. Green/red arrows show whether the move is bullish or bearish for the metal; grey where the link is ambiguous.
         </p>
       </div>
     </div>

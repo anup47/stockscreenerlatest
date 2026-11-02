@@ -1,7 +1,7 @@
 // Builds the Commodity Tracker feed from free sources. Runs daily (Vercel cron) and reuses the
 // previous feed so long LME histories and ETF-holding readings accumulate instead of re-downloading.
 import { CODES, type Bar, type CommoditiesFeed, type CommodityCode, type CommodityState, type Cot, type Curve, type DailyRow, type Metric } from './types';
-import { yahooDaily, yahooLast, westmetall, fredSeries, cftcCot, isharesTonnes, googleNews, type LmeDay, type RawNews } from './sources';
+import { yahooDaily, yahooLast, westmetall, fredSeries, treasury10y, blsCpi, cftcCot, isharesTonnes, googleNews, type LmeDay, type RawNews } from './sources';
 import { seasonality, tagNews, computeSignal, forecast12m, PRECIOUS } from './analytics';
 
 interface Spec {
@@ -96,7 +96,10 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
   const [gold, silver, dxyBars, inrBars, dgs10, dfii10, cpi, al, zn, cotG, cotS, iau, slv, ...rest] = await Promise.all([
     safe('Yahoo gold', yahooDaily('GC=F')), safe('Yahoo silver', yahooDaily('SI=F')),
     safe('Yahoo DXY', yahooDaily('DX-Y.NYB', '2y')), safe('Yahoo USD/INR', yahooDaily('INR=X', '2y')),
-    safe('FRED 10Y', fredSeries('DGS10')), safe('FRED real yield', fredSeries('DFII10')), safe('FRED CPI', fredSeries('CPIAUCSL')),
+    // Official Treasury and BLS feeds first; FRED (same data) as a fallback.
+    safe('US 10Y (Treasury)', treasury10y('nominal', [year - 1, year]).catch(() => fredSeries('DGS10'))),
+    safe('US 10Y real (Treasury)', treasury10y('real', [year - 1, year]).catch(() => fredSeries('DFII10'))),
+    safe('US CPI (BLS)', blsCpi().catch(() => fredSeries('CPIAUCSL'))),
     safe('LME aluminium', lmeFetch('ALUMINIUM')), safe('LME zinc', lmeFetch('ZINC')),
     safe('CFTC gold', cftcCot('088691')), safe('CFTC silver', cftcCot('084691')),
     safe('IAU holdings', isharesTonnes(SPECS.GOLD.etf!.url)), safe('SLV holdings', isharesTonnes(SPECS.SILVER.etf!.url)),
@@ -214,9 +217,9 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
       ] : []),
       m('usdInr', 'USD/INR', 'usdInr', '₹', 'Yahoo Finance (INR=X)', { higherIsBullish: undefined }),
       m('dxy', 'Dollar index (DXY)', 'dxy', '', 'Yahoo Finance (DX-Y.NYB)', { higherIsBullish: false }),
-      m('us10y', 'US 10-year yield', 'us10y', '%', 'FRED DGS10', { sourceUrl: 'https://fred.stlouisfed.org/series/DGS10', higherIsBullish: precious ? false : undefined }),
-      m('realYield', 'US 10-year real yield (TIPS)', 'realYield', '%', 'FRED DFII10', { sourceUrl: 'https://fred.stlouisfed.org/series/DFII10', higherIsBullish: precious ? false : undefined }),
-      ...(precious ? [{ key: 'real10yCpi', label: 'Real yield (10Y − CPI YoY)', value: last.us10y != null && cpiYoy != null ? r2(last.us10y - cpiYoy) : null, prev: prevRow?.us10y != null && cpiYoy != null ? r2(prevRow.us10y - cpiYoy) : null, unit: '%', source: `FRED DGS10 − CPIAUCSL YoY (${cpiYoy ?? '—'}%)`, asOf: last.date, available: last.us10y != null && cpiYoy != null, higherIsBullish: false, frequency: 'daily' } as Metric] : []),
+      m('us10y', 'US 10-year yield', 'us10y', '%', 'US Treasury daily yield curve (10 Yr)', { sourceUrl: 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve', higherIsBullish: precious ? false : undefined }),
+      m('realYield', 'US 10-year real yield (TIPS)', 'realYield', '%', 'US Treasury daily real yield curve (10 Yr)', { sourceUrl: 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_real_yield_curve', higherIsBullish: precious ? false : undefined }),
+      ...(precious ? [{ key: 'real10yCpi', label: 'Real yield (10Y − CPI YoY)', value: last.us10y != null && cpiYoy != null ? r2(last.us10y - cpiYoy) : null, prev: prevRow?.us10y != null && cpiYoy != null ? r2(prevRow.us10y - cpiYoy) : null, unit: '%', source: `Treasury 10Y − BLS CPI-U YoY (${cpiYoy ?? '—'}%)`, asOf: last.date, available: last.us10y != null && cpiYoy != null, higherIsBullish: false, frequency: 'daily' } as Metric] : []),
     ];
 
     const seasonal = seasonality(bars, 10);
