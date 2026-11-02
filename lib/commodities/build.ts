@@ -204,7 +204,13 @@ export async function buildCommodities(prev: CommoditiesFeed | null): Promise<Co
         NA('balance', 'Surplus / deficit (production − consumption)', code === 'ALUMINIUM' ? 'IAI / industry estimates' : 'ILZSG monthly balance'),
       ]),
       ...(precious ? [
-        m('etf', `ETF holdings — ${spec.etf!.name} (t)`, 'etfTonnes', 't', `${spec.etf!.name} daily holdings (iShares)`, { sourceUrl: spec.etf!.url, higherIsBullish: true }),
+        // The trust reports with a lag, so use its latest two readings rather than today's row.
+        (() => {
+          const r = history.filter(h => h.etfTonnes != null);
+          return { key: 'etf', label: `ETF holdings — ${spec.etf!.name} (t)`, value: r.at(-1)?.etfTonnes ?? null, prev: r.at(-2)?.etfTonnes ?? null, unit: 't',
+            source: `${spec.etf!.name} daily holdings (iShares)${r.length < 2 ? ' · change shows once a second day is recorded' : ''}`, sourceUrl: spec.etf!.url,
+            asOf: r.at(-1)?.date, available: r.length > 0, higherIsBullish: true, frequency: 'daily' } as Metric;
+        })(),
         { key: 'cot', label: 'COT managed-money net long (contracts)', value: cot?.latest.mmNet ?? null, prev: cot?.history.at(-2)?.mmNet ?? null, unit: 'contracts', source: 'CFTC Commitments of Traders, weekly', sourceUrl: 'https://www.cftc.gov/MarketReports/CommitmentsofTraders', asOf: cot?.latest.date, available: !!cot, higherIsBullish: true, frequency: 'weekly' } as Metric,
         { key: 'curve', label: 'Futures curve, annualised (+ = contango)', value: curve?.annualisedPct ?? null, prev: null, unit: '%', source: curve ? `${curve.front.symbol} vs ${curve.next.symbol}` : 'COMEX futures', available: !!curve, frequency: 'daily' } as Metric,
         NA('cb', 'Central-bank net buying (China / India / Turkey / Poland)', 'World Gold Council (Goldhub, registration required)', 'https://www.gold.org/goldhub/data/gold-reserves-by-country'),

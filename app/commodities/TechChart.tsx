@@ -58,8 +58,8 @@ export default function TechChart({ bars, unit }: { bars: Bar[]; unit: string })
     c.addSeries(LineSeries, { color: '#2563eb', lineWidth: 1, priceLineVisible: false, title: 'MACD' }, 2).setData(line(m.line));
     c.addSeries(LineSeries, { color: '#f97316', lineWidth: 1, priceLineVisible: false, title: 'Signal' }, 2).setData(line(m.signal));
     const panes = c.panes();
-    panes[1]?.setHeight(90);
-    panes[2]?.setHeight(100);
+    panes[1]?.setHeight(120);
+    panes[2]?.setHeight(130);
 
     c.timeScale().setVisibleLogicalRange({ from: bars.length - RANGES[range], to: bars.length + 3 });
     return () => { c.remove(); chart.current = null; };
@@ -80,7 +80,7 @@ export default function TechChart({ bars, unit }: { bars: Bar[]; unit: string })
         ))}
         <span className="ml-auto text-[11px] text-muted-foreground">{unit} · daily · panes: price, RSI 14, MACD (12,26,9)</span>
       </div>
-      <div ref={el} className="h-[520px] w-full" />
+      <div ref={el} className="h-[640px] w-full" />
     </div>
   );
 }
