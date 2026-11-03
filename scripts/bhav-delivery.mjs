@@ -11,7 +11,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSy
 import os from 'node:os';
 import path from 'node:path';
 import { put } from '@vercel/blob';
-import { BHAV_DAYS, BHAV_SHARDS, INDEX_KEY, DEALS_KEY, shardKey, shardOf, encodeSession } from '../lib/big-player.ts';
+import { BHAV_DAYS, BHAV_SHARDS, INDEX_KEY, DEALS_KEY, SCREENER_KEY, MIN_TURNOVER_CR, shardKey, shardOf, encodeSession, decodeRow, screenStock } from '../lib/big-player.ts';
 
 const UA    = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
 const DRY   = process.argv.includes('--dry-run');
@@ -31,7 +31,7 @@ const STATE_FILE = path.join(DIR, 'published.json');
 const missing = new Set(existsSync(MISSING_FILE) ? JSON.parse(readFileSync(MISSING_FILE, 'utf8')) : []);
 
 const iso = d => d.toISOString().slice(0, 10);
-const nseDate = s => { const [dd, mon, yy] = s.split('-'); return `${yy}-${String(MON.findIndex(m => m.toUpperCase() === mon.toUpperCase()) + 1).padStart(2, '0')}-${dd.padStart(2, '0')}`; };
+const nseDate = s => { const [dd, mon, yy] = (s ?? '').split('-'); const m = MON.findIndex(x => x.toUpperCase() === mon?.toUpperCase()); return yy && m >= 0 ? `${yy}-${String(m + 1).padStart(2, '0')}-${dd.padStart(2, '0')}` : ''; };   // '' for lines like "NO RECORDS"
 const todayIst = iso(new Date(Date.now() + 5.5 * 3600_000));
 
 async function fetchDay(date) {
@@ -121,10 +121,10 @@ if (!stocks) {
   try {
     const csv = await fetch('https://images.dhan.co/api-data/api-scrip-master.csv', { signal: AbortSignal.timeout(120_000) }).then(r => r.text());
     const lines = csv.split('\n'), hdr = lines[0].replace(/^﻿/, '').split(',').map(h => h.trim());
-    const [iEx, iSeg, iId, iIns, iSym, iName] = ['SEM_EXM_EXCH_ID', 'SEM_SEGMENT', 'SEM_SMST_SECURITY_ID', 'SEM_INSTRUMENT_NAME', 'SEM_TRADING_SYMBOL', 'SEM_CUSTOM_SYMBOL'].map(h => hdr.indexOf(h));
+    const [iEx, iSeg, iId, iIns, iSym, iName, iType] = ['SEM_EXM_EXCH_ID', 'SEM_SEGMENT', 'SEM_SMST_SECURITY_ID', 'SEM_INSTRUMENT_NAME', 'SEM_TRADING_SYMBOL', 'SEM_CUSTOM_SYMBOL', 'SEM_EXCH_INSTRUMENT_TYPE'].map(h => hdr.indexOf(h));
     for (const line of lines) {
       const c = line.split(',');
-      if (c[iEx] === 'NSE' && c[iSeg] === 'E' && c[iIns] === 'EQUITY' && stocks[c[iSym]]) stocks[c[iSym]] = [+c[iId], c[iName]?.trim() ?? ''];
+      if (c[iEx] === 'NSE' && c[iSeg] === 'E' && c[iIns] === 'EQUITY' && stocks[c[iSym]]) stocks[c[iSym]] = [+c[iId], c[iName]?.trim() ?? '', c[iType]?.trim() ?? ''];
     }
     writeFileSync(STOCKS_FILE, JSON.stringify(stocks));
   } catch (e) { log(`warn: Dhan scrip master unavailable (${String(e).slice(0, 100)}); publishing without security IDs`); }
@@ -135,13 +135,24 @@ for (const f of dealFiles) for (const { sym, ...deal } of JSON.parse(readFileSyn
 const dealsFile = { from: dealFiles[0]?.slice(0, 10) ?? null, to: dealFiles.at(-1)?.slice(0, 10) ?? null, deals };
 
 const index = { updatedAt: new Date().toISOString(), dates, stocks };
+
+// Market-wide screener: ordinary shares (no ETFs, REITs or bonds) that traded on the latest day.
+const screenRows = [];
+for (const sym of symbols) {
+  const [, name, type] = stocks[sym] ?? [];
+  if (type && type !== 'ES') continue;
+  const row = screenStock(sym, name ?? '', decodeRow(dates, shards[shardOf(sym)].rows[sym]), deals[sym] ?? [], latest);
+  if (row) screenRows.push(row);
+}
+const screener = { updatedAt: index.updatedAt, asOf: latest, minTurnoverCr: MIN_TURNOVER_CR, rows: screenRows };
 const sizes = shards.map(s => JSON.stringify(s).length);
-log(`${dates[0]} → ${latest}: ${dates.length} sessions, ${symbols.length} stocks, ${Object.values(stocks).filter(s => s[0]).length} with Dhan IDs, shards ${Math.min(...sizes) >> 10}–${Math.max(...sizes) >> 10} KB; deals ${dealsFile.from ?? '—'} → ${dealsFile.to ?? '—'} (${Object.values(deals).flat().length})`);
+log(`${dates[0]} → ${latest}: ${dates.length} sessions, ${symbols.length} stocks, ${Object.values(stocks).filter(s => s[0]).length} with Dhan IDs, shards ${Math.min(...sizes) >> 10}–${Math.max(...sizes) >> 10} KB; deals ${dealsFile.from ?? '—'} → ${dealsFile.to ?? '—'} (${Object.values(deals).flat().length}); screener ${screenRows.length} stocks`);
 if (DRY) process.exit(0);
 
 const opts = { access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true };
 if (bhavChanged) for (let i = 0; i < BHAV_SHARDS; i++) await put(shardKey(i), JSON.stringify(shards[i]), opts);
 await put(DEALS_KEY, JSON.stringify(dealsFile), opts);
+await put(SCREENER_KEY, JSON.stringify(screener), opts);
 await put(INDEX_KEY, JSON.stringify(index), opts);   // index last: readers key their shard and deals caches on it
 writeFileSync(STATE_FILE, JSON.stringify({ latest, dealsSig, publishedAt: index.updatedAt }));
 log(`bhav delivery published through ${latest}${bhavChanged ? '' : ' (deals only)'}`);

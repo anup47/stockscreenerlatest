@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyse, decodeRow, intradayFlow, shardOf, type IntradayDay } from '@/lib/big-player';
-import { readBhavIndex, readBhavShard, readDeals, dhanCharts, envDhanCreds, renewEnvToken, DhanError, type DhanStatus } from '@/lib/big-player-server';
+import { readBhavIndex, readBhavShard, readDeals, readScreener, dhanCharts, envDhanCreds, renewEnvToken, DhanError, type DhanStatus } from '@/lib/big-player-server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -13,6 +13,7 @@ const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) 
 const memo = new Map<string, { at: number; body: unknown }>();
 
 // GET /api/big-player?list=1                        → symbols + company names for the search box
+// GET /api/big-player?screener=1                    → every liquid stock's big-player scores (precomputed by the PC)
 // GET /api/big-player?symbol=RELIANCE&days=20[&secId=2885]
 // Dhan credentials: x-dhan-client-id / x-dhan-access-token headers (the app's Dhan settings), else
 // DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN env vars (renewed automatically when DHAN_PIN and DHAN_TOTP_SECRET
@@ -21,6 +22,12 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
   const index = await readBhavIndex();
   if (!index) return NextResponse.json({ error: 'NSE delivery data has not been published yet. Run scripts/bhav-delivery.mjs on the office PC.' }, { status: 503 });
+
+  if (q.get('screener')) {
+    const screener = await readScreener(index.updatedAt);
+    if (!screener) return NextResponse.json({ error: 'The screener has not been published yet. It is built by scripts/bhav-delivery.mjs on the office PC.' }, { status: 503 });
+    return NextResponse.json(screener, { headers: { 'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600' } });
+  }
 
   if (q.get('list')) {
     return NextResponse.json({ asOf: index.dates.at(-1), stocks: Object.entries(index.stocks).map(([s, [, name]]) => [s, name]) },

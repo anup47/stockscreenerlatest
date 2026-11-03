@@ -1,7 +1,7 @@
 import { unstable_cache } from 'next/cache';
 import { readJsonBlob } from './blob-json';
 import { generateTOTP } from './totp';
-import { INDEX_KEY, DEALS_KEY, shardKey, type BhavIndex, type BhavShard, type DealsFile } from './big-player';
+import { INDEX_KEY, DEALS_KEY, SCREENER_KEY, shardKey, type BhavIndex, type BhavShard, type DealsFile, type ScreenerFile } from './big-player';
 
 // The PC publishes once per trading day; the index's updatedAt keys the shard cache so a new day shows up
 // as soon as the index cache (30 min) refreshes.
@@ -9,6 +9,10 @@ export const readBhavIndex = unstable_cache(() => readJsonBlob<BhavIndex | null>
 export const readBhavShard = unstable_cache(
   (i: number, _version: string) => readJsonBlob<BhavShard | null>(shardKey(i), () => null),
   ['big-player-shard'], { revalidate: 86400 },
+);
+export const readScreener = unstable_cache(
+  (_version: string) => readJsonBlob<ScreenerFile | null>(SCREENER_KEY, () => null),
+  ['big-player-screener'], { revalidate: 86400 },
 );
 export const readDeals = unstable_cache(
   (_version: string) => readJsonBlob<DealsFile | null>(DEALS_KEY, () => null),

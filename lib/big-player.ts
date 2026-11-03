@@ -13,8 +13,9 @@ export function shardOf(sym: string): number {
   return h % BHAV_SHARDS;
 }
 
-// stocks: every symbol in the shards → [Dhan NSE security ID (0 if unknown), company name].
-export interface BhavIndex { updatedAt: string; dates: string[]; stocks: Record<string, [number, string]> }
+// stocks: every symbol in the shards → [Dhan NSE security ID (0 if unknown), company name, Dhan instrument
+// type: 'ES' ordinary shares, 'ETF', 'REIT', … ('' if unknown)].
+export interface BhavIndex { updatedAt: string; dates: string[]; stocks: Record<string, [number, string, string?]> }
 // One row per symbol: ';'-joined days aligned to `dates`, each "o,h,l,c,vwap,vol,trades,delivQty,series" or '' (no trade).
 export interface BhavShard { dates: string[]; rows: Record<string, string> }
 
@@ -177,3 +178,62 @@ function summarise(rows: DayResult[]): Summary {
     cumFlowPct: totVol ? r2((rows.reduce((a, r) => a + r.buyVol - r.sellVol, 0) / totVol) * 100) : 0,
   };
 }
+
+// ── Market-wide screener ─────────────────────────────────────────────────────
+// One row per stock, precomputed by the PC after each NSE update (NSE data only: the buy/sell split
+// uses the candle proxy, since minute candles for every stock would exhaust Dhan's limits).
+
+export const SCREENER_KEY = 'big-player/screener.json';
+export const STRONG = 2;                 // a day scoring ≥ +2 (or ≤ −2) counts as an accumulation (distribution) day
+export const MIN_TURNOVER_CR = 1;        // stocks trading under ₹1 Cr a day are left out as too noisy
+
+export interface ScreenRow {
+  s: string; n: string; sme: boolean;     // symbol, company name, SME board
+  c: number; ch1: number | null; ch5: number | null; ch20: number | null;
+  sc: number[];                           // last 20 daily scores, oldest first
+  v: Verdict;                             // latest day's verdict
+  avg3: number; avg5: number; avg10: number;
+  streak: number;                         // consecutive latest days ≥ +2 (positive) or ≤ −2 (negative)
+  acc10: number; dist10: number;          // accumulation / distribution days in the last 10
+  bigBuy: number; bigSell: number;        // rule-based big-player days in the last 20
+  dl5: number | null; dl20: number | null; // average delivery %, last 5 vs the 20 before them
+  to: number;                             // average daily turnover, ₹ Cr, last 20
+  deal5: number;                          // net named bulk/block buying, ₹ Cr, last 5 sessions
+}
+export interface ScreenerFile { updatedAt: string; asOf: string; minTurnoverCr: number; rows: ScreenRow[] }
+
+// A block trade large enough to be a bulk deal appears in both NSE files; keep the block entry.
+export function dedupeDeals<T extends Deal>(deals: T[]): T[] {
+  const sig = (x: Deal) => `${x.d}|${x.client}|${x.side}|${x.qty}|${x.price}`;
+  const blocks = new Set(deals.filter(x => x.kind === 'block').map(sig));
+  return deals.filter(x => x.kind === 'block' || !blocks.has(sig(x)));
+}
+
+export function screenStock(symbol: string, name: string, sessions: Session[], deals: Deal[], asOf: string): ScreenRow | null {
+  if (sessions.length < 30 || sessions.at(-1)!.d !== asOf) return null;   // needs a baseline and a trade on the latest day
+  const last20 = sessions.slice(-20);
+  const to = mean(last20.map(s => s.vol * s.vwap)) / 1e7;
+  if (to < MIN_TURNOVER_CR) return null;
+  const rows = analyse(sessions, 20).rows, sc = rows.map(r => r.score);
+  const avg = (n: number) => r2(mean(sc.slice(-n)));
+  let streak = 0;
+  const sign = sc.at(-1)! >= STRONG ? 1 : sc.at(-1)! <= -STRONG ? -1 : 0;
+  if (sign) for (let i = sc.length - 1; i >= 0 && sign * sc[i] >= STRONG; i--) streak += sign;
+  const chg = (n: number) => (sessions.length > n ? r2((sessions.at(-1)!.c / sessions.at(-1 - n)!.c - 1) * 100) : null);
+  const deliv = (xs: Session[]) => { const v = xs.filter(s => s.delivQty != null).map(s => (s.delivQty! / s.vol) * 100); return v.length ? r2(mean(v)) : null; };
+  const recent = new Set(sessions.slice(-5).map(s => s.d));
+  const deal5 = dedupeDeals(deals).filter(x => recent.has(x.d)).reduce((a, x) => a + (x.side === 'BUY' ? 1 : -1) * x.qty * x.price, 0) / 1e7;
+  return {
+    s: symbol, n: name, sme: ['SM', 'ST'].includes(sessions.at(-1)!.series),
+    c: sessions.at(-1)!.c, ch1: chg(1), ch5: chg(5), ch20: chg(20),
+    sc, v: rows.at(-1)!.verdict, avg3: avg(3), avg5: avg(5), avg10: avg(10), streak,
+    acc10: sc.slice(-10).filter(x => x >= STRONG).length, dist10: sc.slice(-10).filter(x => x <= -STRONG).length,
+    bigBuy: rows.filter(r => r.verdict === 'BIG PLAYER BOUGHT').length, bigSell: rows.filter(r => r.verdict === 'BIG PLAYER SOLD').length,
+    dl5: deliv(sessions.slice(-5)), dl20: deliv(sessions.slice(-25, -5)), to: r2(to), deal5: r2(deal5),
+  };
+}
+
+// Conviction (buy side; negate the row's sign for sell side): recent strength, persistence over 10 days,
+// rule-based big-player days, and named bulk/block deals (±1 at ₹10 Cr net or more).
+export const conviction = (r: ScreenRow) =>
+  r2(r.avg5 + 0.5 * (r.acc10 - r.dist10) + (r.bigBuy - r.bigSell) + clamp(r.deal5 / 10));

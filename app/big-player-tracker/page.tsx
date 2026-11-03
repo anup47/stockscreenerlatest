@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Radar, Search, AlertTriangle, PlugZap } from 'lucide-react';
+import { Radar, Search, AlertTriangle, PlugZap, ListFilter, LineChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import { RULES, type DayResult as BaseDay, type Deal, type Summary, type Verdict } from '@/lib/big-player';
 import { PriceVolumeChart, VolumeRatioChart, TradeSizeScatter, VERDICT_COLOR, type Bar } from './Charts';
+import Screener from './Screener';
 
 type DayResult = BaseDay & { deals: Deal[] };
 interface Result {
@@ -17,6 +18,8 @@ interface Result {
 const RANGES = [10, 20, 40, 60];
 const SECID_KEY = 'bigPlayer.secIds';
 const LAST_KEY = 'bigPlayer.last';
+const VIEW_KEY = 'bigPlayer.view';
+type View = 'screener' | 'lookup';
 
 const ROW_STYLE: Record<Verdict, string> = {
   'BIG PLAYER BOUGHT': 'bg-emerald-50', 'BIG PLAYER SOLD': 'bg-red-50', 'RETAIL BUYING / FOMO': 'bg-amber-50', 'RETAIL CHURN': 'bg-yellow-50/70', 'MIXED / NO CLEAR PLAYER': '',
@@ -43,6 +46,7 @@ export default function BigPlayerTrackerPage() {
   const [data, setData] = useState<Result | null>(null);
   const [error, setError] = useState<{ message: string; suggestions?: string[] } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<View>('screener');
 
   const search = useCallback(async (sym: string, range: number) => {
     const symbol = sym.trim().toUpperCase();
@@ -57,16 +61,18 @@ export default function BigPlayerTrackerPage() {
       setData(json);
       if (json.secId) store.set(SECID_KEY, { ...secIds, [symbol]: json.secId });
       store.set(LAST_KEY, { symbol, days: range });
-      window.history.replaceState(null, '', `?symbol=${encodeURIComponent(symbol)}&days=${range}`);
+      window.history.replaceState(null, '', `?view=lookup&symbol=${encodeURIComponent(symbol)}&days=${range}`);
     } catch (e) {
       setError({ message: e instanceof Error ? e.message : 'Request failed' });
     } finally { setLoading(false); }
   }, [dhan.headers]);
 
   // Start from ?symbol= in the URL, else the last search, once the Dhan keys have been read from storage.
+  // The view opens from ?view=, else a ?symbol= link (stock view), else the last view used.
   useEffect(() => {
     if (!dhan.isHydrated) return;
     const url = new URLSearchParams(window.location.search);
+    setView((url.get('view') as View | null) ?? (url.get('symbol') ? 'lookup' : store.get<View>(VIEW_KEY, 'screener')));
     const last = store.get<{ symbol: string; days: number } | null>(LAST_KEY, null);
     const sym = url.get('symbol') ?? last?.symbol ?? 'RELIANCE';
     const range = Number(url.get('days')) || last?.days || 20;
@@ -76,6 +82,11 @@ export default function BigPlayerTrackerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dhan.isHydrated]);
 
+  const switchView = (v: View) => {
+    setView(v); store.set(VIEW_KEY, v);
+    window.history.replaceState(null, '', v === 'screener' ? '?view=screener' : `?view=lookup${data ? `&symbol=${encodeURIComponent(data.symbol)}&days=${days}` : ''}`);
+  };
+  const pick = (sym: string) => { switchView('lookup'); setInput(sym); search(sym, days); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const submit = (e: React.FormEvent) => { e.preventDefault(); search(input, days); };
   const pickRange = (r: number) => { setDays(r); if (data) search(data.symbol, r); };
   const rowsDesc = data ? [...data.rows].reverse() : [];
@@ -89,6 +100,19 @@ export default function BigPlayerTrackerPage() {
             Did large institutional orders or small retail orders drive a stock each day? Read from trade size, delivery, volume and where the price closed.
           </p>
         </div>
+
+        <div className="flex border-b border-border" role="tablist">
+          {([['screener', 'Screener: all stocks', ListFilter], ['lookup', 'Stock view', LineChart]] as const).map(([v, label, Icon]) => (
+            <button key={v} role="tab" aria-selected={view === v} onClick={() => switchView(v)}
+              className={cn('flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap', view === v ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+              <Icon className="size-4" /> {label}{v === 'lookup' && data ? `: ${data.symbol}` : ''}
+            </button>
+          ))}
+        </div>
+
+        {view === 'screener' && <Screener onPick={pick} />}
+
+        {view === 'lookup' && (<>
 
         {/* ── Search ─────────────────────────────────────────────────────────── */}
         <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
@@ -240,6 +264,7 @@ export default function BigPlayerTrackerPage() {
         </>)}
 
         {!data && !error && loading && <div className="h-40 rounded-xl border border-border bg-muted/40 animate-pulse" />}
+        </>)}
       </div>
     </div>
   );
