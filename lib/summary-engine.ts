@@ -75,6 +75,47 @@ export interface StbtInput {
   fnoSignal:   string;
 }
 
+// Big Player Tracker screener — NSE trade size / delivery / volume footprint (−5…+5 daily, conviction composite)
+export interface BigPlayerInput {
+  symbol:      string;
+  company:     string;
+  price:       number;
+  conviction:  number;          // + accumulation, − distribution (see lib/big-player.ts conviction())
+  avg5:        number;
+  acc10:       number;          // strong buying days in last 10
+  dist10:      number;          // strong selling days in last 10
+  deal5:       number;          // net named bulk/block deals, ₹ Cr, last 5 sessions
+}
+
+// Research Targets — in-house research reports
+export interface ResearchInput {
+  symbol:         string;
+  company:        string;
+  price:          number;
+  stance:         'ACCUMULATE' | 'WATCH' | 'AVOID';
+  target:         number | null;
+  expectedReturn: number;        // % from live price to avg(base, bull) target
+  horizon:        string;
+}
+
+// 24H News — high-impact (≥3/5) company news on covered stocks, last 24 hours
+export interface NewsInput {
+  symbol:    string;
+  positive:  number;
+  negative:  number;
+  headline:  string;            // most impactful headline in the net direction
+}
+
+// Commodity Tracker — metal signal passed to strongly linked Indian stocks
+export interface CommodityLinkInput {
+  symbol:   string;
+  company:  string;
+  metal:    string;
+  signal:   'BUY' | 'SELL';
+  score:    number;             // metal signal −10…+10
+  corr:     number;             // weekly correlation with the metal in ₹, 2 years
+}
+
 export interface SummaryInputs {
   screener:   ScreenerInput[];
   options:    OptionsInput[];
@@ -83,6 +124,10 @@ export interface SummaryInputs {
   oiScreen:   OIScreenInput[];  // empty if no Dhan creds
   btst:       BtstInput[];      // empty if user hasn't run BTST scan today
   stbt:       StbtInput[];      // empty if user hasn't run STBT scan today
+  bigPlayer?: BigPlayerInput[]; // |conviction| ≥ 2, turnover ≥ ₹5 Cr/day
+  research?:  ResearchInput[];
+  news?:      NewsInput[];      // empty when the news feed is older than 36 h
+  commodity?: CommodityLinkInput[];
 }
 
 // ── Weight configuration — tune all scoring here ──────────────────────────────
@@ -115,6 +160,15 @@ export const SUMMARY_WEIGHTS = {
   stbtHigh:             2.0,   // STBT score 65-79
   stbtMedium:           1.0,   // STBT score 50-64
 
+  // Newer tabs (both directions unless noted)
+  bigPlayerStrong:      2.5,   // Big Players conviction ≥ 3 (≤ −3 short)
+  bigPlayer:            1.5,   // Big Players conviction ≥ 2 (≤ −2 short)
+  researchHigh:         1.5,   // ACCUMULATE with expected return ≥ 30% (long only)
+  researchMed:          1.0,   // ACCUMULATE with expected return ≥ 15% (long only)
+  researchAvoid:        1.0,   // AVOID stance or price ≥ 5% above target (short only)
+  newsNet:              1.0,   // net high-impact positive (negative) company news, last 24 h
+  commodityLink:        1.0,   // metal BUY (SELL) signal, stock correlation ≥ 0.4
+
   // Conflict penalties
   penaltyOIvsPrice:     1.5,
   penaltyStrongBoth:    2.0,
@@ -125,8 +179,10 @@ export const SUMMARY_WEIGHTS = {
 } as const;
 
 // Max possible scores (sum of all contributors + bonuses per direction)
-const MAX_LONG  = 2.5 + 3.0 + 2.5 + 3.0 + 1.5 + 2.0 + 1.0 + 0.5 + 3.0; // = 19.0
-const MAX_SHORT = 3.0 + 3.0 + 2.0 + 2.0 + 0.5 + 3.0;                     // = 15.5
+const MAX_LONG  = 2.5 + 3.0 + 2.5 + 3.0 + 1.5 + 2.0 + 1.0 + 0.5 + 3.0   // = 19.0 (original tabs)
+                + 2.5 + 1.5 + 1.0 + 1.0;                                 // + Big Players, Research, News, Commodity = 25.0
+const MAX_SHORT = 3.0 + 3.0 + 2.0 + 2.0 + 0.5 + 3.0                     // = 15.5 (original tabs)
+                + 2.5 + 1.0 + 1.0 + 1.0;                                 // + Big Players, Research, News, Commodity = 21.0
 
 // ── Per-symbol evidence bag ───────────────────────────────────────────────────
 
@@ -142,6 +198,10 @@ interface Evidence {
   oiScreen?:  OIScreenInput;
   btst?:      BtstInput;
   stbt?:      StbtInput;
+  bigPlayer?: BigPlayerInput;
+  research?:  ResearchInput;
+  news?:      NewsInput;
+  commodity?: CommodityLinkInput;
 }
 
 // ── Output types ──────────────────────────────────────────────────────────────
@@ -333,6 +393,61 @@ function scoreEvidence(ev: Evidence, allOIBuildupChanges: number[]): {
     }
   }
 
+  // ── Big Players — institutional footprint over the last 5–20 sessions ───────
+  if (ev.bigPlayer) {
+    const b = ev.bigPlayer, abs = Math.abs(b.conviction);
+    const w = abs >= 3 ? W.bigPlayerStrong : abs >= 2 ? W.bigPlayer : 0;
+    const deals = b.deal5 ? `, net bulk/block deals ${b.deal5 > 0 ? '+' : ''}₹${b.deal5.toFixed(0)} Cr` : '';
+    if (w > 0 && b.conviction > 0) {
+      longRaw += w;
+      contribs.push({ tab: 'Big Players', direction: 'LONG', metric: `Conviction +${b.conviction.toFixed(1)}, ${b.acc10} strong buying days in 10`, weight: w });
+      positives.push(`Big players accumulating — conviction +${b.conviction.toFixed(1)}, 5-day avg ${b.avg5 >= 0 ? '+' : ''}${b.avg5.toFixed(1)}${deals}`);
+    } else if (w > 0) {
+      shortRaw += w;
+      contribs.push({ tab: 'Big Players', direction: 'SHORT', metric: `Conviction ${b.conviction.toFixed(1)}, ${b.dist10} strong selling days in 10`, weight: w });
+      negatives.push(`Big players distributing — conviction ${b.conviction.toFixed(1)}, 5-day avg ${b.avg5.toFixed(1)}${deals}`);
+    }
+  }
+
+  // ── Research Targets ────────────────────────────────────────────────────────
+  if (ev.research) {
+    const r = ev.research, er = r.expectedReturn;
+    const tgt = r.target != null ? ` to ₹${r.target.toLocaleString('en-IN')}` : '';
+    if (r.stance === 'ACCUMULATE' && er >= 15) {
+      const w = er >= 30 ? W.researchHigh : W.researchMed;
+      longRaw += w;
+      contribs.push({ tab: 'Targets', direction: 'LONG', metric: `${r.stance}, expected return +${er.toFixed(0)}% (${r.horizon})`, weight: w });
+      positives.push(`Research: ${r.stance}${tgt}, +${er.toFixed(0)}% expected over ${r.horizon}`);
+    } else if (r.stance === 'AVOID' || er <= -5) {
+      shortRaw += W.researchAvoid;
+      contribs.push({ tab: 'Targets', direction: 'SHORT', metric: r.stance === 'AVOID' ? 'Research stance AVOID' : `Price ${Math.abs(er).toFixed(0)}% above target`, weight: W.researchAvoid });
+      negatives.push(r.stance === 'AVOID' ? 'Research stance is AVOID' : `Research: price already ${Math.abs(er).toFixed(0)}% above the blended target${tgt}`);
+    }
+  }
+
+  // ── 24H News ────────────────────────────────────────────────────────────────
+  if (ev.news) {
+    const n = ev.news, net = n.positive - n.negative;
+    if (net > 0) {
+      longRaw += W.newsNet;
+      contribs.push({ tab: '24H News', direction: 'LONG', metric: `${n.positive} positive vs ${n.negative} negative high-impact`, weight: W.newsNet });
+      positives.push(`News: ${n.headline}`);
+    } else if (net < 0) {
+      shortRaw += W.newsNet;
+      contribs.push({ tab: '24H News', direction: 'SHORT', metric: `${n.negative} negative vs ${n.positive} positive high-impact`, weight: W.newsNet });
+      negatives.push(`News: ${n.headline}`);
+    }
+  }
+
+  // ── Commodity link ──────────────────────────────────────────────────────────
+  if (ev.commodity) {
+    const c = ev.commodity, dir = c.signal === 'BUY' ? 'LONG' : 'SHORT';
+    const metric = `${c.metal} ${c.signal} ${c.score > 0 ? '+' : ''}${c.score}, correlation ${c.corr.toFixed(2)}`;
+    if (dir === 'LONG') { longRaw += W.commodityLink; positives.push(`Commodity: ${metric}`); }
+    else { shortRaw += W.commodityLink; negatives.push(`Commodity: ${metric}`); }
+    contribs.push({ tab: 'Commodities', direction: dir, metric, weight: W.commodityLink });
+  }
+
   // ── Conflict penalties ───────────────────────────────────────────────────────
   const hasStrongLong  = longRaw  >= 3.0;
   const hasStrongShort = shortRaw >= 3.0;
@@ -363,6 +478,9 @@ function inferBadges(ev: Evidence, longRaw: number, shortRaw: number, supporting
     badges.push('BTST Setup');
   if (ev.stbt && (ev.stbt.conviction === 'Very High' || ev.stbt.conviction === 'High'))
     badges.push('STBT Breakdown');
+  if (ev.bigPlayer && ev.bigPlayer.conviction >= 3)  badges.push('Big Player Accumulation');
+  if (ev.bigPlayer && ev.bigPlayer.conviction <= -3) badges.push('Big Player Distribution');
+  if (ev.research?.stance === 'ACCUMULATE' && ev.research.expectedReturn >= 30) badges.push('Research Upside');
   if (supportingTabs >= 3) badges.push('Multi-Tab Confirmed');
   const isHighConflict = longRaw > MAX_LONG * 0.4 && shortRaw > MAX_SHORT * 0.4;
   if (isHighConflict)                   badges.push('High Conflict');
@@ -400,6 +518,14 @@ function generateExplanation(ev: Evidence, direction: 'LONG' | 'SHORT', positive
       parts.push(`${ev.options.confidence.toLowerCase()} call signal from options screener`);
     if (ev.oiScreen && ev.oiScreen.netOIChgPct > 3)
       parts.push(`PE OI building faster than CE in option chain`);
+    if (ev.bigPlayer && ev.bigPlayer.conviction >= 2)
+      parts.push(`big players accumulating (conviction +${ev.bigPlayer.conviction.toFixed(1)})`);
+    if (ev.research?.stance === 'ACCUMULATE' && ev.research.expectedReturn >= 15)
+      parts.push(`research target implies +${ev.research.expectedReturn.toFixed(0)}%`);
+    if (ev.news && ev.news.positive > ev.news.negative)
+      parts.push(`positive high-impact news in the last 24 h`);
+    if (ev.commodity?.signal === 'BUY')
+      parts.push(`${ev.commodity.metal.toLowerCase()} signal is BUY`);
   } else {
     if (ev.stbt && ev.stbt.conviction !== 'Low')
       parts.push(`${ev.stbt.conviction.toLowerCase()} STBT breakdown setup (score ${ev.stbt.score}, vol ${ev.stbt.volumeRatio.toFixed(1)}x)`);
@@ -411,6 +537,14 @@ function generateExplanation(ev: Evidence, direction: 'LONG' | 'SHORT', positive
       parts.push(`${ev.options.confidence.toLowerCase()} put signal from options screener`);
     if (ev.oiScreen && ev.oiScreen.netOIChgPct < -3)
       parts.push(`CE OI building faster than PE — resistance signal`);
+    if (ev.bigPlayer && ev.bigPlayer.conviction <= -2)
+      parts.push(`big players distributing (conviction ${ev.bigPlayer.conviction.toFixed(1)})`);
+    if (ev.research && (ev.research.stance === 'AVOID' || ev.research.expectedReturn <= -5))
+      parts.push(ev.research.stance === 'AVOID' ? `research stance is AVOID` : `price is above the research target`);
+    if (ev.news && ev.news.negative > ev.news.positive)
+      parts.push(`negative high-impact news in the last 24 h`);
+    if (ev.commodity?.signal === 'SELL')
+      parts.push(`${ev.commodity.metal.toLowerCase()} signal is SELL`);
   }
   const pos = parts.join(', ');
   const neg = negatives.length ? ` Caution: ${negatives[0].toLowerCase()}.` : '';
@@ -448,6 +582,10 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
     const ev = ensure(s.symbol, s.company);
     ev.stbt = s;
   }
+  for (const b of inputs.bigPlayer ?? []) ensure(b.symbol, b.company).bigPlayer = b;
+  for (const r of inputs.research ?? [])  ensure(r.symbol, r.company).research  = r;
+  for (const n of inputs.news ?? [])      ensure(n.symbol, evMap.get(n.symbol)?.company ?? n.symbol).news = n;
+  for (const c of inputs.commodity ?? []) ensure(c.symbol, c.company).commodity = c;
 
   const allOIChanges = inputs.oiBuildup.map(b => Math.abs(b.oiChangePct));
 
@@ -460,6 +598,7 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
 
     const tabsWithData = [
       ev.screener, ev.options, ev.triangle, ev.oiBuildup, ev.oiScreen, ev.btst, ev.stbt,
+      ev.bigPlayer, ev.research, ev.news, ev.commodity,
     ].filter(Boolean).length;
 
     const buildPick = (direction: 'LONG' | 'SHORT', rawScore: number): SummaryPick => {
@@ -478,7 +617,7 @@ export function buildSummary(inputs: SummaryInputs): { longs: SummaryPick[]; sho
         badges, explanation, contributions: contribs,
         positives: direction === 'LONG' ? positives : negatives,
         negatives: direction === 'LONG' ? negatives : positives,
-        price: ev.screener?.price ?? ev.options?.price ?? ev.triangle?.price ?? ev.btst?.price ?? ev.stbt?.price ?? 0,
+        price: ev.screener?.price ?? ev.options?.price ?? ev.triangle?.price ?? ev.btst?.price ?? ev.stbt?.price ?? ev.bigPlayer?.price ?? ev.research?.price ?? 0,
       };
     };
 

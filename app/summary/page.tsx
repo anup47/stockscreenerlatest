@@ -1,5 +1,6 @@
 'use client';
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useLivePrices, type LiveQuote } from '@/app/hooks/useLivePrices';
 import { useDhanCredentials } from '@/app/hooks/useDhanCredentials';
 import {
@@ -9,7 +10,12 @@ import {
   type ConfidenceBand,
   type SummaryInputs,
   type OIBuildupInput,
+  type NewsInput,
+  type CommodityLinkInput,
 } from '@/lib/summary-engine';
+import { conviction, type ScreenerFile } from '@/lib/big-player';
+import type { CommoditiesFeed } from '@/lib/commodities/types';
+import type { NewsFeed } from '@/lib/news-24h';
 import type { StockResult } from '@/lib/indicators';
 import type { OptionsResult } from '@/lib/options-screener';
 import type { TriangleResult } from '@/lib/triangle-screener';
@@ -34,6 +40,9 @@ const BADGE_STYLE: Record<string, string> = {
   'BTST Setup':          'bg-teal-500/20    text-teal-300    ring-1 ring-teal-500/40',
   'STBT Breakdown':      'bg-rose-500/20    text-rose-300    ring-1 ring-rose-500/40',
   'Multi-Tab Confirmed': 'bg-violet-500/20  text-violet-300  ring-1 ring-violet-500/40',
+  'Big Player Accumulation': 'bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/50',
+  'Big Player Distribution': 'bg-red-500/20     text-red-200     ring-1 ring-red-400/50',
+  'Research Upside':     'bg-indigo-500/20  text-indigo-300  ring-1 ring-indigo-500/40',
   'Mixed Signals':       'bg-amber-500/20   text-amber-300   ring-1 ring-amber-500/40',
   'High Conflict':       'bg-rose-500/20    text-rose-400    ring-1 ring-rose-500/40',
 };
@@ -257,6 +266,78 @@ function SourceDot({ status, label }: { status: SourceStatus; label: string }) {
   );
 }
 
+// ── Market backdrop (tabs that describe the market rather than single stocks) ──
+
+interface Backdrop {
+  big?:      { buy: number; sell: number; asOf: string };
+  lev?:      { week: string; pct: number; chg4w: number | null; pctile: number };
+  metals?:   { name: string; label: 'BUY' | 'SELL' | 'HOLD'; score: number }[];
+  news?:     { at: string; pos: number; neg: number; top?: { headline: string; sentiment: string; label: string }; stale: boolean };
+  gpu?:      { verdict: string; chg4w: number; note: string };
+  research?: { upside30: number; covered: number; top?: { symbol: string; er: number } };
+}
+
+const NEWS_FRESH_MS = 36 * 3600_000;
+const signalCls = (l: string) => (l === 'BUY' || l === 'Positive' ? 'text-emerald-400' : l === 'SELL' || l === 'Negative' ? 'text-red-400' : 'text-slate-400');
+
+function BackdropCard({ href, title, children }: { href: string; title: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} className="block min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 hover:border-slate-500 transition-colors">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{title} <span className="text-slate-600">→</span></div>
+      <div className="mt-1 text-xs text-slate-300 space-y-0.5">{children}</div>
+    </Link>
+  );
+}
+
+function MarketBackdrop({ b }: { b: Backdrop }) {
+  if (!Object.keys(b).length) return null;
+  return (
+    <div>
+      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Market backdrop · from the other tabs</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3">
+        {b.big && (
+          <BackdropCard href="/big-player-tracker?view=screener" title="Big Players">
+            <div><b className="text-emerald-400">{b.big.buy}</b> stocks accumulating · <b className="text-red-400">{b.big.sell}</b> distributing</div>
+            <div className="text-[10px] text-slate-500">Conviction ±2 or more, ≥ ₹5 Cr/day · NSE {b.big.asOf}</div>
+          </BackdropCard>
+        )}
+        {b.lev && (
+          <BackdropCard href="/leverage" title="Leverage">
+            <div><b className={b.lev.pctile >= 80 ? 'text-red-400' : b.lev.pctile <= 20 ? 'text-emerald-400' : 'text-slate-200'}>{b.lev.pct.toFixed(2)}%</b> of market cap
+              {b.lev.chg4w != null && <span className={b.lev.chg4w > 0 ? 'text-red-400' : 'text-emerald-400'}> ({b.lev.chg4w > 0 ? '+' : ''}{b.lev.chg4w.toFixed(2)} pts in 4 wks)</span>}</div>
+            <div className="text-[10px] text-slate-500">MTF + futures · {b.lev.pctile >= 80 ? 'elevated' : b.lev.pctile <= 20 ? 'low' : 'normal'}: {b.lev.pctile}th percentile of 5 years · week of {b.lev.week}</div>
+          </BackdropCard>
+        )}
+        {b.metals && (
+          <BackdropCard href="/commodities" title="Commodities">
+            <div className="flex flex-wrap gap-x-2">{b.metals.map(m => <span key={m.name}>{m.name} <b className={signalCls(m.label)}>{m.label}</b></span>)}</div>
+            <div className="text-[10px] text-slate-500">1–7 day signal, −10…+10 (backtest shows little edge)</div>
+          </BackdropCard>
+        )}
+        {b.news && (
+          <BackdropCard href="/news" title="24H News">
+            <div><b className="text-emerald-400">{b.news.pos}</b> positive · <b className="text-red-400">{b.news.neg}</b> negative high-impact</div>
+            {b.news.top && <div className="truncate text-[11px]" title={b.news.top.headline}><span className={signalCls(b.news.top.sentiment)}>{b.news.top.label}:</span> {b.news.top.headline}</div>}
+            <div className={`text-[10px] ${b.news.stale ? 'text-amber-400' : 'text-slate-500'}`}>{b.news.stale ? 'Feed is over 36 h old · not used in picks' : `Covered stocks · ${new Date(b.news.at).toLocaleString('en-IN', { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })}`}</div>
+          </BackdropCard>
+        )}
+        {b.research && (
+          <BackdropCard href="/research-targets" title="Targets">
+            <div><b className="text-indigo-300">{b.research.upside30}</b> of {b.research.covered} ACCUMULATE names with ≥ 30% expected return</div>
+            {b.research.top && <div className="text-[11px]">Highest: {b.research.top.symbol} <b className="text-emerald-400">+{b.research.top.er.toFixed(0)}%</b></div>}
+          </BackdropCard>
+        )}
+        {b.gpu && (
+          <BackdropCard href="/ai-risk" title="AI Risk · GPU market">
+            <div>GPU rental market: <b className={b.gpu.verdict === 'shortage' ? 'text-amber-300' : 'text-slate-200'}>{b.gpu.verdict}</b> <span className={b.gpu.chg4w >= 0 ? 'text-emerald-400' : 'text-red-400'}>({b.gpu.chg4w >= 0 ? '+' : ''}{b.gpu.chg4w}% in 4 wks)</span></div>
+            <div className="text-[10px] text-slate-500 line-clamp-2">{b.gpu.note}</div>
+          </BackdropCard>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 type FilterType = 'all' | 'stocks' | 'indices';
@@ -273,8 +354,9 @@ export default function SummaryPage() {
 
   const [sourceStatus, setSourceStatus] = useState<Record<string, SourceStatus>>({
     screener: 'idle', options: 'idle', triangle: 'idle', oiBuildup: 'idle', oiScreen: 'idle',
-    btst: 'idle', stbt: 'idle',
+    btst: 'idle', stbt: 'idle', bigPlayer: 'idle', research: 'idle', news: 'idle', commodity: 'idle',
   });
+  const [backdrop, setBackdrop] = useState<Backdrop>({});
 
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [minConf,    setMinConf]    = useState<MinConf>('any');
@@ -288,13 +370,15 @@ export default function SummaryPage() {
     setSourceStatus({
       screener: 'loading', options: 'loading', triangle: 'loading',
       oiBuildup: 'loading', oiScreen: hasDhan ? 'loading' : 'idle',
-      btst: 'loading', stbt: 'loading',
+      btst: 'loading', stbt: 'loading', bigPlayer: 'loading', research: 'loading', news: 'loading', commodity: 'loading',
     });
 
     const inputs: SummaryInputs = {
       screener: [], options: [], triangle: [], oiBuildup: [], oiScreen: [],
-      btst: [], stbt: [],
+      btst: [], stbt: [], bigPlayer: [], research: [], news: [], commodity: [],
     };
+    const bd: Backdrop = {};
+    const dhanHdrs: Record<string, string> = hasDhan ? { 'x-dhan-client-id': clientId, 'x-dhan-access-token': accessToken } : {};
 
     // ── BTST: read from localStorage (cached when user runs BTST tab scan) ──
     try {
@@ -393,6 +477,88 @@ export default function SummaryPage() {
         inputs.oiBuildup = rows;
         setStatus('oiBuildup', 'ok');
       }).catch(() => setStatus('oiBuildup', 'error')),
+
+      // Big Players screener (NSE footprint, precomputed daily)
+      fetch('/api/big-player?screener=1').then(async r => {
+        if (!r.ok) throw new Error();
+        const f = await r.json() as ScreenerFile;
+        const scored = f.rows.filter(x => x.to >= 5 && !x.sme).map(x => ({ x, c: conviction(x) }));
+        inputs.bigPlayer = scored.filter(({ c }) => Math.abs(c) >= 2).map(({ x, c }) => ({
+          symbol: x.s, company: x.n, price: x.c, conviction: c, avg5: x.avg5, acc10: x.acc10, dist10: x.dist10, deal5: x.deal5,
+        }));
+        bd.big = { buy: scored.filter(s => s.c >= 2).length, sell: scored.filter(s => s.c <= -2).length, asOf: f.asOf };
+        setStatus('bigPlayer', 'ok');
+      }).catch(() => setStatus('bigPlayer', 'error')),
+
+      // Research targets (live prices via Dhan when connected, else Yahoo)
+      fetch('/api/research-targets', { headers: dhanHdrs }).then(async r => {
+        if (!r.ok) throw new Error();
+        const json = await r.json() as { rows: { symbol: string; company: string; stance: 'ACCUMULATE' | 'WATCH' | 'AVOID'; target: number | null; horizon: string; livePrice: number | null; expectedReturn: number | null }[] };
+        const rows = json.rows.filter(x => x.symbol && x.livePrice != null && x.expectedReturn != null);
+        inputs.research = rows.map(x => ({ symbol: x.symbol, company: x.company, price: x.livePrice!, stance: x.stance, target: x.target, expectedReturn: x.expectedReturn!, horizon: x.horizon || '12M' }));
+        const acc = rows.filter(x => x.stance === 'ACCUMULATE');
+        const top = [...acc].sort((a, b) => b.expectedReturn! - a.expectedReturn!)[0];
+        bd.research = { upside30: acc.filter(x => x.expectedReturn! >= 30).length, covered: acc.length, top: top && { symbol: top.symbol, er: top.expectedReturn! } };
+        setStatus('research', 'ok');
+      }).catch(() => setStatus('research', 'error')),
+
+      // 24H News — high-impact company news per covered stock
+      fetch('/api/news-24h').then(async r => {
+        if (!r.ok) throw new Error();
+        const feed = await r.json() as NewsFeed;
+        const stale = !feed.generatedAt || Date.now() - Date.parse(feed.generatedAt) > NEWS_FRESH_MS;
+        const hi = feed.items.filter(i => i.impact >= 3 && (i.sentiment === 'Positive' || i.sentiment === 'Negative'));
+        const byStock = new Map<string, NewsInput>();
+        for (const i of hi.filter(i => i.kind === 'Company' || i.kind === 'Filing')) for (const t of i.tickers) {
+          const n = byStock.get(t) ?? { symbol: t, positive: 0, negative: 0, headline: '' };
+          if (i.sentiment === 'Positive') n.positive++; else n.negative++;
+          byStock.set(t, n);
+        }
+        for (const n of byStock.values()) {   // headline: most impactful item in the net direction
+          const want = n.positive >= n.negative ? 'Positive' : 'Negative';
+          const best = hi.filter(i => i.tickers.includes(n.symbol) && i.sentiment === want).sort((a, b) => b.impact - a.impact)[0];
+          n.headline = best?.headline ?? '';
+        }
+        if (!stale) inputs.news = [...byStock.values()];
+        const top = [...hi].sort((a, b) => b.impact - a.impact || Date.parse(b.time) - Date.parse(a.time))[0];
+        bd.news = { at: feed.generatedAt, pos: hi.filter(i => i.sentiment === 'Positive').length, neg: hi.filter(i => i.sentiment === 'Negative').length, stale,
+          top: top && { headline: top.headline, sentiment: top.sentiment, label: top.label } };
+        setStatus('news', stale ? 'error' : 'ok');
+      }).catch(() => setStatus('news', 'error')),
+
+      // Commodities — metal signal to strongly correlated stocks (|corr| ≥ 0.4)
+      fetch('/api/commodities').then(async r => {
+        if (!r.ok) throw new Error();
+        const feed = await r.json() as CommoditiesFeed;
+        const links = new Map<string, CommodityLinkInput>();
+        for (const c of Object.values(feed.commodities)) {
+          if (c.signal.label === 'HOLD') continue;
+          for (const e of c.equities) {
+            if (e.corr == null || e.corr < 0.4) continue;
+            const prev = links.get(e.symbol);
+            if (!prev || e.corr > prev.corr) links.set(e.symbol, { symbol: e.symbol, company: e.name, metal: c.name, signal: c.signal.label, score: c.signal.score, corr: e.corr });
+          }
+        }
+        inputs.commodity = [...links.values()];
+        bd.metals = Object.values(feed.commodities).map(c => ({ name: c.name, label: c.signal.label, score: c.signal.score }));
+        setStatus('commodity', 'ok');
+      }).catch(() => setStatus('commodity', 'error')),
+
+      // Backdrop only: market leverage and the GPU rental market
+      fetch('/api/leverage').then(async r => {
+        if (!r.ok) return;
+        const h = await r.json() as { weeks: { week: string; levPct: number | null }[] };
+        const w = h.weeks.filter(x => x.levPct != null) as { week: string; levPct: number }[];
+        const last = w.at(-1);
+        if (!last) return;
+        const pctile = Math.round(w.filter(x => x.levPct <= last.levPct).length / w.length * 100);
+        bd.lev = { week: last.week, pct: last.levPct, chg4w: w.length > 4 ? last.levPct - w[w.length - 5].levPct : null, pctile };
+      }).catch(() => {}),
+      fetch('/api/gpu-market').then(async r => {
+        if (!r.ok) return;
+        const g = await r.json() as { verdict: string; verdictNote: string; index: { chg4w: number } };
+        bd.gpu = { verdict: g.verdict, chg4w: g.index.chg4w, note: g.verdictNote };
+      }).catch(() => {}),
     ];
 
     // OI Screen (optional — Dhan creds)
@@ -425,6 +591,7 @@ export default function SummaryPage() {
 
     await Promise.allSettled(fetchers);
 
+    setBackdrop(bd);
     const result = buildSummary(inputs);
     setLongs(result.longs);
     setShorts(result.shorts);
@@ -497,6 +664,10 @@ export default function SummaryPage() {
           {!hasDhan && <span className="text-[10px] text-slate-600">OI Screen: no Dhan creds</span>}
           <SourceDot status={sourceStatus.btst} label="BTST" />
           <SourceDot status={sourceStatus.stbt} label="STBT" />
+          <SourceDot status={sourceStatus.bigPlayer} label="Big Players" />
+          <SourceDot status={sourceStatus.research}  label="Targets" />
+          <SourceDot status={sourceStatus.news}      label="24H News" />
+          <SourceDot status={sourceStatus.commodity} label="Commodities" />
           {sourceStatus.btst === 'idle' && (
             <span className="text-[10px] text-slate-600">BTST: run BTST scan first</span>
           )}
@@ -505,6 +676,8 @@ export default function SummaryPage() {
           )}
         </div>
       </div>
+
+      <MarketBackdrop b={backdrop} />
 
       {/* ── Filters ───────────────────────────────────────────────────── */}
       {hasData && (
@@ -589,6 +762,13 @@ export default function SummaryPage() {
             <span>STBT Very High: <strong className="text-slate-300">{SUMMARY_WEIGHTS.stbtVeryHigh}</strong></span>
             <span>STBT High: <strong className="text-slate-300">{SUMMARY_WEIGHTS.stbtHigh}</strong></span>
             <span>OI Screen bull: <strong className="text-slate-300">{SUMMARY_WEIGHTS.oiScreenBull}</strong></span>
+            <span>Big Players conviction ≥ ±3: <strong className="text-slate-300">{SUMMARY_WEIGHTS.bigPlayerStrong}</strong></span>
+            <span>Big Players conviction ≥ ±2: <strong className="text-slate-300">{SUMMARY_WEIGHTS.bigPlayer}</strong></span>
+            <span>Targets ≥ 30% upside: <strong className="text-slate-300">{SUMMARY_WEIGHTS.researchHigh}</strong></span>
+            <span>Targets ≥ 15% upside: <strong className="text-slate-300">{SUMMARY_WEIGHTS.researchMed}</strong></span>
+            <span>Targets AVOID / above target: <strong className="text-slate-300">{SUMMARY_WEIGHTS.researchAvoid}</strong></span>
+            <span>24H News net high-impact: <strong className="text-slate-300">{SUMMARY_WEIGHTS.newsNet}</strong></span>
+            <span>Commodity link (corr ≥ 0.4): <strong className="text-slate-300">{SUMMARY_WEIGHTS.commodityLink}</strong></span>
             <span>Conflict penalty: <strong className="text-slate-300">−{SUMMARY_WEIGHTS.penaltyStrongBoth}</strong></span>
           </div>
           <div className="text-[10px] text-slate-600">
