@@ -101,8 +101,8 @@ export default function BigPlayerTrackerPage() {
           </p>
         </div>
 
-        <div className="flex border-b border-border" role="tablist">
-          {([['screener', 'Screener: all stocks', ListFilter], ['lookup', 'Stock view', LineChart]] as const).map(([v, label, Icon]) => (
+        <div className="flex overflow-x-auto border-b border-border [scrollbar-width:none]" role="tablist">
+          {([['screener', 'Screener', ListFilter], ['lookup', 'Stock view', LineChart]] as const).map(([v, label, Icon]) => (
             <button key={v} role="tab" aria-selected={view === v} onClick={() => switchView(v)}
               className={cn('flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap', view === v ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-muted-foreground hover:text-foreground')}>
               <Icon className="size-4" /> {label}{v === 'lookup' && data ? `: ${data.symbol}` : ''}

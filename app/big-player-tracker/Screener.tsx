@@ -69,12 +69,14 @@ export default function Screener({ onPick }: { onPick: (symbol: string) => void 
   if (error) return <div className="px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">{error}</div>;
   if (!file) return <div className="h-64 rounded-xl border border-border bg-muted/40 animate-pulse" />;
 
-  const cols: { key: LensKey | null; label: string }[] = [
-    { key: null, label: 'Stock' }, { key: null, label: 'Close' }, { key: null, label: '5D / 20D' }, { key: null, label: 'Last 20 days' },
-    { key: 'conviction', label: 'Conviction' }, { key: 'last', label: 'Last day' }, { key: 'avg3', label: '3D avg' }, { key: 'avg5', label: '5D avg' }, { key: 'avg10', label: '10D avg' },
-    { key: 'streak', label: 'Streak' }, { key: 'days10', label: 'Strong days 10' }, { key: null, label: 'Big days 20' }, { key: null, label: 'Delivery 5D' }, { key: null, label: '₹ Cr / day' }, { key: null, label: 'Deals 5D' },
+  // The 3/5/10-day averages share one column; 5D/20D price change only shows on very wide screens.
+  const cols: { keys: LensKey[]; label: string; wide?: boolean }[] = [
+    { keys: [], label: 'Stock' }, { keys: [], label: 'Close' }, { keys: [], label: '5D / 20D', wide: true }, { keys: [], label: 'Last 20 days' },
+    { keys: ['conviction'], label: 'Conviction' }, { keys: ['last'], label: 'Last day' }, { keys: ['avg3', 'avg5', 'avg10'], label: 'Avg 3D · 5D · 10D' },
+    { keys: ['streak'], label: 'Streak' }, { keys: ['days10'], label: 'Strong 10D' }, { keys: [], label: 'Big 20D' }, { keys: [], label: 'Deliv 5D' }, { keys: [], label: '₹ Cr/day' }, { keys: [], label: 'Deals 5D' },
   ];
-  const hl = (k: LensKey) => (lens === k ? (side === 'buy' ? 'bg-emerald-50' : 'bg-red-50') : '');
+  const hl = (...k: LensKey[]) => (k.includes(lens) ? (side === 'buy' ? 'bg-emerald-50' : 'bg-red-50') : '');
+  const avgCell = (k: LensKey, v: number) => <span className={cn(tone(v), lens === k && 'font-bold underline underline-offset-2')}>{sgn(v, 2)}</span>;
 
   return (
     <div className="space-y-4">
@@ -131,26 +133,24 @@ export default function Screener({ onPick }: { onPick: (symbol: string) => void 
           <div className="hidden xl:block">
             <table className="w-full text-xs">
               <thead className="text-[10px] uppercase tracking-wider text-muted-foreground border-y border-border bg-muted/30">
-                <tr>{cols.map((c, i) => <th key={c.label} className={cn('px-2 py-2 font-semibold whitespace-nowrap', i === 0 ? 'text-left' : 'text-right', c.key && hl(c.key))}>{c.label}</th>)}</tr>
+                <tr>{cols.map((c, i) => <th key={c.label} className={cn('px-1.5 py-2 font-semibold whitespace-nowrap', i === 0 ? 'text-left' : 'text-right', hl(...c.keys), c.wide && 'hidden 2xl:table-cell')}>{c.label}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-border/60">
                 {shown.map(r => (
                   <tr key={r.s} onClick={() => onPick(r.s)} className="cursor-pointer hover:bg-muted/40">
-                    <td className="px-2 py-1.5 max-w-[220px]"><div className="font-semibold text-sm">{r.s}{r.sme && <span className="ml-1 text-[9px] text-muted-foreground">SME</span>}</div><div className="truncate text-[11px] text-muted-foreground">{r.n}</div></td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{r.c.toLocaleString('en-IN')}<div className={cn('text-[11px]', tone(r.ch1))}>{sgn(r.ch1, 2)}%</div></td>
-                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap"><span className={tone(r.ch5)}>{sgn(r.ch5)}%</span> / <span className={tone(r.ch20)}>{sgn(r.ch20)}%</span></td>
-                    <td className="px-2 py-1.5"><div className="flex justify-end"><Spark sc={r.sc} /></div></td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums font-bold', tone(conviction(r)), hl('conviction'))}>{sgn(conviction(r))}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums font-semibold', tone(r.sc.at(-1)!), hl('last'))}>{sgn(r.sc.at(-1)!, 0)}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', tone(r.avg3), hl('avg3'))}>{sgn(r.avg3, 2)}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', tone(r.avg5), hl('avg5'))}>{sgn(r.avg5, 2)}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', tone(r.avg10), hl('avg10'))}>{sgn(r.avg10, 2)}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', tone(r.streak), hl('streak'))}>{r.streak ? `${Math.abs(r.streak)}d ${r.streak > 0 ? '▲' : '▼'}` : '—'}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums whitespace-nowrap', hl('days10'))}><span className="text-emerald-700">{r.acc10}▲</span> <span className="text-red-700">{r.dist10}▼</span></td>
-                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">{r.bigBuy || r.bigSell ? <><span className="text-emerald-700">{r.bigBuy} buy</span> · <span className="text-red-700">{r.bigSell} sell</span></> : '—'}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">{r.dl5 == null ? '—' : `${r.dl5.toFixed(0)}%`}{r.dl5 != null && r.dl20 != null && <span className={cn('ml-1 text-[11px]', tone(r.dl5 - r.dl20))}>{sgn(r.dl5 - r.dl20, 0)}</span>}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{r.to >= 100 ? r.to.toFixed(0) : r.to.toFixed(1)}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', tone(r.deal5))}>{r.deal5 ? sgn(r.deal5, Math.abs(r.deal5) >= 100 ? 0 : 1) : '—'}</td>
+                    <td className="px-1.5 py-1.5 max-w-[180px]"><div className="font-semibold text-sm">{r.s}{r.sme && <span className="ml-1 text-[9px] text-muted-foreground">SME</span>}</div><div className="truncate text-[11px] text-muted-foreground">{r.n}</div></td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums">{r.c.toLocaleString('en-IN')}<div className={cn('text-[11px]', tone(r.ch1))}>{sgn(r.ch1, 2)}%</div></td>
+                    <td className="hidden 2xl:table-cell px-1.5 py-1.5 text-right tabular-nums whitespace-nowrap"><span className={tone(r.ch5)}>{sgn(r.ch5)}%</span> / <span className={tone(r.ch20)}>{sgn(r.ch20)}%</span></td>
+                    <td className="px-1.5 py-1.5"><div className="flex justify-end"><Spark sc={r.sc} /></div></td>
+                    <td className={cn('px-1.5 py-1.5 text-right tabular-nums font-bold', tone(conviction(r)), hl('conviction'))}>{sgn(conviction(r))}</td>
+                    <td className={cn('px-1.5 py-1.5 text-right tabular-nums font-semibold', tone(r.sc.at(-1)!), hl('last'))}>{sgn(r.sc.at(-1)!, 0)}</td>
+                    <td className={cn('px-1.5 py-1.5 text-right tabular-nums whitespace-nowrap', hl('avg3', 'avg5', 'avg10'))}>{avgCell('avg3', r.avg3)} · {avgCell('avg5', r.avg5)} · {avgCell('avg10', r.avg10)}</td>
+                    <td className={cn('px-1.5 py-1.5 text-right tabular-nums', tone(r.streak), hl('streak'))}>{r.streak ? `${Math.abs(r.streak)}d ${r.streak > 0 ? '▲' : '▼'}` : '—'}</td>
+                    <td className={cn('px-1.5 py-1.5 text-right tabular-nums whitespace-nowrap', hl('days10'))}><span className="text-emerald-700">{r.acc10}▲</span> <span className="text-red-700">{r.dist10}▼</span></td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums whitespace-nowrap">{r.bigBuy || r.bigSell ? <><span className="text-emerald-700">{r.bigBuy}▲</span> <span className="text-red-700">{r.bigSell}▼</span></> : '—'}</td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums whitespace-nowrap">{r.dl5 == null ? '—' : `${r.dl5.toFixed(0)}%`}{r.dl5 != null && r.dl20 != null && <span className={cn('ml-1 text-[11px]', tone(r.dl5 - r.dl20))}>{sgn(r.dl5 - r.dl20, 0)}</span>}</td>
+                    <td className="px-1.5 py-1.5 text-right tabular-nums">{r.to >= 100 ? r.to.toFixed(0) : r.to.toFixed(1)}</td>
+                    <td className={cn('px-1.5 py-1.5 text-right tabular-nums', tone(r.deal5))}>{r.deal5 ? sgn(r.deal5, Math.abs(r.deal5) >= 100 ? 0 : 1) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
