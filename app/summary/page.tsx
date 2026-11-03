@@ -274,7 +274,7 @@ interface Backdrop {
   metals?:   { name: string; label: 'BUY' | 'SELL' | 'HOLD'; score: number }[];
   news?:     { at: string; pos: number; neg: number; top?: { headline: string; sentiment: string; label: string }; stale: boolean };
   gpu?:      { verdict: string; chg4w: number; note: string };
-  research?: { upside30: number; covered: number; top?: { symbol: string; er: number } };
+  research?: { upside30: number; covered: number; skipped: number; top?: { symbol: string; er: number } };
 }
 
 const NEWS_FRESH_MS = 36 * 3600_000;
@@ -325,6 +325,7 @@ function MarketBackdrop({ b }: { b: Backdrop }) {
           <BackdropCard href="/research-targets" title="Targets">
             <div><b className="text-indigo-300">{b.research.upside30}</b> of {b.research.covered} ACCUMULATE names with ≥ 30% expected return</div>
             {b.research.top && <div className="text-[11px]">Highest: {b.research.top.symbol} <b className="text-emerald-400">+{b.research.top.er.toFixed(0)}%</b></div>}
+            {b.research.skipped > 0 && <div className="text-[10px] text-amber-400">{b.research.skipped} target{b.research.skipped === 1 ? '' : 's'} left out as implausible (beyond −40%…+150%)</div>}
           </BackdropCard>
         )}
         {b.gpu && (
@@ -494,11 +495,13 @@ export default function SummaryPage() {
       fetch('/api/research-targets', { headers: dhanHdrs }).then(async r => {
         if (!r.ok) throw new Error();
         const json = await r.json() as { rows: { symbol: string; company: string; stance: 'ACCUMULATE' | 'WATCH' | 'AVOID'; target: number | null; horizon: string; livePrice: number | null; expectedReturn: number | null }[] };
-        const rows = json.rows.filter(x => x.symbol && x.livePrice != null && x.expectedReturn != null);
+        const priced = json.rows.filter(x => x.symbol && x.livePrice != null && x.expectedReturn != null);
+        // Backstop for misread PDFs: an expected return beyond −40%…+150% is almost always a wrong target or ticker.
+        const rows = priced.filter(x => x.expectedReturn! > -40 && x.expectedReturn! < 150);
         inputs.research = rows.map(x => ({ symbol: x.symbol, company: x.company, price: x.livePrice!, stance: x.stance, target: x.target, expectedReturn: x.expectedReturn!, horizon: x.horizon || '12M' }));
         const acc = rows.filter(x => x.stance === 'ACCUMULATE');
         const top = [...acc].sort((a, b) => b.expectedReturn! - a.expectedReturn!)[0];
-        bd.research = { upside30: acc.filter(x => x.expectedReturn! >= 30).length, covered: acc.length, top: top && { symbol: top.symbol, er: top.expectedReturn! } };
+        bd.research = { upside30: acc.filter(x => x.expectedReturn! >= 30).length, covered: acc.length, skipped: priced.length - rows.length, top: top && { symbol: top.symbol, er: top.expectedReturn! } };
         setStatus('research', 'ok');
       }).catch(() => setStatus('research', 'error')),
 
