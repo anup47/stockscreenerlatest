@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp,
   Search, Clock, AlertCircle, Zap, Shield, Upload, ArrowUp,
-  ArrowDown, Minus, Activity, RotateCcw, Globe, Link2,
+  ArrowDown, Minus, Activity, RotateCcw, Globe, Link2, Newspaper,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SupplyDemandSnapshot } from '@/lib/supply-demand-types';
@@ -273,6 +273,23 @@ function StoryCard({ story, oiMap }: { story: TrackedStory; oiMap: Record<string
           </div>
         )}
 
+        {/* Price news — the actual $/t moves for commodities with no free live quote */}
+        {story.headlines && story.headlines.length > 0 && (
+          <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 space-y-1">
+            <div className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
+              <Newspaper className="h-2.5 w-2.5 text-blue-500" /> Latest price news
+            </div>
+            <ul className="space-y-1">
+              {story.headlines.map(h => (
+                <li key={h.link} className="text-[11px] leading-snug min-w-0">
+                  <a href={h.link} target="_blank" rel="noopener noreferrer" className="hover:underline break-words">{h.title}</a>
+                  <span className="text-[9px] text-muted-foreground/70"> · {h.source} · {new Date(h.time).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Beneficiaries + Risks */}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <div>
@@ -506,6 +523,7 @@ export default function SupplyDemandPage() {
                 currentPrice:    t.currentPrice,
                 tradeDependency: t.tradeDependency,
                 cascadeEffects:  t.cascadeEffects,
+                headlines:       t.headlines,
               })),
               lastRun: data.generatedAt,
               totalRuns: 1,

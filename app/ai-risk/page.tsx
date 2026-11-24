@@ -3,6 +3,7 @@ import React, { useState, useEffect, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { gpuRiskSignal, type GpuMarket } from '@/lib/gpu-market';
 import { Copy, Check, AlertTriangle, Calendar, Shield } from 'lucide-react';
+import AiDcLive from './AiDcLive';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type TrafficLight = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'DEEP_RED' | 'BLUE';
@@ -554,16 +555,33 @@ export default function AIRiskPage() {
   const indicators = (r.pillars[tab] ?? []).map(ind =>
     ind.name === GPU_RENT_IND && gpu ? { ...ind, ...gpuIndicatorPatch(gpu) } : ind);
 
+  const ageDays = Math.floor((Date.now() - new Date(`${r.reportDate}T00:00:00+05:30`).getTime()) / 86_400_000);
+  const stale = ageDays > 14;
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-[1440px] mx-auto px-4 py-6 space-y-5">
 
+        <AiDcLive />
+
+        {/* MANUAL MACRO REPORT — hand-entered; folded away once it is out of date */}
+        <details id="macro-report" open={!stale} className="group rounded-xl border border-border bg-card/40">
+          <summary className="flex cursor-pointer list-none [&::-webkit-details-marker]:hidden flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+            <span className="text-sm font-semibold text-foreground">Macro risk report (manual)</span>
+            <span className="text-xs text-muted-foreground">AI Unwind Risk Score {r.score}/100 · reviewed {r.reportDate}</span>
+            {stale && <Badge cl="bg-amber-100 text-amber-800 border-amber-300">{ageDays} days old</Badge>}
+            <span className="ml-auto text-xs text-muted-foreground group-open:hidden">Show</span>
+            <span className="ml-auto hidden text-xs text-muted-foreground group-open:inline">Hide</span>
+          </summary>
+          <div className="space-y-5 px-4 pb-5">
+
         {/* TOP BANNER */}
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5">
-          <Shield className="size-4 text-emerald-600 shrink-0" />
-          <p className="text-xs text-emerald-800">
-            <span className="font-semibold">Live data verified {r.reportDate}</span> — 23 of 30 indicators populated with real market data, plus a live GPU rental price index (AI Capex pillar).
-            7 still require manual entry: ISM, CPI, MOVE, copper, power cost, data centre vacancy, MF SIP flows.
+        <div className={cn('flex items-center gap-2 rounded-lg border px-4 py-2.5', stale ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50')}>
+          {stale ? <AlertTriangle className="size-4 text-amber-600 shrink-0" /> : <Shield className="size-4 text-emerald-600 shrink-0" />}
+          <p className={cn('text-xs', stale ? 'text-amber-800' : 'text-emerald-800')}>
+            {stale
+              ? <><span className="font-semibold">Hand-entered on {r.reportDate} — {ageDays} days ago.</span> These figures are not current; the live sections above show today&apos;s conditions. Run the weekly prompt at the bottom to refresh this report.</>
+              : <><span className="font-semibold">Verified {r.reportDate}</span> — 23 of 30 indicators from market data, plus the live GPU rental index (AI Capex pillar). 7 need manual entry: ISM, CPI, MOVE, copper, power cost, data centre vacancy, MF SIP flows.</>}
           </p>
         </div>
 
@@ -922,6 +940,9 @@ export default function AIRiskPage() {
             and must be calibrated to your portfolio, risk tolerance, and local market conditions. Verify all indicator values before acting on any signal.
           </p>
         </div>
+
+          </div>
+        </details>
 
       </div>
     </div>

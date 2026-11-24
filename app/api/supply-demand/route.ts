@@ -4,6 +4,7 @@ import type { SupplyDemandTheme, SupplyDemandSnapshot, LivePrice, Category, Pric
 import { slugify, mergeIntoTracker, EMPTY_TRACKER } from '@/lib/supply-demand-tracker';
 import type { SupplyDemandTracker } from '@/lib/supply-demand-tracker';
 import { getCommodityStatic } from '@/lib/supply-demand-static';
+import { googleNews } from '@/lib/commodities/sources';
 
 export const maxDuration = 55;
 
@@ -20,6 +21,7 @@ interface CommodityDef {
   timeHorizon:        SupplyDemandTheme['timeHorizon'];
   historicalAnalog:   string;
   sources:            string[];
+  newsQuery?:         string;   // Google News query — for commodities whose real price is paywalled, headlines carry the actual $/t moves
   beneficiaries: Array<{ symbol: string; company: string; rationale: string; impact: 'high' | 'medium' | 'low' }>;
   adverselyAffected: Array<{ symbol: string; company: string; rationale: string; impact: 'high' | 'medium' | 'low' }>;
 }
@@ -404,6 +406,101 @@ const COMMODITIES: CommodityDef[] = [
     ],
   },
   {
+    name: 'Sulphur', ticker: 'CHE-UN.TO', unit: 'C$/unit (Chemtrade proxy — no free live sulphur quote; see price news below)', sector: 'Industrial Acids',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2022 sulphur spike when post-Ukraine fertiliser demand and Chinese export curbs pushed Middle East sulphur prices to multi-year highs — Indian phosphate makers paid record input costs while the NBS subsidy lagged by a season',
+    sources: ['Argus Sulphur (FOB Middle East)', 'Platts Middle East Monthly Sulphur Prices', 'QatarEnergy & ADNOC monthly sulphur prices', 'FAI India Fertiliser Statistics'],
+    newsQuery: '(sulphur OR sulfur) (price OR prices) -diesel -ULSD -fuel',
+    beneficiaries: [
+      { symbol: 'RELIANCE', company: 'Reliance Industries', rationale: 'Jamnagar refineries recover large volumes of sulphur from sour crude and export it — small vs O2C earnings', impact: 'low' },
+      { symbol: 'MRPL',     company: 'MRPL',                rationale: 'Refinery by-product sulphur sales — a minor revenue line', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'PARADEEP',   company: 'Paradeep Phosphates',      rationale: 'Burns imported sulphur to make sulphuric acid for its phosphoric acid and DAP — most direct input-cost exposure', impact: 'high' },
+      { symbol: 'COROMANDEL', company: 'Coromandel International', rationale: 'Large sulphur importer for its sulphuric acid plants feeding phosphoric acid and SSP', impact: 'high' },
+      { symbol: 'FACT',       company: 'FACT',                     rationale: 'Sulphuric acid plant runs on imported sulphur for Factamfos production', impact: 'medium' },
+      { symbol: 'GSFC',       company: 'Gujarat State Fertilizers & Chemicals', rationale: 'Sulphur-based sulphuric acid plants feed its phosphate fertilisers', impact: 'medium' },
+      { symbol: 'DMCC',       company: 'DMCC Speciality Chemicals', rationale: 'Sulphur is the main raw material for its acid and oleum — margin hit until acid prices catch up', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Sulphuric Acid', ticker: 'CHE-UN.TO', unit: 'C$/unit (Chemtrade — largest North American sulphuric acid merchant)', sector: 'Industrial Acids',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021-22 acid squeeze when China curbed fertiliser and sulphur-product exports while Chilean copper leaching demand surged — sulphuric acid hit record prices and Indian phosphate makers saw input costs jump within two quarters',
+    sources: ['Argus Sulphur & Sulphuric Acid', 'CRU Sulphuric Acid Market Outlook', 'FAI India Fertiliser Statistics', 'Chemtrade Investor Presentations'],
+    beneficiaries: [
+      { symbol: 'DMCC',     company: 'DMCC Speciality Chemicals', rationale: 'Merchant sulphuric acid, oleum and derivatives maker — realisations track acid prices', impact: 'high' },
+      { symbol: 'HINDZINC', company: 'Hindustan Zinc',            rationale: 'Zinc smelters produce sulphuric acid as a by-product — higher acid prices lift by-product credits', impact: 'medium' },
+      { symbol: 'HINDALCO', company: 'Hindalco Industries',       rationale: 'Birla Copper smelter at Dahej sells by-product sulphuric acid', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'COROMANDEL', company: 'Coromandel International', rationale: 'Sulphuric acid is the key reagent for its phosphoric acid and SSP plants — direct input cost', impact: 'high' },
+      { symbol: 'PARADEEP',   company: 'Paradeep Phosphates',      rationale: 'Makes phosphoric acid from imported rock using sulphuric acid — margin squeezed when acid and sulphur rise', impact: 'high' },
+      { symbol: 'FACT',       company: 'FACT',                     rationale: 'Complex fertiliser producer consumes sulphuric acid in phosphate processing', impact: 'medium' },
+      { symbol: 'GRASIM',     company: 'Grasim Industries',        rationale: 'Viscose staple fibre spinning baths consume large volumes of sulphuric acid', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Hydrochloric Acid (Chlor-Alkali)', ticker: 'OLN', unit: '$/sh (Olin — largest chlor-alkali producer, merchant HCl seller)', sector: 'Industrial Acids',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021 Texas winter storm Uri knocked out Gulf Coast chlor-alkali plants — chlorine, caustic and HCl prices spiked and Olin printed record margins; the reverse happens when strong caustic demand floods the market with by-product HCl',
+    sources: ['ICIS Chlor-Alkali Report', 'Alkali Manufacturers Association of India', 'Olin Investor Presentations', 'Gujarat Alkalies Quarterly Earnings'],
+    beneficiaries: [
+      { symbol: 'GUJALKALI',  company: 'Gujarat Alkalies & Chemicals', rationale: 'Large chlor-alkali producer — HCl and chlorine realisations add to caustic soda earnings', impact: 'high' },
+      { symbol: 'DCMSHRIRAM', company: 'DCM Shriram',                  rationale: 'Chlor-vinyl business sells caustic, chlorine and HCl — tighter chlorine chain lifts realisations', impact: 'medium' },
+      { symbol: 'EPIGRAL',    company: 'Epigral',                      rationale: 'Chlor-alkali and chlorine derivatives producer — better value for the chlorine/HCl side of the electrolysis', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'APLAPOLLO', company: 'APL Apollo Tubes', rationale: 'Steel pickling before galvanising uses HCl — higher acid cost on coated tube lines', impact: 'low' },
+      { symbol: 'JSWSTEEL',  company: 'JSW Steel',        rationale: 'Pickling lines for cold-rolled and coated steel consume HCl', impact: 'low' },
+      { symbol: 'ONGC',      company: 'ONGC',             rationale: 'Oil well acidising and stimulation jobs use HCl — minor cost item', impact: 'low' },
+    ],
+  },
+  {
+    name: 'Phosphoric Acid', ticker: 'MOS', unit: '$/sh (Mosaic — world\'s largest finished phosphate producer)', sector: 'Industrial Acids',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2007-08 phosphate spike when the India phosphoric acid contract price topped $2,000/t P2O5 and DAP passed $1,000/t — India\'s fertiliser subsidy bill exploded and importers ran up large under-recoveries',
+    sources: ['OCP Quarterly Phosphoric Acid Contract (India)', 'FAI India Fertiliser Statistics', 'CRU Phosphates Outlook', 'Department of Fertilizers NBS Notifications'],
+    beneficiaries: [
+      { symbol: 'PARADEEP',   company: 'Paradeep Phosphates',      rationale: 'Own phosphoric acid capacity — integrated producers gain over rivals buying imported acid at contract prices', impact: 'medium' },
+      { symbol: 'COROMANDEL', company: 'Coromandel International', rationale: 'Backward-integrated phosphoric acid plants plus a stake in Senegal rock phosphate mining cushion higher acid prices', impact: 'medium' },
+    ],
+    adverselyAffected: [
+      { symbol: 'CHAMBLFERT', company: 'Chambal Fertilisers', rationale: 'DAP trader and maker relying on imports — higher acid and DAP prices hurt until subsidy rates catch up', impact: 'high' },
+      { symbol: 'RCF',        company: 'Rashtriya Chemicals & Fertilizers', rationale: 'Complex fertiliser production depends on imported phosphoric acid', impact: 'medium' },
+      { symbol: 'FACT',       company: 'FACT',                rationale: 'Factamfos NP fertiliser uses imported phosphoric acid — margin squeezed under fixed NBS subsidy', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Nitric Acid (Ammonia Chain)', ticker: 'YAR.OL', unit: 'NOK/sh (Yara — world\'s largest nitrate fertiliser producer)', sector: 'Industrial Acids',
+    timeHorizon: 'medium-term',
+    historicalAnalog: '2022 European gas crisis when Yara and peers curtailed ammonia output — ammonia, nitric acid and ammonium nitrate prices spiked, lifting Indian producers and hitting explosives and nitration chemistry users',
+    sources: ['Argus Ammonia & Nitrogen', 'Profercy Nitrogen Index', 'Deepak Fertilisers Investor Presentations', 'Yara Quarterly Reports'],
+    beneficiaries: [
+      { symbol: 'DEEPAKFERT', company: 'Deepak Fertilisers & Petrochemicals', rationale: 'India\'s largest nitric acid and technical ammonium nitrate producer — realisations follow global nitrogen prices', impact: 'high' },
+      { symbol: 'GNFC',       company: 'Gujarat Narmada Valley Ferts',        rationale: 'Produces weak and concentrated nitric acid and ammonium nitrate for merchant sale', impact: 'medium' },
+      { symbol: 'RCF',        company: 'Rashtriya Chemicals & Fertilizers',   rationale: 'Nitric acid and ammonium nitrate among its industrial chemicals', impact: 'low' },
+    ],
+    adverselyAffected: [
+      { symbol: 'SOLARINDS', company: 'Solar Industries', rationale: 'Ammonium nitrate is the main raw material for bulk mining explosives', impact: 'high' },
+      { symbol: 'DEEPAKNTR', company: 'Deepak Nitrite',   rationale: 'Nitration chemistry (nitrotoluenes, nitroanilines) uses nitric acid as a core input', impact: 'medium' },
+      { symbol: 'AARTIIND',  company: 'Aarti Industries', rationale: 'Nitrochlorobenzene chain consumes nitric acid — spreads tighten when acid rises', impact: 'medium' },
+    ],
+  },
+  {
+    name: 'Acetic Acid', ticker: 'CE', unit: '$/sh (Celanese — world\'s largest acetic acid producer)', sector: 'Industrial Acids',
+    timeHorizon: 'near-term',
+    historicalAnalog: '2021 acetyls squeeze when Texas storm Uri shut US acetic acid plants and China\'s power-rationing cut output — Asian acetic acid prices more than doubled within months and Indian ethyl acetate makers saw spreads collapse',
+    sources: ['ICIS Acetic Acid Asia Report', 'ChemAnalyst Acetic Acid Price Index', 'GNFC Quarterly Earnings', 'Celanese Investor Presentations'],
+    beneficiaries: [
+      { symbol: 'GNFC', company: 'Gujarat Narmada Valley Ferts', rationale: 'India\'s main domestic acetic acid producer — import-parity pricing lifts realisations directly', impact: 'high' },
+    ],
+    adverselyAffected: [
+      { symbol: 'LXCHEM', company: 'Laxmi Organic Industries', rationale: 'India\'s largest ethyl acetate maker — acetic acid is the main raw material', impact: 'high' },
+      { symbol: 'IOLCP',  company: 'IOL Chemicals & Pharma',   rationale: 'Ethyl acetate and ibuprofen chains consume acetic acid and derivatives', impact: 'medium' },
+    ],
+  },
+  {
     name: 'Industrial Robotics & Automation', ticker: 'BOTZ', unit: '$/sh (Global X Robotics & AI ETF — FANUC, ABB, Yaskawa, Keyence, Teradyne)', sector: 'Automation & Robotics',
     timeHorizon: 'long-term',
     historicalAnalog: '2011-21 Chinese factory automation wave — robot density rose from 15 to 322 units per 10,000 workers in a decade; global installations doubled from 250,000 to 517,000 units/year; India at ~49 units/10,000 workers in 2023 is 5-7 years behind, implying a coming PLI-driven automation catch-up as labour costs rise and manufacturers compete on quality',
@@ -596,8 +693,11 @@ export async function GET() {
   }
 
   // Fetch all commodity tickers and NSE stock prices in parallel
-  const [bars, stockResults] = await Promise.all([
+  const [bars, news, stockResults] = await Promise.all([
     Promise.all(COMMODITIES.map(c => fetchBars(c.ticker))),
+    Promise.all(COMMODITIES.map(c => c.newsQuery
+      ? googleNews(c.newsQuery, 20, 45).then(n => n.sort((a, b) => b.time.localeCompare(a.time)).slice(0, 5)).catch(() => [])
+      : Promise.resolve([]))),
     Promise.all([...allNseSymbols].map(async sym => {
       const change = await fetchStockChange(sym);
       return { sym, change };
@@ -667,6 +767,7 @@ export async function GET() {
       currentPrice: Math.round(current * 100) / 100,
       tradeDependency: staticData?.tradeDependency,
       cascadeEffects:  staticData?.cascadeEffects,
+      ...(news[i].length ? { headlines: news[i] } : {}),
     });
   }
 

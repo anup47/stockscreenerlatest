@@ -1,4 +1,4 @@
-﻿// lib/supply-demand-types.ts
+// lib/supply-demand-types.ts
 
 export type SupplyStatus = 'shortage' | 'balanced' | 'oversupply';
 
@@ -59,7 +59,11 @@ export interface SupplyDemandTheme {
   currentPrice?:    number;       // absolute current price
   tradeDependency?: string;       // India's import/export dependency summary
   cascadeEffects?:  string[];     // second-order effect chain
+  headlines?:       Headline[];   // recent price news, for commodities with no free live quote
 }
+
+/** A news headline (Google News RSS) shown on a theme card */
+export interface Headline { title: string; source: string; link: string; time: string }
 
 export interface SupplyDemandStory {
   id: string;

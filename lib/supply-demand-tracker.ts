@@ -1,4 +1,4 @@
-import type { Category, PricingPower, ThemeStock, SupplyDemandTheme, LivePrice } from './supply-demand-types';
+import type { Category, PricingPower, ThemeStock, SupplyDemandTheme, LivePrice, Headline } from './supply-demand-types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,6 +35,7 @@ export interface TrackedStory {
   currentPrice?:    number;
   tradeDependency?: string;
   cascadeEffects?:  string[];
+  headlines?:       Headline[];
 }
 
 export interface SupplyDemandTracker {
@@ -141,6 +142,7 @@ export function mergeIntoTracker(
         ...(theme.currentPrice    !== undefined ? { currentPrice:    theme.currentPrice    } : {}),
         ...(theme.tradeDependency !== undefined ? { tradeDependency: theme.tradeDependency } : {}),
         ...(theme.cascadeEffects  !== undefined ? { cascadeEffects:  theme.cascadeEffects  } : {}),
+        ...(theme.headlines       !== undefined ? { headlines:       theme.headlines       } : {}),
       };
     } else {
       // New story
@@ -164,6 +166,7 @@ export function mergeIntoTracker(
         currentPrice:     theme.currentPrice,
         tradeDependency:  theme.tradeDependency,
         cascadeEffects:   theme.cascadeEffects,
+        headlines:        theme.headlines,
       });
     }
   }

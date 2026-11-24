@@ -20,7 +20,7 @@ const ROW1 = [
 const ROW2 = [
   { label: 'Targets',        href: '/research-targets' },
   { label: '24H News',       href: '/news' },
-  { label: 'AI Risk',        href: '/ai-risk' },
+  { label: 'AI & Data Centres', href: '/ai-risk' },
   { label: 'Leverage',       href: '/leverage' },
   { label: 'Commodities',    href: '/commodities' },
   { label: 'Big Players',    href: '/big-player-tracker' },

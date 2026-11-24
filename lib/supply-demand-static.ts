@@ -240,6 +240,83 @@ const STATIC: Record<string, CommodityStaticData> = {
       BLUESTAR:   '+10% refrigerant cost = ~60bps gross margin headwind (R-32/R-410A procurement)',
     },
   },
+  'Sulphur': {
+    tradeDependency: 'India imports most of its elemental sulphur (largely Middle East refinery and gas by-product from Qatar, UAE, Saudi Arabia and Kuwait), mainly to burn into sulphuric acid at phosphate fertiliser plants. Domestic refineries recover some but not enough.',
+    cascadeEffects: [
+      'Sulphur up → sulphuric acid cost up → phosphoric acid, DAP/NPK and SSP production costs rise (1-2Q lag to NBS subsidy resets)',
+      'Indonesian nickel HPAL and African/Chilean copper leaching compete for sulphur → tighter global balance and higher Middle East monthly prices',
+      'Higher sulphur lifts by-product credits for sour-crude refiners and gas processors — small for Indian refiners',
+    ],
+    marginSensitivity: {
+      PARADEEP:   'Highly exposed — sulphur → sulphuric acid → phosphoric acid is made in-house',
+      COROMANDEL: 'Sulphur is a key imported input for its acid plants; partly offset by integrated phosphoric acid',
+      DMCC:       'Sulphur is the main raw material; spread depends on merchant acid prices following',
+    },
+  },
+  'Sulphuric Acid': {
+    tradeDependency: 'The world\'s highest-volume chemical. India makes most of its own — burning imported sulphur (mainly Middle East refinery by-product) at fertiliser plants, plus smelter by-product acid — so the real import exposure is sulphur.',
+    cascadeEffects: [
+      'Phosphoric acid and SSP costs rise → DAP/NPK production costs up → fertiliser subsidy bill rises (1-2Q lag)',
+      'Indonesian nickel HPAL plants and Chilean copper leaching compete for acid and sulphur → tighter global balance',
+      'Viscose, TiO2, detergents (LAB sulphonation) and battery recycling face higher reagent costs',
+    ],
+    marginSensitivity: {
+      DMCC:       'Acid and oleum realisations move directly with merchant acid prices; sulphur is the offsetting input',
+      HINDZINC:   'By-product credit — acid sales are small vs zinc/silver revenue, so upside is modest',
+      COROMANDEL: 'Acid/sulphur is a major phosphate conversion cost; NBS subsidy resets lag input moves',
+      PARADEEP:   'Highly exposed — phosphoric acid made in-house from rock + sulphuric acid',
+    },
+  },
+  'Hydrochloric Acid (Chlor-Alkali)': {
+    tradeDependency: 'Produced and consumed locally as a chlor-alkali / chlorination by-product; costly to ship, so little cross-border trade. Price swings with the caustic soda cycle — strong caustic demand floods the market with surplus HCl (sometimes priced near zero).',
+    cascadeEffects: [
+      'Chlorine chain tightness → PVC, CPVC and chlorinated solvent costs rise',
+      'Steel pickling and galvanising costs rise → small margin drag on tubes and coated steel',
+      'Water-treatment chemicals (PAC) and pharma API salt formation face higher reagent costs',
+    ],
+    marginSensitivity: {
+      GUJALKALI:  'HCl/chlorine credits decide how much of the electrolysis unit earns beyond caustic soda',
+      DCMSHRIRAM: 'Chlor-vinyl margins benefit when chlorine/HCl stops being a disposal cost',
+    },
+  },
+  'Phosphoric Acid': {
+    tradeDependency: 'India is the world\'s largest importer of phosphoric acid (mainly OCP Morocco, also Jordan and Senegal), priced via quarterly contracts. Domestic plants depend on imported rock phosphate.',
+    cascadeEffects: [
+      'DAP/NPK production costs rise → NBS subsidy rates revised upward with a lag → fiscal pressure',
+      'Importers face under-recoveries between contract resets → working capital strain',
+      'Kharif/rabi phosphate application may fall if retail prices are raised → yield risk',
+    ],
+    marginSensitivity: {
+      PARADEEP:   'Integrated acid capacity — relative winner vs import-dependent rivals',
+      COROMANDEL: 'Partial integration plus Senegal rock stake cushion acid price spikes',
+      CHAMBLFERT: 'Import-dependent DAP — margins swing on subsidy vs landed-cost gap',
+    },
+  },
+  'Nitric Acid (Ammonia Chain)': {
+    tradeDependency: 'Made from ammonia, so cost tracks natural gas/LNG. India produces nitric acid domestically (Deepak, GNFC, RCF) but imports much of its ammonia; mining explosives (ammonium nitrate) are the biggest end use.',
+    cascadeEffects: [
+      'LNG/ammonia prices ↑ → nitric acid and ammonium nitrate costs ↑ (near-immediate pass-through)',
+      'Mining explosives costs ↑ → coal and metal mining costs rise',
+      'Nitration-based chemicals (dyes, agro-chem, pharma intermediates) face spread compression',
+    ],
+    marginSensitivity: {
+      DEEPAKFERT: 'Largest Indian nitric acid / TAN producer — realisations follow global nitrogen prices',
+      SOLARINDS:  'AN is the main explosives input; contracts pass through with a lag',
+      DEEPAKNTR:  'Nitric acid is a core input across nitration product lines',
+    },
+  },
+  'Acetic Acid': {
+    tradeDependency: 'India imports most of its acetic acid (largely from China, Taiwan and Saudi Arabia); GNFC is the main domestic producer. Global capacity is concentrated in China and with Celanese, INEOS and LyondellBasell.',
+    cascadeEffects: [
+      'Ethyl acetate and acetic anhydride costs rise → pharma, packaging inks and coatings face input inflation',
+      'PTA (polyester chain) and vinyl acetate costs edge up → textiles and adhesives',
+      'Paracetamol/aspirin and other API chains see higher solvent and reagent costs',
+    ],
+    marginSensitivity: {
+      GNFC:   'Domestic acetic acid realisations track import parity — direct upside',
+      LXCHEM: 'Ethyl acetate spread over acetic acid + ethanol is the key earnings driver',
+    },
+  },
   'Micron (DRAM/NAND Proxy)': {
     tradeDependency: 'India imports ~$2B/yr of memory chips. Samsung/SK Hynix dominate. MeitY domestic fab initiative is early-stage.',
     cascadeEffects: [
